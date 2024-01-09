@@ -47,10 +47,26 @@ fn main() {
         Err(x) => panic!("{x}"),
     };
 
+    if new_measurement.mode == util::NPerfMode::Client {
+        start_client(new_measurement);
+    } else {
+        start_server(new_measurement);
+    }
+    
+}
+
+fn start_server(new_measurement: util::NperfMeasurement) {
+    println!("Server mode");
     match net::bind_socket(new_measurement.socket, new_measurement.ip, new_measurement.local_port) {
         Ok(_) => println!("Bound socket to port"),
         Err(x) => panic!("{x}"),
     };
+}
 
-
+fn start_client(new_measurement: util::NperfMeasurement) {
+    println!("Client mode");
+    match net::connect(new_measurement.socket, new_measurement.ip, new_measurement.local_port) {
+        Ok(_) => println!("Connected to remote host"),
+        Err(x) => panic!("{x}"),
+    };
 }

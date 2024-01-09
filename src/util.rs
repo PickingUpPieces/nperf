@@ -1,6 +1,7 @@
 use std::net::Ipv4Addr;
 
 
+#[derive(PartialEq)]
 pub enum NPerfMode {
     Client,
     Server,

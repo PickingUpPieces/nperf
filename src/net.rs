@@ -4,6 +4,61 @@ use std::str::FromStr;
 
 pub fn bind_socket(socket: i32, address: Ipv4Addr, port: u16) -> Result<(), &'static str> {
 
+    let sockaddr = create_sockaddr(address, port);
+
+    let bind_result = unsafe {
+        libc::bind(
+            socket,
+            &sockaddr as *const _ as _,
+            std::mem::size_of_val(&sockaddr) as libc::socklen_t
+        )
+    };
+
+    if bind_result == -1 {
+        return Err("Failed to bind socket to port");
+    }
+
+    return Ok(())
+}
+
+pub fn create_socket() -> Result<i32, &'static str> {
+    let socket = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+    if socket == -1 {
+        return Err("Failed to create socket");
+    }
+    
+    println!("Created socket: {:?}", socket);
+
+    Ok(socket)
+}
+
+pub fn connect(socket: i32, address: Ipv4Addr, port: u16) -> Result<(), &'static str> {
+    let sockaddr = create_sockaddr(address, port);
+
+    let connect_result = unsafe {
+        libc::connect(
+            socket,
+            &sockaddr as *const _ as _,
+            std::mem::size_of_val(&sockaddr) as libc::socklen_t
+        )
+    };
+
+    if connect_result == -1 {
+        return Err("Failed to connect to remote host");
+    }
+
+    Ok(())
+}
+
+
+pub fn parse_ipv4(adress: String) -> Result<Ipv4Addr, &'static str> {
+    match Ipv4Addr::from_str(adress.as_str()) {
+        Ok(x) => Ok(x),
+        Err(_) => Err("Invalid IPv4 address!"),
+    }
+}
+
+fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
     let addr_u32: u32 = address.into(); 
 
    // pub struct sockaddr_in {
@@ -29,36 +84,5 @@ pub fn bind_socket(socket: i32, address: Ipv4Addr, port: u16) -> Result<(), &'st
         sin_zero: [0; 8]
     };
 
-    let bind_result = unsafe {
-        libc::bind(
-            socket,
-            &addr as *const _ as _,
-            std::mem::size_of_val(&addr) as libc::socklen_t
-        )
-    };
-
-    if bind_result == -1 {
-        return Err("Failed to bind socket to port");
-    }
-
-    return Ok(())
-}
-
-pub fn create_socket() -> Result<i32, &'static str> {
-    let socket = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
-    if socket == -1 {
-        return Err("Failed to create socket");
-    }
-    
-    println!("Created socket: {:?}", socket);
-
-    Ok(socket)
-}
-
-
-pub fn parse_ipv4(adress: String) -> Result<Ipv4Addr, &'static str> {
-    match Ipv4Addr::from_str(adress.as_str()) {
-        Ok(x) => Ok(x),
-        Err(_) => Err("Invalid IPv4 address!"),
-    }
+    addr
 }
