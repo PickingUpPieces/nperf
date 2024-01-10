@@ -1,0 +1,6 @@
+[env]
+RUST_LOG = "debug"
+RUST_BACKTRACE = "full"
+
+[build]
+target = "x86_64-unknown-linux-gnu"
