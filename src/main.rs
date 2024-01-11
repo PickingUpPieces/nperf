@@ -1,4 +1,4 @@
-use std::thread::sleep;
+use std::time::Instant;
 use clap::Parser;
 use libc::close;
 use log::{info, error, debug};
@@ -8,8 +8,7 @@ mod net;
 
 // Defaults from iPerf3
 // #define UDP_RATE (1024 * 1024) /* 1 Mbps */
-//const DEFAULT_UDP_BLKSIZE: usize = 1460;
-const DEFAULT_UDP_BLKSIZE: usize = 100;
+const DEFAULT_UDP_BLKSIZE: usize = 1460;
 // #define DURATION 10 /* seconds */
 
 // Sanity checks from iPerf3
@@ -55,6 +54,9 @@ fn main() {
         buffer: &mut [0; DEFAULT_UDP_BLKSIZE],
         socket: 0,
         data_rate: 0,
+        first_packet_received: false,
+        start_time: Instant::now(),
+        end_time: Instant::now(),
         packet_count: 0,
         omitted_packet_count: 0,
     };
@@ -81,6 +83,11 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
     loop {
         match net::recv(measurement.socket, measurement.buffer) {
             Ok(_) => {
+                if measurement.first_packet_received == false {
+                    measurement.first_packet_received = true;
+                    info!("First packet received!");
+                    measurement.start_time = Instant::now();
+                }
                 debug!("Received data from remote host: {:?}", measurement.buffer);
                 measurement.packet_count += 1;
             },
@@ -90,6 +97,10 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
                 panic!()},
         };
     }
+    measurement.end_time = Instant::now();
+    debug!("Finished receiving data from remote host");
+    info!("{:?}", util::create_history(measurement));
+
 }
 
 fn start_client(measurement: &mut util::NperfMeasurement) {
@@ -105,7 +116,9 @@ fn start_client(measurement: &mut util::NperfMeasurement) {
                 panic!()},
     };
 
-    loop {
+    measurement.start_time = Instant::now();
+
+    for _ in 0..1000000 { // 1,4GB
         match net::send(measurement.socket, measurement.buffer) {
             Ok(_) => {
                 measurement.packet_count += 1;
@@ -116,6 +129,10 @@ fn start_client(measurement: &mut util::NperfMeasurement) {
                 unsafe { close(measurement.socket) }; 
                 panic!()},
         };
-        sleep(std::time::Duration::from_secs(1));
     }
+    measurement.end_time = Instant::now();
+    debug!("Finished sending data to remote host");
+    info!("{:?}", util::create_history(measurement));
+
+
 }
