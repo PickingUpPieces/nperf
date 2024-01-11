@@ -1,5 +1,5 @@
 use libc::{self};
-use log::{info, debug};
+use log::{info, debug, error};
 use std::{self, net::Ipv4Addr};
 use std::str::FromStr;
 
@@ -87,6 +87,14 @@ fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
 }
 
 pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
+    if buffer.len() == 0 {
+        error!("Buffer is empty");
+        return Err("Buffer is empty");
+    } else {
+        debug!("Sending on socket {} with buffer size: {}", socket, buffer.len());
+        debug!("Buffer: {:?}", buffer)
+    }
+
     let send_result = unsafe {
         libc::send(
             socket,
@@ -101,7 +109,6 @@ pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
     }
 
     debug!("Sent {} bytes", send_result);
-
 
     Ok(())
 }

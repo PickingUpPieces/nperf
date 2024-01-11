@@ -1,17 +1,18 @@
-
-use std::{result, thread::sleep};
-
+use std::thread::sleep;
 use clap::Parser;
-use log::{info, error};
+use libc::close;
+use log::{info, error, debug};
 
 mod util;
 mod net;
 
 // Defaults from iPerf3
 // #define UDP_RATE (1024 * 1024) /* 1 Mbps */
-// #define DEFAULT_UDP_BLKSIZE 1460 /* default is dynamically set, else this */
-const DEFAULT_UDP_BLKSIZE: usize = 1460;
+//const DEFAULT_UDP_BLKSIZE: usize = 1460;
+const DEFAULT_UDP_BLKSIZE: usize = 100;
 // #define DURATION 10 /* seconds */
+
+// Sanity checks from iPerf3
 /* Minimum size UDP send is the size of two 32-bit ints followed by a 64-bit int */
 // #define MIN_UDP_BLOCKSIZE (4 + 4 + 8)
 // /* Maximum size UDP send is (64K - 1) - IP and UDP header sizes */
@@ -46,59 +47,74 @@ fn main() {
         Err(_) => { error!("Invalid IPv4 address!"); panic!()},
     };
 
-    let mut new_measurement = util::NperfMeasurement {
+    let mut measurement = util::NperfMeasurement {
         mode,
         ip: ipv4,
         local_port: args.port,
         remote_port: 0,
-        buffer: &mut [0; 1460],
+        buffer: &mut [0; DEFAULT_UDP_BLKSIZE],
         socket: 0,
         data_rate: 0,
         packet_count: 0,
         omitted_packet_count: 0,
     };
 
-    new_measurement.socket = match net::create_socket() {
+    measurement.socket = match net::create_socket() {
         Ok(x) => x,
         Err(x) => panic!("{x}"),
     };
 
-    if new_measurement.mode == util::NPerfMode::Client {
-        start_client(new_measurement);
+    if measurement.mode == util::NPerfMode::Client {
+        start_client(&mut measurement);
     } else {
-        start_server(new_measurement);
+        start_server(&mut measurement);
     }
 }
 
-fn start_server(new_measurement: util::NperfMeasurement) {
+fn start_server(measurement: &mut util::NperfMeasurement) {
     info!("Current mode: server");
-    match net::bind_socket(new_measurement.socket, new_measurement.ip, new_measurement.local_port) {
-        Ok(_) => info!("Bound socket to port: {}:{}", new_measurement.ip, new_measurement.local_port),
+    match net::bind_socket(measurement.socket, measurement.ip, measurement.local_port) {
+        Ok(_) => info!("Bound socket to port: {}:{}", measurement.ip, measurement.local_port),
         Err(x) => { error!("{x}"); panic!()},
     };
 
     loop {
-        match net::recv(new_measurement.socket, new_measurement.buffer) {
-            Ok(_) => info!("Received data from remote host"),
-            Err(x) => { error!("{x}"); panic!()},
+        match net::recv(measurement.socket, measurement.buffer) {
+            Ok(_) => {
+                debug!("Received data from remote host: {:?}", measurement.buffer);
+                measurement.packet_count += 1;
+            },
+            Err(x) => { 
+                error!("{x}"); 
+                unsafe { close(measurement.socket) }; 
+                panic!()},
         };
     }
 }
 
-fn start_client(new_measurement: util::NperfMeasurement) {
+fn start_client(measurement: &mut util::NperfMeasurement) {
     info!("Current mode: client");
     // Fill the buffer
-    util::fill_buffer_with_repeating_pattern(new_measurement.buffer);
+    util::fill_buffer_with_repeating_pattern(measurement.buffer);
 
-    match net::connect(new_measurement.socket, new_measurement.ip, new_measurement.local_port) {
-        Ok(_) => info!("Connected to remote host: {}:{}", new_measurement.ip, new_measurement.local_port),
-        Err(x) => { error!("{x}"); panic!()},
+    match net::connect(measurement.socket, measurement.ip, measurement.local_port) {
+        Ok(_) => info!("Connected to remote host: {}:{}", measurement.ip, measurement.local_port),
+        Err(x) => { 
+                error!("{x}"); 
+                unsafe { close(measurement.socket) }; 
+                panic!()},
     };
 
     loop {
-        match net::send(new_measurement.socket, new_measurement.buffer) {
-            Ok(_) => info!("Sent data to remote host"),
-            Err(x) => { error!("{x}"); panic!()},
+        match net::send(measurement.socket, measurement.buffer) {
+            Ok(_) => {
+                measurement.packet_count += 1;
+                debug!("Sent data to remote host");
+            },
+            Err(x) => { 
+                error!("{x}"); 
+                unsafe { close(measurement.socket) }; 
+                panic!()},
         };
         sleep(std::time::Duration::from_secs(1));
     }
