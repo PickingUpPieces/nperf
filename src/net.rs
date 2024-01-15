@@ -96,11 +96,10 @@ pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
     }
 
     let send_result = unsafe {
-        libc::send(
+        libc::write(
             socket,
             buffer.as_ptr() as *const _,
-            buffer.len(),
-            0
+            buffer.len()
         )
     };
 
@@ -113,8 +112,8 @@ pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<(), &'static str> {
-    let recv_result = unsafe {
+pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
+    let recv_result: isize = unsafe {
         libc::recv(
             socket,
             buffer.as_mut_ptr() as *mut _,
@@ -129,5 +128,5 @@ pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<(), &'static str> {
 
     debug!("Received {} bytes", recv_result);
 
-    Ok(())
+    Ok(recv_result)
 }
