@@ -122,6 +122,11 @@ pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
         )
     };
 
+    // Check for non-blocking mode
+    if recv_result == -1 && unsafe { *libc::__errno_location() } == libc::EAGAIN {
+        return Err("EAGAIN");
+    }
+
     if recv_result == -1 {
         return Err("Failed to receive data");
     }
@@ -129,4 +134,20 @@ pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
     debug!("Received {} bytes", recv_result);
 
     Ok(recv_result)
+}
+
+pub fn set_socket_nonblocking(socket: i32) -> Result<(), &'static str> {    
+    let mut flags = unsafe { libc::fcntl(socket, libc::F_GETFL, 0) };
+    if flags == -1 {
+        return Err("Failed to get socket flags");
+    }
+
+    flags |= libc::O_NONBLOCK;
+
+    let fcntl_result = unsafe { libc::fcntl(socket, libc::F_SETFL, flags) };
+    if fcntl_result == -1 {
+        return Err("Failed to set socket flags");
+    }
+
+    Ok(())
 }

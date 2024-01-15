@@ -91,6 +91,15 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
         Err(x) => { error!("{x}"); panic!()},
     };
 
+
+    match net::set_socket_nonblocking(measurement.socket) {
+        Ok(_) => info!("Set socket to non-blocking"),
+        Err(x) => { 
+                error!("{x}"); 
+                unsafe { close(measurement.socket) }; 
+                panic!()},
+    };
+
     loop {
         match net::recv(measurement.socket, measurement.buffer) {
             Ok(amount_received_bytes) => {
@@ -107,10 +116,15 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
                 util::process_packet(measurement);
                 measurement.packet_count += 1;
             },
-            Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
+            Err(x) => {
+                if x == "EAGAIN" {
+                    continue;
+                } else {
+                    error!("{x}"); 
+                    unsafe { close(measurement.socket) }; 
+                    panic!();
+                }
+            }
         };
 
     }
@@ -128,6 +142,14 @@ fn start_client(measurement: &mut util::NperfMeasurement) {
 
     match net::connect(measurement.socket, measurement.ip, measurement.local_port) {
         Ok(_) => info!("Connected to remote host: {}:{}", measurement.ip, measurement.local_port),
+        Err(x) => { 
+                error!("{x}"); 
+                unsafe { close(measurement.socket) }; 
+                panic!()},
+    };
+
+    match net::set_socket_nonblocking(measurement.socket) {
+        Ok(_) => info!("Set socket to non-blocking"),
         Err(x) => { 
                 error!("{x}"); 
                 unsafe { close(measurement.socket) }; 
