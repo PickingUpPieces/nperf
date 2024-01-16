@@ -73,25 +73,36 @@ fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
     }
 }
 
-pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
-    if buffer.len() == 0 {
+pub fn send(socket: i32, buffer: &[u8], buffer_len: usize) -> Result<(), &'static str> {
+    if buffer_len == 0 {
         error!("Buffer is empty");
         return Err("Buffer is empty");
     } else {
-        debug!("Sending on socket {} with buffer size: {}", socket, buffer.len());
+        debug!("Sending on socket {} with buffer size: {}", socket, buffer_len);
         debug!("Buffer: {:?}", buffer)
     }
+
+    let start = std::time::Instant::now();
 
     let send_result = unsafe {
         libc::send(
             socket,
             buffer.as_ptr() as *const _,
-            buffer.len(),
+            buffer_len as usize,
             0
         )
     };
+    let duration = start.elapsed();
+    if duration.as_micros() > 20 {
+        warn!("Time elapsed in send() is: {:?}", duration);
+    } 
 
     if send_result == -1 {
+        // CHeck for connection refused
+        if unsafe { *libc::__errno_location() } == libc::ECONNREFUSED {
+            error!("Connection refused while trying to send data!");
+            return Err("ECONNREFUSED");
+        }
         return Err("Failed to send data");
     }
 
@@ -101,6 +112,8 @@ pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
 }
 
 pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
+    let start = std::time::Instant::now();
+
     let recv_result: isize = unsafe {
         libc::recv(
             socket,
@@ -109,6 +122,10 @@ pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
             0
         )
     };
+    let duration = start.elapsed();
+    if duration.as_micros() > 20 {
+        warn!("Time elapsed in recv() is: {:?}", duration);
+    } 
 
     if recv_result == -1 {
         // Check for non-blocking mode

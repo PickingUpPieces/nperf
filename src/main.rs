@@ -17,8 +17,6 @@ const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB;
 // #define DURATION 10 /* seconds */
 
 // Sanity checks from iPerf3
-/* Minimum size UDP send is the size of two 32-bit ints followed by a 64-bit int */
-// #define MIN_UDP_BLOCKSIZE (4 + 4 + 8)
 // /* Maximum size UDP send is (64K - 1) - IP and UDP header sizes */
 // #define MAX_UDP_BLOCKSIZE (65535 - 8 - 20)
 
@@ -61,7 +59,8 @@ fn main() {
         ip: ipv4,
         local_port: args.port,
         remote_port: 0,
-        buffer: &mut [0; DEFAULT_UDP_BLKSIZE],
+        buffer: [0; DEFAULT_UDP_BLKSIZE],
+        buffer_len: DEFAULT_UDP_BLKSIZE,
         socket: 0,
         data_rate: 0,
         first_packet_received: false,
@@ -107,7 +106,7 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
     };
 
     loop {
-        match net::recv(measurement.socket, measurement.buffer) {
+        match net::recv(measurement.socket, &mut measurement.buffer) {
             Ok(amount_received_bytes) => {
                 if measurement.first_packet_received == false {
                     measurement.first_packet_received = true;
@@ -137,14 +136,16 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
 
     measurement.end_time = Instant::now();
     debug!("Finished receiving data from remote host");
-    info!("{:?}", util::create_history(measurement));
+    util::print_out_history(&util::create_history(measurement));
 
 }
+
+
 
 fn start_client(measurement: &mut util::NperfMeasurement) {
     info!("Current mode: client");
     // Fill the buffer
-    util::fill_buffer_with_repeating_pattern(measurement.buffer);
+    util::fill_buffer_with_repeating_pattern(&mut measurement.buffer);
 
     match net::set_socket_send_buffer_size(measurement.socket, DEFAULT_SOCKET_SEND_BUFFER_SIZE) {
         Ok(_) => {},
@@ -169,13 +170,18 @@ fn start_client(measurement: &mut util::NperfMeasurement) {
 
     measurement.start_time = Instant::now();
 
-    for _ in 0..1000000 { // 1,4GB
+    for _ in 0..5000000 { // 1,4GB
         prepare_packet(measurement);
 
-        match net::send(measurement.socket, measurement.buffer) {
+        match net::send(measurement.socket, &mut measurement.buffer, measurement.buffer_len) {
             Ok(_) => {
                 measurement.packet_count += 1;
                 debug!("Sent data to remote host");
+            },
+            Err("ECONNREFUSED") => {
+                error!("Start the server first! Abort measurement...");
+                unsafe { close(measurement.socket) }; 
+                return;
             },
             Err(x) => { 
                 error!("{x}"); 
@@ -183,12 +189,12 @@ fn start_client(measurement: &mut util::NperfMeasurement) {
                 panic!()},
         };
     }
-
-    match net::send(measurement.socket, measurement.buffer[0..LAST_MESSAGE_SIZE as usize].as_mut()) {
+    let mut last_message_buffer: [u8; LAST_MESSAGE_SIZE as usize] = [0; LAST_MESSAGE_SIZE as usize];
+    match net::send(measurement.socket, &mut last_message_buffer, LAST_MESSAGE_SIZE as usize) {
         Ok(_) => {
             measurement.end_time = Instant::now();
             debug!("Finished sending data to remote host");
-            info!("{:?}", util::create_history(&measurement));
+            util::print_out_history(&util::create_history(measurement));
         },
         Err(x) => { 
             error!("{x}"); 
