@@ -9,13 +9,14 @@ pub enum NPerfMode {
 }
 
 #[derive(Debug)]
-pub struct NperfMeasurement<'a> {
+pub struct NperfMeasurement {
     pub mode: NPerfMode,
     pub run_infinite: bool,
     pub ip: Ipv4Addr,
     pub local_port: u16,
     pub remote_port: u16,
-    pub buffer: &'a mut [u8; crate::DEFAULT_UDP_BLKSIZE],
+    pub buffer: [u8; crate::DEFAULT_UDP_BLKSIZE],
+    pub buffer_len: usize,
     pub socket: i32,
     pub data_rate: u64,
     pub first_packet_received: bool,
@@ -78,9 +79,19 @@ pub fn create_history(measurement: &NperfMeasurement) -> NperfHistory {
     }
 }
 
+pub fn print_out_history(history: &NperfHistory) {
+    info!("Total time: {:.2}s", history.total_time.as_secs_f64());
+    info!("Total data: {:.2} GiBytes", history.total_data);
+    info!("Amount of datagrams: {}", history.amount_datagrams);
+    info!("Amount of reordered datagrams: {}", history.amount_reordered_datagrams);
+    info!("Amount of duplicated datagrams: {}", history.amount_duplicated_datagrams);
+    info!("Amount of omitted datagrams: {}", history.amount_omitted_datagrams);
+    info!("Data rate: {:.2} GiBytes/s / {:.2} GiBit/s", history.data_rate, (history.data_rate * 8.0));
+    info!("Packet loss: {:.2}%", history.packet_loss);
+}
+
 fn calculate_total_data(measurement: &NperfMeasurement) -> f64 {
     let total_data = (measurement.packet_count * crate::DEFAULT_UDP_BLKSIZE as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
-    info!("Total data: {:.2} GiBytes", total_data);
     total_data 
 }
 
@@ -88,19 +99,16 @@ fn calculate_data_rate(measurement: &NperfMeasurement) -> f64{
     let elapsed_time = measurement.end_time - measurement.start_time;
     let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
     let data_rate = ((measurement.packet_count as f64 * crate::DEFAULT_UDP_BLKSIZE as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
-    info!("Data rate: {:.2} GiBytes/s / {:.2} GiBit/s", data_rate, (data_rate * 8.0));
     data_rate
 }
 
 fn calculate_packet_loss(measurement: &NperfMeasurement) -> f64 {
     let packet_loss = (measurement.omitted_packet_count as f64 / measurement.packet_count as f64) * 100.0;
-    info!("Packet loss: {:.2}%", packet_loss);
     packet_loss
 }
 
 fn calculate_total_time(measurement: &NperfMeasurement) -> std::time::Duration {
     let total_time = measurement.end_time - measurement.start_time;
-    info!("Total time: {:.2}s", total_time.as_secs_f64());
     total_time
 }
 
