@@ -44,7 +44,7 @@ pub fn connect(socket: i32, address: Ipv4Addr, port: u16) -> Result<(), &'static
         )
     };
 
-    debug!("Connected to remote host with result: {:?}", connect_result);
+    debug!("'Connected' to remote host with result: {:?}", connect_result);
 
     if connect_result == -1 {
         return Err("Failed to connect to remote host");
@@ -65,25 +65,12 @@ fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
     let addr_u32: u32 = address.into(); 
 
     #[cfg(target_os = "linux")]
-    let addr = libc::sockaddr_in {
+    libc::sockaddr_in {
         sin_family: libc::AF_INET as u16,
         sin_port: port.to_be(), // Convert to big endian
         sin_addr: libc::in_addr { s_addr: addr_u32 },
         sin_zero: [0; 8]
-    };
-
-   #[cfg(target_os = "macos")]
-   let addr = libc::sockaddr_in {
-       sin_len: 8,
-       sin_family: libc::AF_INET as u8,
-       sin_port: port.to_be(), // Convert to big endian
-       sin_addr: libc::in_addr { s_addr: addr_u32 },
-       sin_zero: [0; 8]
-   };
-
-   debug!("Created sockaddr");
-
-    addr
+    }
 }
 
 pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
@@ -96,10 +83,11 @@ pub fn send(socket: i32, buffer: &[u8]) -> Result<(), &'static str> {
     }
 
     let send_result = unsafe {
-        libc::write(
+        libc::send(
             socket,
             buffer.as_ptr() as *const _,
-            buffer.len()
+            buffer.len(),
+            0
         )
     };
 

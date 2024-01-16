@@ -80,7 +80,7 @@ pub fn create_history(measurement: &NperfMeasurement) -> NperfHistory {
 
 fn calculate_total_data(measurement: &NperfMeasurement) -> f64 {
     let total_data = (measurement.packet_count * crate::DEFAULT_UDP_BLKSIZE as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
-    info!("Total data: {:.2} GiB", total_data);
+    info!("Total data: {:.2} GiBytes", total_data);
     total_data 
 }
 
@@ -88,7 +88,7 @@ fn calculate_data_rate(measurement: &NperfMeasurement) -> f64{
     let elapsed_time = measurement.end_time - measurement.start_time;
     let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
     let data_rate = ((measurement.packet_count as f64 * crate::DEFAULT_UDP_BLKSIZE as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
-    info!("Data rate: {:.2} GiB/s", data_rate);
+    info!("Data rate: {:.2} GiBytes/s / {:.2} GiBit/s", data_rate, (data_rate * 8.0));
     data_rate
 }
 
