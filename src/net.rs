@@ -1,5 +1,5 @@
 use libc::{self};
-use log::{info, debug, error};
+use log::{info, debug, error, warn};
 use std::{self, net::Ipv4Addr};
 use std::str::FromStr;
 
@@ -122,17 +122,16 @@ pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
         )
     };
 
-    // Check for non-blocking mode
-    if recv_result == -1 && unsafe { *libc::__errno_location() } == libc::EAGAIN {
-        return Err("EAGAIN");
-    }
-
     if recv_result == -1 {
-        return Err("Failed to receive data");
-    }
+        // Check for non-blocking mode
+        if unsafe { *libc::__errno_location() } == libc::EAGAIN {
+            return Err("EAGAIN");
+        } else {
+            return Err("Failed to receive data");
+        }
+    } 
 
     debug!("Received {} bytes", recv_result);
-
     Ok(recv_result)
 }
 
@@ -150,4 +149,140 @@ pub fn set_socket_nonblocking(socket: i32) -> Result<(), &'static str> {
     }
 
     Ok(())
+}
+
+pub fn set_socket_send_buffer_size(socket: i32, size: u32) -> Result<(), &'static str> {
+    let size_len = std::mem::size_of::<u32>() as libc::socklen_t;
+
+    let current_size = match get_socket_send_buffer_size(socket) {
+        Ok(x) => {
+            info!("Current socket send buffer size: {}", x);
+            x
+        },
+        Err(x) => {
+            error!("{x}");
+            return Err("Failed to get socket send buffer size");
+        }
+    };
+
+    if current_size >= size {
+        warn!("New buffer size is smaller than current buffer size");
+        return Ok(());
+    }
+
+    // Set bigger buffer size
+    let setsockopt_result = unsafe {
+        libc::setsockopt(
+            socket,
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            &size as *const _ as _,
+            size_len
+        )
+    };
+
+    if setsockopt_result == -1 {
+        return Err("Failed to set socket send buffer size");
+    }
+
+    match get_socket_send_buffer_size(socket) {
+        Ok(x) => {
+            info!("New socket send buffer size: {}", x);
+            Ok(())
+        },
+        Err(x) => {
+            error!("{x}");
+            Err("Failed to get new socket send buffer size")
+        }
+    }
+}
+
+
+fn get_socket_send_buffer_size(socket: i32) -> Result<u32, &'static str> {
+    let mut size_len = std::mem::size_of::<u32>() as libc::socklen_t;
+    let current_size: u32 = 0;
+
+    let getsockopt_result = unsafe {
+        libc::getsockopt(
+            socket,
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            &current_size as *const _ as _,
+            &mut size_len as *mut _
+        )
+    };
+
+    if getsockopt_result == -1 {
+        Err("Failed to get socket send buffer size")
+    } else {
+        Ok(current_size)
+    }
+}
+
+pub fn set_socket_receive_buffer_size(socket: i32, size: u32) -> Result<(), &'static str> {
+    let size_len = std::mem::size_of::<u32>() as libc::socklen_t;
+
+    let current_size = match get_socket_receive_buffer_size(socket) {
+        Ok(x) => {
+            info!("Current socket receive buffer size: {}", x);
+            x
+        },
+        Err(x) => {
+            error!("{x}");
+            return Err("Failed to get socket receive buffer size");
+        }
+    };
+
+    if current_size >= size {
+        warn!("New buffer size is smaller than current buffer size");
+        return Ok(());
+    }
+
+    // Set bigger buffer size
+    let setsockopt_result = unsafe {
+        libc::setsockopt(
+            socket,
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            &size as *const _ as _,
+            size_len
+        )
+    };
+
+    if setsockopt_result == -1 {
+        return Err("Failed to set socket receive buffer size");
+    }
+
+    match get_socket_receive_buffer_size(socket) {
+        Ok(x) => {
+            info!("New socket receive buffer size: {}", x);
+            Ok(())
+        },
+        Err(x) => {
+            error!("{x}");
+            Err("Failed to get new socket receive buffer size")
+        }
+    }
+}
+
+
+fn get_socket_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
+    let mut size_len = std::mem::size_of::<u32>() as libc::socklen_t;
+    let current_size: u32 = 0;
+
+    let getsockopt_result = unsafe {
+        libc::getsockopt(
+            socket,
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            &current_size as *const _ as _,
+            &mut size_len as *mut _
+        )
+    };
+
+    if getsockopt_result == -1 {
+        Err("Failed to get socket receive buffer size")
+    } else {
+        Ok(current_size)
+    }
 }

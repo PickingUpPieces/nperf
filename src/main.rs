@@ -12,6 +12,8 @@ mod net;
 // #define UDP_RATE (1024 * 1024) /* 1 Mbps */
 const DEFAULT_UDP_BLKSIZE: usize = 1470;
 const LAST_MESSAGE_SIZE: isize = 100;
+const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB;
+const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB;
 // #define DURATION 10 /* seconds */
 
 // Sanity checks from iPerf3
@@ -91,6 +93,10 @@ fn start_server(measurement: &mut util::NperfMeasurement) {
         Err(x) => { error!("{x}"); panic!()},
     };
 
+    match net::set_socket_receive_buffer_size(measurement.socket, DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE) {
+        Ok(_) => {},
+        Err(x) => { error!("{x}"); panic!()},
+    };
 
     match net::set_socket_nonblocking(measurement.socket) {
         Ok(_) => info!("Set socket to non-blocking"),
@@ -139,6 +145,11 @@ fn start_client(measurement: &mut util::NperfMeasurement) {
     info!("Current mode: client");
     // Fill the buffer
     util::fill_buffer_with_repeating_pattern(measurement.buffer);
+
+    match net::set_socket_send_buffer_size(measurement.socket, DEFAULT_SOCKET_SEND_BUFFER_SIZE) {
+        Ok(_) => {},
+        Err(x) => { error!("{x}"); panic!()},
+    };
 
     match net::connect(measurement.socket, measurement.ip, measurement.local_port) {
         Ok(_) => info!("Connected to remote host: {}:{}", measurement.ip, measurement.local_port),
