@@ -82,8 +82,6 @@ pub fn send(socket: i32, buffer: &[u8], buffer_len: usize) -> Result<(), &'stati
         debug!("Buffer: {:?}", buffer)
     }
 
-    let start = std::time::Instant::now();
-
     let send_result = unsafe {
         libc::write(
             socket,
@@ -91,10 +89,6 @@ pub fn send(socket: i32, buffer: &[u8], buffer_len: usize) -> Result<(), &'stati
             buffer_len as usize
         )
     };
-    let duration = start.elapsed();
-    if duration.as_micros() > 20 {
-        warn!("Time elapsed in send() is: {:?}", duration);
-    } 
 
     if send_result == -1 {
         // CHeck for connection refused
@@ -112,7 +106,6 @@ pub fn send(socket: i32, buffer: &[u8], buffer_len: usize) -> Result<(), &'stati
 }
 
 pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
-    let start = std::time::Instant::now();
 
     let recv_result: isize = unsafe {
         libc::recv(
@@ -122,10 +115,6 @@ pub fn recv(socket: i32, buffer: &mut [u8]) -> Result<isize, &'static str> {
             0
         )
     };
-    let duration = start.elapsed();
-    if duration.as_micros() > 20 {
-        warn!("Time elapsed in recv() is: {:?}", duration);
-    } 
 
     if recv_result == -1 {
         // Check for non-blocking mode
