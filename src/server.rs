@@ -34,8 +34,8 @@ pub fn start_server(measurement: &mut util::NperfMeasurement) {
                     measurement.first_packet_received = true;
                     info!("First packet received!");
 
-                    info!("Set buffer size to MTU");
                     if measurement.dynamic_buffer_size {
+                        info!("Set buffer size to MTU");
                         measurement.buffer = util::create_buffer_dynamic(measurement.socket);
                     }
 

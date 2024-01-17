@@ -27,7 +27,7 @@ struct Arguments{
     mode: String,
 
     /// IP address to measure against/listen on
-    #[arg(short, default_value_t = String::from("0.0.0.0"))]
+    #[arg(short = 'a', default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
     //() Port number to measure against/listen on 
@@ -45,6 +45,10 @@ struct Arguments{
     /// Dynamic MTU size discovery
     #[arg(short = 'd', default_value_t = false)]
     mtu_discovery: bool,
+
+    /// Time to run the test
+    #[arg(short = 't', default_value_t = 10)]
+    time: u64,
 }
 
 fn main() {
@@ -78,6 +82,7 @@ fn main() {
         buffer: vec![0; args.mtu_size],
         dynamic_buffer_size: args.mtu_discovery,
         socket: 0,
+        time: args.time,
         data_rate: 0,
         first_packet_received: false,
         start_time: Instant::now(),

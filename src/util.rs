@@ -20,6 +20,7 @@ pub struct NperfMeasurement {
     pub buffer: Vec<u8>,
     pub dynamic_buffer_size: bool,
     pub socket: i32,
+    pub time: u64,
     pub data_rate: u64,
     pub first_packet_received: bool,
     pub start_time: std::time::Instant,

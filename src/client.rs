@@ -39,7 +39,8 @@ pub fn start_client(measurement: &mut util::NperfMeasurement) {
     measurement.start_time = Instant::now();
     let buffer_length = measurement.buffer.len();
 
-    for _ in 0..5000000 { // 1,4GB
+    let start_time = Instant::now();
+    while start_time.elapsed().as_secs() < measurement.time {
         util::prepare_packet(measurement);
 
         match net::send(measurement.socket, &mut measurement.buffer, buffer_length) {
@@ -58,6 +59,7 @@ pub fn start_client(measurement: &mut util::NperfMeasurement) {
                 panic!()},
         };
     }
+
     let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
     match net::send(measurement.socket, &mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
         Ok(_) => {
