@@ -1,69 +1,87 @@
 
+use std::net::Ipv4Addr;
 use std::time::Instant;
 
 use libc::close;
 use log::{debug, error, info};
 
-use crate::util;
+use crate::util::*;
 use crate::net;
 
-pub fn start_server(measurement: &mut util::NperfMeasurement) {
-    info!("Current mode: server");
-    match net::bind_socket(measurement.socket, measurement.ip, measurement.local_port) {
-        Ok(_) => info!("Bound socket to port: {}:{}", measurement.ip, measurement.local_port),
-        Err(x) => { error!("{x}"); panic!()},
-    };
 
-    match net::set_socket_receive_buffer_size(measurement.socket, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE) {
-        Ok(_) => {},
-        Err(x) => { error!("{x}"); panic!()},
-    };
+struct Server {
+    ip: Ipv4Addr,
+    local_port: u16,
+    mtu_size: usize,
+    mtu_discovery: bool,
+    buffer: Vec<u8>,
+    socket: i32,
+    run_infinite: bool,
+    first_packet_received: bool,
+    next_packet_id: u64,
+    history: History,
+}
 
-    match net::set_socket_nonblocking(measurement.socket) {
-        Ok(_) => info!("Set socket to non-blocking"),
-        Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-    };
+impl Server {
+    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, run_infinite: bool) -> Server {
+        let socket = net::create_socket().expect("Error creating socket"); 
 
-    loop {
-        match net::recv(measurement.socket, &mut measurement.buffer) {
-            Ok(amount_received_bytes) => {
-                if measurement.first_packet_received == false {
-                    measurement.first_packet_received = true;
-                    info!("First packet received!");
-
-                    if measurement.dynamic_buffer_size {
-                        info!("Set buffer size to MTU");
-                        measurement.buffer = util::create_buffer_dynamic(measurement.socket);
-                    }
-
-                    measurement.start_time = Instant::now();
-                }
-
-                if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
-                    info!("Last packet received!");
-                    break;
-                }
-                util::process_packet(measurement);
-                measurement.packet_count += 1;
-            },
-            Err(x) => {
-                if x == "EAGAIN" {
-                    continue;
-                } else {
-                    error!("{x}"); 
-                    unsafe { close(measurement.socket) }; 
-                    panic!();
-                }
-            }
-        };
-
+        Server {
+            ip,
+            local_port,
+            mtu_size,
+            mtu_discovery,
+            buffer: vec![0; mtu_size],
+            socket,
+            run_infinite,
+            first_packet_received: false,
+            next_packet_id: 0,
+            history: History::new(mtu_size as u64),
+        }
     }
 
-    measurement.end_time = Instant::now();
-    debug!("Finished receiving data from remote host");
-    util::print_out_history(&util::create_history(measurement));
+    pub fn run(&self) {
+        info!("Current mode: server");
+        net::bind_socket(self.socket, self.ip, self.local_port).expect("Error binding socket");
 
+        net::set_socket_receive_buffer_size(self.socket, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE).expect("Error setting socket receive buffer size"); 
+
+        net::set_socket_nonblocking(self.socket).expect("Error setting socket to nonblocking mode");
+
+        loop {
+            match net::recv(self.socket, &mut self.buffer) {
+                Ok(amount_received_bytes) => {
+                    if self.first_packet_received == false {
+                        self.first_packet_received = true;
+                        info!("First packet received!");
+
+                        if self.mtu_discovery {
+                            // FIXME: getting the IP_MTU from getsockopt throws an error, therefore don't use it for now
+                            info!("Set buffer size to MTU");
+                            self.buffer = util::create_buffer_dynamic(self.socket);
+                        }
+
+                        self.history.start_time = Instant::now();
+                    }
+
+                    if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
+                        info!("Last packet received!");
+                        break;
+                    }
+                    self.next_packet_id += util::process_packet(&self.buffer, self.next_packet_id, &mut self.history);
+                    self.history.amount_datagrams += 1;
+                },
+                Err("EAGAIN") => continue,
+                Err(x) => {
+                    error!("{x}"); 
+                    unsafe { close(self.socket) }; 
+                    panic!();
+                }
+            };
+        }
+
+        self.history.end_time = Instant::now();
+        debug!("Finished receiving data from remote host");
+        self.history.print();
+    }
 }

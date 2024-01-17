@@ -79,7 +79,7 @@ impl Client {
             Ok(_) => {
                 self.history.end_time = Instant::now();
                 debug!("Finished sending data to remote host");
-                self.history.print_out_history();
+                self.history.print();
             },
             Err(x) => { 
                 error!("{x}"); 

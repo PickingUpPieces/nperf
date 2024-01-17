@@ -33,8 +33,6 @@ pub struct NperfMeasurement {
 }
 
 
-
-
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),
@@ -67,26 +65,27 @@ pub fn prepare_packet(next_packet_id: u64, buffer: Vec<u8>) {
 
 // Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
 // https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225 
-pub fn process_packet(measurement: &mut NperfMeasurement) {
-    let packet_id = u64::from_be_bytes(measurement.buffer[0..8].try_into().unwrap());
+pub fn process_packet(buffer: &mut [u8], next_packet_id: u64, history: &mut History) -> u64 {
+    let packet_id = u64::from_be_bytes(buffer[0..8].try_into().unwrap());
     debug!("Received packet number: {}", packet_id);
 
-    if packet_id == measurement.next_packet_id {
-        measurement.next_packet_id += 1;
-    } else if packet_id > measurement.next_packet_id {
-        let lost_packet_count = (packet_id - measurement.next_packet_id) as i64;
-        measurement.omitted_packet_count += lost_packet_count;
-        measurement.next_packet_id = packet_id + 1; 
+    if packet_id == next_packet_id {
+        return 1
+    } else if packet_id > next_packet_id {
+        let lost_packet_count = (packet_id - next_packet_id) as i64;
+        history.amount_omitted_datagrams += lost_packet_count;
         info!("Reordered or lost packet received! {} packets are currently missing", lost_packet_count);
+        return 1
     } else {
-        if measurement.omitted_packet_count > 0 { 
-            measurement.omitted_packet_count -= 1;
-            measurement.reordered_packet_count += 1;
+        if history.amount_omitted_datagrams > 0 { 
+            history.amount_omitted_datagrams -= 1;
+            history.amount_reordered_datagrams  += 1;
             info!("Received reordered packet");
         } else { 
-            measurement.duplicated_packet_count += 1;
+            history.amount_duplicated_datagrams += 1;
             info!("Received duplicated packet");
         }
+        return 0
     }
 }
 
@@ -96,7 +95,6 @@ pub fn create_buffer_dynamic(socket: i32) -> Vec<u8> {
     let buffer: Vec<u8> = vec![0; buffer_len];
     buffer
 }
-
 
 #[derive(Debug)]
 pub struct History {
@@ -137,7 +135,7 @@ impl History {
         self.packet_loss = self.calculate_packet_loss();
     }
 
-    pub fn print_out_history(&self) {
+    pub fn print(&self) {
         self.update();
         info!("Total time: {:.2}s", self.total_time.as_secs_f64());
         info!("Total data: {:.2} GiBytes", self.total_data);

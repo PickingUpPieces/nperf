@@ -98,6 +98,7 @@ fn main() {
         let client = client::new(measurement.ip, measurement.local_port, measurement.mtu_size, measurement.mtu_discovery, measurement.time);
         client.run();
     } else {
-        server::start_server(&mut measurement);
+        let server = server::new(measurement.ip, measurement.local_port, measurement.mtu_size, measurement.mtu_discovery, measurement.run_infinite);
+        server.run();
     }
 }
