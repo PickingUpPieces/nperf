@@ -2,6 +2,8 @@ use std::net::Ipv4Addr;
 
 use log::{debug, info};
 
+use crate::net;
+
 #[derive(PartialEq, Debug)]
 pub enum NPerfMode {
     Client,
@@ -15,8 +17,8 @@ pub struct NperfMeasurement {
     pub ip: Ipv4Addr,
     pub local_port: u16,
     pub remote_port: u16,
-    pub buffer: [u8; crate::DEFAULT_UDP_BLKSIZE],
-    pub buffer_len: usize,
+    pub buffer: Vec<u8>,
+    pub dynamic_buffer_size: bool,
     pub socket: i32,
     pub data_rate: u64,
     pub first_packet_received: bool,
@@ -91,14 +93,14 @@ pub fn print_out_history(history: &NperfHistory) {
 }
 
 fn calculate_total_data(measurement: &NperfMeasurement) -> f64 {
-    let total_data = (measurement.packet_count * crate::DEFAULT_UDP_BLKSIZE as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
+    let total_data = (measurement.packet_count * measurement.buffer.len() as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
     total_data 
 }
 
 fn calculate_data_rate(measurement: &NperfMeasurement) -> f64{
     let elapsed_time = measurement.end_time - measurement.start_time;
     let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
-    let data_rate = ((measurement.packet_count as f64 * crate::DEFAULT_UDP_BLKSIZE as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
+    let data_rate = ((measurement.packet_count as f64 * measurement.buffer.len() as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
     data_rate
 }
 
@@ -140,4 +142,11 @@ pub fn process_packet(measurement: &mut NperfMeasurement) {
             info!("Received duplicated packet");
         }
     }
+}
+
+pub fn create_buffer_dynamic(socket: i32) -> Vec<u8> {
+    let buffer_len = net::get_socket_mtu(socket).expect("Error getting dynamically the socket MTU") as usize;
+    info!("UDP MTU of size {} bytes", buffer_len);
+    let buffer: Vec<u8> = vec![0; buffer_len];
+    buffer
 }

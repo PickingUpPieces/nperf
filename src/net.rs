@@ -85,11 +85,10 @@ pub fn send(socket: i32, buffer: &[u8], buffer_len: usize) -> Result<(), &'stati
     let start = std::time::Instant::now();
 
     let send_result = unsafe {
-        libc::send(
+        libc::write(
             socket,
             buffer.as_ptr() as *const _,
-            buffer_len as usize,
-            0
+            buffer_len as usize
         )
     };
     let duration = start.elapsed();
@@ -103,6 +102,7 @@ pub fn send(socket: i32, buffer: &[u8], buffer_len: usize) -> Result<(), &'stati
             error!("Connection refused while trying to send data!");
             return Err("ECONNREFUSED");
         }
+        error!("Errno when trying to send data: {}", unsafe { *libc::__errno_location() });
         return Err("Failed to send data");
     }
 
@@ -156,9 +156,34 @@ pub fn set_socket_nonblocking(socket: i32) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn set_socket_send_buffer_size(socket: i32, size: u32) -> Result<(), &'static str> {
-    let size_len = std::mem::size_of::<u32>() as libc::socklen_t;
+pub fn get_socket_mtu(socket: i32) -> Result<u32, &'static str> {
+    // https://man7.org/linux/man-pages/man7/ip.7.html
+    // MSS from TCP returned an error
+    let current_size: u32 = 0;
+    let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
 
+    // IP_MTU
+    let getsockopt_result = unsafe {
+        libc::getsockopt(
+            socket,
+            libc::IPPROTO_IP,
+            libc::IP_MTU,
+            &current_size as *const _ as _,
+            &mut size_len as *mut _
+        )
+    };
+
+    if getsockopt_result == -1 {
+        error!("errno when getting Ethernet MTU: {}", unsafe { *libc::__errno_location() });
+        Err("Failed to get socket Ethernet MTU")
+    } else {
+        info!("Current socket Ethernet MTU: {}", current_size);
+        // Minus IP header size and UDP header size
+        Ok(current_size - 20 - 8)
+    }
+}
+
+pub fn set_socket_send_buffer_size(socket: i32, size: u32) -> Result<(), &'static str> {
     let current_size = match get_socket_send_buffer_size(socket) {
         Ok(x) => {
             info!("Current socket send buffer size: {}", x);
@@ -169,6 +194,7 @@ pub fn set_socket_send_buffer_size(socket: i32, size: u32) -> Result<(), &'stati
             return Err("Failed to get socket send buffer size");
         }
     };
+    let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
 
     if current_size >= size {
         warn!("New buffer size is smaller than current buffer size");
@@ -187,6 +213,7 @@ pub fn set_socket_send_buffer_size(socket: i32, size: u32) -> Result<(), &'stati
     };
 
     if setsockopt_result == -1 {
+        error!("errno when setting send buffer size: {}", unsafe { *libc::__errno_location() });
         return Err("Failed to set socket send buffer size");
     }
 
@@ -218,7 +245,8 @@ fn get_socket_send_buffer_size(socket: i32) -> Result<u32, &'static str> {
     };
 
     if getsockopt_result == -1 {
-        Err("Failed to get socket send buffer size")
+        error!("errno when getting send buffer size: {}", unsafe { *libc::__errno_location() });
+        Err("Failed to get current socket send buffer size")
     } else {
         Ok(current_size)
     }
@@ -255,6 +283,7 @@ pub fn set_socket_receive_buffer_size(socket: i32, size: u32) -> Result<(), &'st
     };
 
     if setsockopt_result == -1 {
+        error!("errno when setting receive buffer size: {}", unsafe { *libc::__errno_location() });
         return Err("Failed to set socket receive buffer size");
     }
 
@@ -286,6 +315,7 @@ fn get_socket_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
     };
 
     if getsockopt_result == -1 {
+        error!("errno when getting receive buffer size: {}", unsafe { *libc::__errno_location() });
         Err("Failed to get socket receive buffer size")
     } else {
         Ok(current_size)

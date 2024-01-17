@@ -1,40 +1,50 @@
-use std::time::Instant;
+use std::{time::Instant, vec};
 use clap::Parser;
-use libc::close;
-use log::{info, error, debug};
-
-use crate::util::prepare_packet;
+use log::{info, error};
 
 mod util;
 mod net;
+mod client;
+mod server;
 
-// Defaults from iPerf3
-// #define UDP_RATE (1024 * 1024) /* 1 Mbps */
-const DEFAULT_UDP_BLKSIZE: usize = 1470;
+// const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
+const DEFAULT_UDP_BLKSIZE: usize = 1472;
+
 const LAST_MESSAGE_SIZE: isize = 100;
 const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB;
 const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB;
-// #define DURATION 10 /* seconds */
+// const DURATION: usize = 10 // /* seconds */
 
 // Sanity checks from iPerf3
 // /* Maximum size UDP send is (64K - 1) - IP and UDP header sizes */
-// #define MAX_UDP_BLOCKSIZE (65535 - 8 - 20)
+const MAX_UDP_BLOCKSIZE: usize = 65535 - 8 - 20;
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
 struct Arguments{
-    // Mode of operation: client or server
-    #[arg(default_value_t = String::from("server"))]
+    /// Mode of operation: client or server
+    #[arg(short, default_value_t = String::from("server"))]
     mode: String,
-    // IP address to measure against/listen on
-    #[arg(default_value_t = String::from("0.0.0.0"))]
+
+    /// IP address to measure against/listen on
+    #[arg(short, default_value_t = String::from("0.0.0.0"))]
     ip: String,
-    // Port number to measure against/listen on 
-    #[arg(default_value_t = 45001)]
+
+    //() Port number to measure against/listen on 
+    #[arg(short, default_value_t = 45001)]
     port: u16,
 
+    /// Don't stop the server after the first measurement
     #[arg(short, long, default_value_t = false)]
-    run_infinite: bool,
+    run_server_infinite: bool,
+
+    /// Set MTU size (Without IP and UDP headers)
+    #[arg(short = 'l', default_value_t = DEFAULT_UDP_BLKSIZE)]
+    mtu_size: usize,
+
+    /// Dynamic MTU size discovery
+    #[arg(short = 'd', default_value_t = false)]
+    mtu_discovery: bool,
 }
 
 fn main() {
@@ -52,15 +62,21 @@ fn main() {
         Err(_) => { error!("Invalid IPv4 address!"); panic!()},
     };
 
+    if args.mtu_size > MAX_UDP_BLOCKSIZE {
+        error!("MTU size is too big! Maximum is {}", MAX_UDP_BLOCKSIZE);
+        panic!();
+    } else {
+        info!("MTU size used: {}", args.mtu_size);
+    }
 
     let mut measurement = util::NperfMeasurement {
         mode,
-        run_infinite: args.run_infinite,
+        run_infinite: args.run_server_infinite,
         ip: ipv4,
         local_port: args.port,
         remote_port: 0,
-        buffer: [0; DEFAULT_UDP_BLKSIZE],
-        buffer_len: DEFAULT_UDP_BLKSIZE,
+        buffer: vec![0; args.mtu_size],
+        dynamic_buffer_size: args.mtu_discovery,
         socket: 0,
         data_rate: 0,
         first_packet_received: false,
@@ -73,134 +89,11 @@ fn main() {
         duplicated_packet_count: 0,
     };
 
-    measurement.socket = match net::create_socket() {
-        Ok(x) => x,
-        Err(x) => panic!("{x}"),
-    };
+    measurement.socket = net::create_socket().expect("Error creating socket"); 
 
     if measurement.mode == util::NPerfMode::Client {
-        start_client(&mut measurement);
+        client::start_client(&mut measurement);
     } else {
-        start_server(&mut measurement);
+        server::start_server(&mut measurement);
     }
-}
-
-fn start_server(measurement: &mut util::NperfMeasurement) {
-    info!("Current mode: server");
-    match net::bind_socket(measurement.socket, measurement.ip, measurement.local_port) {
-        Ok(_) => info!("Bound socket to port: {}:{}", measurement.ip, measurement.local_port),
-        Err(x) => { error!("{x}"); panic!()},
-    };
-
-    match net::set_socket_receive_buffer_size(measurement.socket, DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE) {
-        Ok(_) => {},
-        Err(x) => { error!("{x}"); panic!()},
-    };
-
-    match net::set_socket_nonblocking(measurement.socket) {
-        Ok(_) => info!("Set socket to non-blocking"),
-        Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-    };
-
-    loop {
-        match net::recv(measurement.socket, &mut measurement.buffer) {
-            Ok(amount_received_bytes) => {
-                if measurement.first_packet_received == false {
-                    measurement.first_packet_received = true;
-                    info!("First packet received!");
-                    measurement.start_time = Instant::now();
-                }
-
-                if amount_received_bytes == LAST_MESSAGE_SIZE {
-                    info!("Last packet received!");
-                    break;
-                }
-                util::process_packet(measurement);
-                measurement.packet_count += 1;
-            },
-            Err(x) => {
-                if x == "EAGAIN" {
-                    continue;
-                } else {
-                    error!("{x}"); 
-                    unsafe { close(measurement.socket) }; 
-                    panic!();
-                }
-            }
-        };
-
-    }
-
-    measurement.end_time = Instant::now();
-    debug!("Finished receiving data from remote host");
-    util::print_out_history(&util::create_history(measurement));
-
-}
-
-
-
-fn start_client(measurement: &mut util::NperfMeasurement) {
-    info!("Current mode: client");
-    // Fill the buffer
-    util::fill_buffer_with_repeating_pattern(&mut measurement.buffer);
-
-    match net::set_socket_send_buffer_size(measurement.socket, DEFAULT_SOCKET_SEND_BUFFER_SIZE) {
-        Ok(_) => {},
-        Err(x) => { error!("{x}"); panic!()},
-    };
-
-    match net::connect(measurement.socket, measurement.ip, measurement.local_port) {
-        Ok(_) => info!("Connected to remote host: {}:{}", measurement.ip, measurement.local_port),
-        Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-    };
-
-    match net::set_socket_nonblocking(measurement.socket) {
-        Ok(_) => info!("Set socket to non-blocking"),
-        Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-    };
-
-    measurement.start_time = Instant::now();
-
-    for _ in 0..5000000 { // 1,4GB
-        prepare_packet(measurement);
-
-        match net::send(measurement.socket, &mut measurement.buffer, measurement.buffer_len) {
-            Ok(_) => {
-                measurement.packet_count += 1;
-                debug!("Sent data to remote host");
-            },
-            Err("ECONNREFUSED") => {
-                error!("Start the server first! Abort measurement...");
-                unsafe { close(measurement.socket) }; 
-                return;
-            },
-            Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-        };
-    }
-    let mut last_message_buffer: [u8; LAST_MESSAGE_SIZE as usize] = [0; LAST_MESSAGE_SIZE as usize];
-    match net::send(measurement.socket, &mut last_message_buffer, LAST_MESSAGE_SIZE as usize) {
-        Ok(_) => {
-            measurement.end_time = Instant::now();
-            debug!("Finished sending data to remote host");
-            util::print_out_history(&util::create_history(measurement));
-        },
-        Err(x) => { 
-            error!("{x}"); 
-            unsafe { close(measurement.socket) }; 
-            panic!()},
-    };
-
-    unsafe { close(measurement.socket) }; 
 }
