@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use std::time::Instant;
 
 use libc::close;
@@ -5,73 +6,87 @@ use log::{debug, error, info};
 
 use crate::util;
 use crate::net;
+use crate::util::History;
 
-pub fn start_client(measurement: &mut util::NperfMeasurement) {
-    info!("Current mode: client");
-    // Fill the buffer
-    util::fill_buffer_with_repeating_pattern(&mut measurement.buffer);
+struct Client {
+    ip: Ipv4Addr,
+    remote_port: u16,
+    mtu_size: usize,
+    mtu_discovery: bool,
+    buffer: Vec<u8>,
+    socket: i32,
+    history: History,
+    run_time_length: u64,
+}
 
-    match net::set_socket_send_buffer_size(measurement.socket, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE) {
-        Ok(_) => {},
-        Err(x) => { error!("{x}"); panic!()},
-    };
 
-    match net::connect(measurement.socket, measurement.ip, measurement.local_port) {
-        Ok(_) => info!("Connected to remote host: {}:{}", measurement.ip, measurement.local_port),
-        Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-    };
+impl Client {
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, run_time_length: u64) -> Client {
+        let socket = net::create_socket().expect("Error creating socket"); 
 
-    match net::set_socket_nonblocking(measurement.socket) {
-        Ok(_) => info!("Set socket to non-blocking"),
-        Err(x) => { 
-                error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
-                panic!()},
-    };
-
-    if measurement.dynamic_buffer_size {
-        measurement.buffer = util::create_buffer_dynamic(measurement.socket);
+        Client {
+            ip,
+            remote_port,
+            mtu_size,
+            mtu_discovery,
+            buffer: vec![0; mtu_size],
+            socket,
+            history: History::new(mtu_size as u64),
+            run_time_length,
+        }
     }
 
-    measurement.start_time = Instant::now();
-    let buffer_length = measurement.buffer.len();
+    pub fn run(&self) {
+        info!("Current mode: client");
+        // Fill the buffer
+        util::fill_buffer_with_repeating_pattern(&mut self.buffer);
+    
+        net::set_socket_send_buffer_size(self.socket, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE).expect("Error setting socket send buffer size");
+    
+        net::connect(self.socket, self.ip, self.remote_port).expect("Error connecting to remote host"); 
+    
+        net::set_socket_nonblocking(self.socket).expect(msg);
+    
+        if self.mtu_discovery {
+            self.buffer = util::create_buffer_dynamic(self.socket);
+        }
+    
+        self.history.start_time = Instant::now();
+        let buffer_length = self.buffer.len();
+    
+        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
+            util::prepare_packet(self.history.amount_datagrams, &mut self.buffer);
+    
+            match net::send(self.socket, &mut self.buffer, buffer_length) {
+                Ok(_) => {
+                    self.history.amount_datagrams += 1;
+                    trace!("Sent datagram to remote host");
+                },
+                Err("ECONNREFUSED") => {
+                    error!("Start the server first! Abort measurement...");
+                    return;
+                },
+                Err(x) => { 
+                    error!("{x}"); 
+                    panic!()},
+            };
+        }
+    
+        let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
 
-    let start_time = Instant::now();
-    while start_time.elapsed().as_secs() < measurement.time {
-        util::prepare_packet(measurement);
-
-        match net::send(measurement.socket, &mut measurement.buffer, buffer_length) {
+        // TODO: Unwrap and do something if it's successfull
+        match net::send(self.socket, &mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
             Ok(_) => {
-                measurement.packet_count += 1;
-                debug!("Sent data to remote host");
-            },
-            Err("ECONNREFUSED") => {
-                error!("Start the server first! Abort measurement...");
-                unsafe { close(measurement.socket) }; 
-                return;
+                self.history.end_time = Instant::now();
+                debug!("Finished sending data to remote host");
+                self.history.print_out_history();
             },
             Err(x) => { 
                 error!("{x}"); 
-                unsafe { close(measurement.socket) }; 
                 panic!()},
         };
+    
+        // Close file descriptor at last
+        unsafe { close(measurement.socket) }; 
     }
-
-    let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
-    match net::send(measurement.socket, &mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
-        Ok(_) => {
-            measurement.end_time = Instant::now();
-            debug!("Finished sending data to remote host");
-            util::print_out_history(&util::create_history(measurement));
-        },
-        Err(x) => { 
-            error!("{x}"); 
-            unsafe { close(measurement.socket) }; 
-            panic!()},
-    };
-
-    unsafe { close(measurement.socket) }; 
 }

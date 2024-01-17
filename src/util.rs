@@ -32,17 +32,8 @@ pub struct NperfMeasurement {
     pub duplicated_packet_count: u64,
 }
 
-#[derive(Debug)]
-pub struct NperfHistory {
-    pub total_time: std::time::Duration,
-    pub total_data: f64,
-    pub amount_datagrams: u64,
-    pub amount_reordered_datagrams: u64,
-    pub amount_duplicated_datagrams: u64,
-    pub amount_omitted_datagrams: i64,
-    pub data_rate: f64,
-    pub packet_loss: f64,
-}
+
+
 
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
@@ -51,7 +42,6 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
         _ => None,
     }
 }
-
 
 // Similar to iperf3's fill_with_repeating_pattern
 pub fn fill_buffer_with_repeating_pattern(buffer: &mut [u8]) {
@@ -69,55 +59,10 @@ pub fn fill_buffer_with_repeating_pattern(buffer: &mut [u8]) {
     debug!("Filled buffer with repeating pattern {:?}", buffer);
 }
 
-pub fn create_history(measurement: &NperfMeasurement) -> NperfHistory {
-    NperfHistory {
-        total_time: calculate_total_time(measurement),
-        total_data: calculate_total_data(measurement),
-        amount_datagrams: measurement.packet_count,
-        amount_reordered_datagrams: measurement.reordered_packet_count,
-        amount_duplicated_datagrams: measurement.duplicated_packet_count,
-        amount_omitted_datagrams: measurement.omitted_packet_count,
-        data_rate: calculate_data_rate(measurement),
-        packet_loss: calculate_packet_loss(measurement),
-    }
-}
 
-pub fn print_out_history(history: &NperfHistory) {
-    info!("Total time: {:.2}s", history.total_time.as_secs_f64());
-    info!("Total data: {:.2} GiBytes", history.total_data);
-    info!("Amount of datagrams: {}", history.amount_datagrams);
-    info!("Amount of reordered datagrams: {}", history.amount_reordered_datagrams);
-    info!("Amount of duplicated datagrams: {}", history.amount_duplicated_datagrams);
-    info!("Amount of omitted datagrams: {}", history.amount_omitted_datagrams);
-    info!("Data rate: {:.2} GiBytes/s / {:.2} GiBit/s", history.data_rate, (history.data_rate * 8.0));
-    info!("Packet loss: {:.2}%", history.packet_loss);
-}
-
-fn calculate_total_data(measurement: &NperfMeasurement) -> f64 {
-    let total_data = (measurement.packet_count * measurement.buffer.len() as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
-    total_data 
-}
-
-fn calculate_data_rate(measurement: &NperfMeasurement) -> f64{
-    let elapsed_time = measurement.end_time - measurement.start_time;
-    let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
-    let data_rate = ((measurement.packet_count as f64 * measurement.buffer.len() as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
-    data_rate
-}
-
-fn calculate_packet_loss(measurement: &NperfMeasurement) -> f64 {
-    let packet_loss = (measurement.omitted_packet_count as f64 / measurement.packet_count as f64) * 100.0;
-    packet_loss
-}
-
-fn calculate_total_time(measurement: &NperfMeasurement) -> std::time::Duration {
-    let total_time = measurement.end_time - measurement.start_time;
-    total_time
-}
-
-pub fn prepare_packet(measurement: &mut NperfMeasurement) {
-    measurement.buffer[0..8].copy_from_slice(&measurement.packet_count.to_be_bytes());
-    debug!("Prepared packet number: {}", u64::from_be_bytes(measurement.buffer[0..8].try_into().unwrap()));
+pub fn prepare_packet(next_packet_id: u64, buffer: Vec<u8>) {
+    buffer[0..8].copy_from_slice(next_packet_id.to_be_bytes());
+    debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[0..8].try_into().unwrap()));
 }
 
 // Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
@@ -150,4 +95,79 @@ pub fn create_buffer_dynamic(socket: i32) -> Vec<u8> {
     info!("UDP MTU of size {} bytes", buffer_len);
     let buffer: Vec<u8> = vec![0; buffer_len];
     buffer
+}
+
+
+#[derive(Debug)]
+pub struct History {
+    pub start_time: std::time::Instant,
+    pub end_time: std::time::Instant,
+    total_time: std::time::Duration,
+    total_data: f64,
+    datagram_size: u64,
+    pub amount_datagrams: u64,
+    pub amount_reordered_datagrams: u64,
+    pub amount_duplicated_datagrams: u64,
+    pub amount_omitted_datagrams: i64,
+    data_rate: f64,
+    packet_loss: f64,
+}
+
+impl History {
+    pub fn new(datagram_size: u64) -> History {
+        History {
+            start_time: std::time::Instant::now(),
+            end_time: std::time::Instant::now(),
+            total_time: calculate_total_time(),
+            total_data: calculate_total_data(),
+            datagram_size,
+            amount_datagrams: 0,
+            amount_reordered_datagrams: 0,
+            amount_duplicated_datagrams: 0,
+            amount_omitted_datagrams: 0,
+            data_rate: calculate_data_rate(),
+            packet_loss: calculate_packet_loss(),
+        }
+    }
+
+    fn update(&mut self) {
+        self.total_data = self.calculate_total_data();
+        self.total_time = self.calculate_total_time();
+        self.data_rate = self.calculate_data_rate();
+        self.packet_loss = self.calculate_packet_loss();
+    }
+
+    pub fn print_out_history(&self) {
+        self.update();
+        info!("Total time: {:.2}s", self.total_time.as_secs_f64());
+        info!("Total data: {:.2} GiBytes", self.total_data);
+        info!("Amount of datagrams: {}", self.amount_datagrams);
+        info!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
+        info!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
+        info!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
+        info!("Data rate: {:.2} GiBytes/s / {:.2} GiBit/s", self.data_rate, (self.data_rate * 8.0));
+        info!("Packet loss: {:.2}%", self.packet_loss);
+    }
+
+    fn calculate_total_data(&self) -> f64 {
+        let total_data = (self.amount_datagrams * self.datagram_size as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
+        total_data 
+    }
+    
+    fn calculate_data_rate(&self) -> f64{
+        let elapsed_time = self.end_time - self.start_time;
+        let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
+        let data_rate = ((self.amount_datagrams as f64 * self.datagram_size as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
+        data_rate
+    }
+    
+    fn calculate_packet_loss(&self) -> f64 {
+        let packet_loss = (self.amount_omitted_datagrams as f64 / self.amount_datagrams as f64) * 100.0;
+        packet_loss
+    }
+    
+    fn calculate_total_time(&self) -> std::time::Duration {
+        let total_time = self.end_time - self.start_time;
+        total_time
+    }
 }

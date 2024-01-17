@@ -94,10 +94,9 @@ fn main() {
         duplicated_packet_count: 0,
     };
 
-    measurement.socket = net::create_socket().expect("Error creating socket"); 
-
     if measurement.mode == util::NPerfMode::Client {
-        client::start_client(&mut measurement);
+        let client = client::new(measurement.ip, measurement.local_port, measurement.mtu_size, measurement.mtu_discovery, measurement.time);
+        client.run();
     } else {
         server::start_server(&mut measurement);
     }
