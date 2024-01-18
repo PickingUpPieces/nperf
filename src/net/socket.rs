@@ -1,8 +1,8 @@
 
-use log::{info, trace, debug, error, warn};
+use log::{info, trace, debug, error};
 use std::{self, net::Ipv4Addr};
 
-use super::socket_options::{SocketOptions, self};
+use super::socket_options::SocketOptions;
 
 pub struct Socket {
     ip: Ipv4Addr,

@@ -20,7 +20,7 @@ impl SocketOptions {
         }
     }
 
-    pub fn set_nonblocking(&self, socket: i32) -> Result<(), &'static str> {    
+    pub fn set_nonblocking(&mut self, socket: i32) -> Result<(), &'static str> {    
         let mut flags = unsafe { libc::fcntl(socket, libc::F_GETFL, 0) };
         if flags == -1 {
             return Err("Failed to get socket flags");
@@ -32,11 +32,12 @@ impl SocketOptions {
         if fcntl_result == -1 {
             return Err("Failed to set socket flags");
         }
-    
+
+        self.nonblocking = true;
         Ok(())
     }
 
-    pub fn set_send_buffer_size(&self, socket: i32, size: u32) -> Result<(), &'static str> {
+    pub fn set_send_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
         let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
         let current_size = Self::get_send_buffer_size(socket)?;
         debug!("Trying to set send buffer size from {} to {}", current_size, size);
@@ -104,7 +105,7 @@ impl SocketOptions {
         }
     }
     
-    pub fn set_receive_buffer_size(&self, socket: i32, size: u32) -> Result<(), &'static str> {
+    pub fn set_receive_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
         let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
         let current_size = Self::get_receive_buffer_size(socket)?; 
         debug!("Trying to set receive buffer size from {} to {}", current_size, size);
@@ -172,7 +173,7 @@ impl SocketOptions {
         }
     }
 
-    pub fn set_gso(&self, socket: i32, gso_size: u64) -> Result<(), &'static str> {
+    pub fn set_gso(&mut self, socket: i32, gso_size: u64) -> Result<(), &'static str> {
         // gso_size should be equal to MTU = ETH_MTU - header(ipv4) - heaser(udp)
         let size_len = std::mem::size_of_val(&gso_size) as libc::socklen_t;
 
