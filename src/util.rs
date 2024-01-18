@@ -135,7 +135,7 @@ impl History {
         self.packet_loss = self.calculate_packet_loss();
     }
 
-    pub fn print(&self) {
+    pub fn print(&mut self) {
         self.update();
         info!("Total time: {:.2}s", self.total_time.as_secs_f64());
         info!("Total data: {:.2} GiBytes", self.total_data);

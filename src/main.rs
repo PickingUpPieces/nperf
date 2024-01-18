@@ -76,7 +76,7 @@ fn main() {
         info!("MTU size used: {}", args.mtu_size);
     }
 
-    let mut measurement = util::NperfMeasurement {
+    let measurement = util::NperfMeasurement {
         mode,
         run_infinite: args.run_server_infinite,
         ip: ipv4,
@@ -98,10 +98,10 @@ fn main() {
     };
 
     if measurement.mode == util::NPerfMode::Client {
-        let client = Client::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.time);
+        let mut client = Client::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.time);
         client.run();
     } else {
-        let server = Server::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.run_infinite);
+        let mut server = Server::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.run_infinite);
         server.run();
     }
 }

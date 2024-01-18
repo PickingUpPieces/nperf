@@ -40,7 +40,7 @@ impl Server {
         }
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         info!("Current mode: server");
         net::bind_socket(self.socket, self.ip, self.local_port).expect("Error binding socket");
         net::set_socket_receive_buffer_size(self.socket, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE).expect("Error setting socket receive buffer size"); 

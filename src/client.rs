@@ -37,7 +37,7 @@ impl Client {
         }
     }
 
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         info!("Current mode: client");
         util::fill_buffer_with_repeating_pattern(&mut self.buffer);
         net::set_socket_send_buffer_size(self.socket, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE).expect("Error setting socket send buffer size");
@@ -45,7 +45,7 @@ impl Client {
         net::set_socket_nonblocking(self.socket).expect("Error setting socket to nonblocking mode");
     
         if self.mtu_discovery {
-            self.buffer = util::create_buffer_dynamic(self.socket);
+            self.buffer = create_buffer_dynamic(self.socket);
         }
     
         self.history.start_time = Instant::now();
