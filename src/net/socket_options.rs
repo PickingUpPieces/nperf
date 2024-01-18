@@ -4,31 +4,32 @@ use log::{error, info, debug, warn};
 pub struct SocketOptions {
     nonblocking: bool,
     gso: (bool, u64),
-    gro: (bool, u64),
+    _gro: (bool, u64),
     recv_buffer_size: u32,
     send_buffer_size: u32,
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, gso: (bool, u64), gro: (bool, u64), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
+    pub fn new(nonblocking: bool, gso: (bool, u64), _gro: (bool, u64), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
         SocketOptions {
             nonblocking,
             gso,
-            gro,
+            _gro,
             recv_buffer_size,
             send_buffer_size,
         }
     }
 
-    pub fn update(&mut self, socket: i32) {
-        // TODO: Iterate through options and set them accordingly
+    pub fn update(&mut self, socket: i32) -> Result<(), &'static str> {
+        // TODO: Handle return values
         if self.nonblocking {
-            self.set_nonblocking(socket);
+            self.set_nonblocking(socket)?;
         } else if self.gso.0 {
-            self.set_gso(socket, self.gso.1);
+            self.set_gso(socket, self.gso.1)?;
         }
-        Self::set_receive_buffer_size(self, socket, self.recv_buffer_size);
-        Self::set_send_buffer_size(self, socket, self.send_buffer_size);
+        Self::set_receive_buffer_size(self, socket, self.recv_buffer_size)?;
+        Self::set_send_buffer_size(self, socket, self.send_buffer_size)?;
+        Ok(())
     }
 
     pub fn set_nonblocking(&mut self, socket: i32) -> Result<(), &'static str> {    
