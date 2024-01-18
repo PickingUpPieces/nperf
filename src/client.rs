@@ -45,7 +45,7 @@ impl Client {
         net::set_socket_nonblocking(self.socket).expect("Error setting socket to nonblocking mode");
     
         if self.mtu_discovery {
-            self.buffer = create_buffer_dynamic(self.socket);
+            self.buffer = util::create_buffer_dynamic(self.socket);
         }
     
         self.history.start_time = Instant::now();
