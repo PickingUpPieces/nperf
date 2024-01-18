@@ -51,6 +51,10 @@ struct Arguments{
     /// Time to run the test
     #[arg(short = 't', default_value_t = DEFAULT_DURATION)]
     time: u64,
+
+    /// Enable GSO on sending socket
+    #[arg(long, default_value_t = false)]
+    use_gso: bool,
 }
 
 fn main() {
@@ -76,10 +80,10 @@ fn main() {
     }
 
     if mode == util::NPerfMode::Client {
-        let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.time);
+        let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.use_gso, args.time);
         client.run();
     } else {
-        let mut server = Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.run_server_infinite);
+        let mut server = Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.use_gso, args.run_server_infinite);
         server.run();
     }
 }

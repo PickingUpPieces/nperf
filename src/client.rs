@@ -17,8 +17,8 @@ pub struct Client {
 
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, run_time_length: u64) -> Client {
-        let socket = Socket::new(ip, remote_port, mtu_size).expect("Error creating socket");
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, use_gso: bool, run_time_length: u64) -> Client {
+        let socket = Socket::new(ip, remote_port, mtu_size, use_gso).expect("Error creating socket");
 
         Client {
             mtu_discovery,
@@ -50,7 +50,7 @@ impl Client {
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
             util::prepare_packet(self.history.amount_datagrams, &mut self.buffer);
     
-            match self.socket.send(&mut self.buffer, buffer_length) {
+            match self.socket.write(&mut self.buffer, buffer_length) {
                 Ok(_) => {
                     self.history.amount_datagrams += 1;
                     trace!("Sent datagram to remote host");
@@ -68,7 +68,7 @@ impl Client {
         let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
 
         // TODO: Unwrap and do something if it's successfull
-        match self.socket.send(&mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
+        match self.socket.write(&mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
             Ok(_) => {
                 self.history.end_time = Instant::now();
                 debug!("...finished measurement");

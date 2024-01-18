@@ -19,8 +19,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, run_infinite: bool) -> Server {
-        let socket = Socket::new(ip, local_port, mtu_size).expect("Error creating socket");
+    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, use_gso: bool, run_infinite: bool) -> Server {
+        let socket = Socket::new(ip, local_port, mtu_size, use_gso).expect("Error creating socket");
 
         Server {
             mtu_discovery,
@@ -40,7 +40,7 @@ impl Server {
         self.socket.set_nonblocking().expect("Error setting socket to nonblocking mode");
 
         loop {
-            match self.socket.recv(&mut self.buffer) {
+            match self.socket.read(&mut self.buffer) {
                 Ok(amount_received_bytes) => {
                     if self.first_packet_received == false {
                         self.first_packet_received = true;
