@@ -1,6 +1,6 @@
 use std::{time::Instant, vec};
 use clap::Parser;
-use log::{info, error};
+use log::{info, error, debug};
 
 use crate::client::Client;
 use crate::server::Server;
