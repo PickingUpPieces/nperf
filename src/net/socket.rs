@@ -1,5 +1,4 @@
 
-use libc::*;
 use log::{info, trace, debug, error, warn};
 use std::{self, net::Ipv4Addr};
 
