@@ -186,6 +186,7 @@ impl Socket {
     pub fn set_send_buffer_size(&self, size: u32) -> Result<(), &'static str> {
         let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
         let current_size = Self::get_send_buffer_size(self.socket)?;
+        debug!("Trying to set send buffer size from {} to {}", current_size, size);
     
         if current_size >= size {
             warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
@@ -250,6 +251,7 @@ impl Socket {
     pub fn set_receive_buffer_size(&self, size: u32) -> Result<(), &'static str> {
         let size_len = std::mem::size_of::<u32>() as libc::socklen_t;
         let current_size = Self::get_receive_buffer_size(self.socket)?; 
+        debug!("Trying to set receive buffer size from {} to {}", current_size, size);
     
         if current_size >= size {
             warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
