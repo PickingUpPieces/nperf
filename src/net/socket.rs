@@ -214,6 +214,7 @@ impl Socket {
                     info!("New socket send buffer size: {}", x);
                     Ok(())
                 } else {
+                    error!("Current buffer size not equal desired one: {} vs {}", x, size);
                     Err("Failed to set socket send buffer size")
                 }
             },
