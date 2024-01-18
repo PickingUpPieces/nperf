@@ -1,8 +1,7 @@
 use std::{net::Ipv4Addr, time::Duration};
-
 use log::{debug, info};
 
-use crate::net;
+use crate::net::socket::Socket;
 
 #[derive(PartialEq, Debug)]
 pub enum NPerfMode {
@@ -72,8 +71,8 @@ pub fn process_packet(buffer: &mut [u8], next_packet_id: u64, history: &mut Hist
     if packet_id == next_packet_id {
         return 1
     } else if packet_id > next_packet_id {
-        let lost_packet_count = (packet_id - next_packet_id) as i64;
-        history.amount_omitted_datagrams += lost_packet_count;
+        let lost_packet_count = (packet_id - next_packet_id) as u64;
+        history.amount_omitted_datagrams += lost_packet_count as i64;
         info!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
         return lost_packet_count + 1; // This is the next packet id that we expect, since we assume that the missing packets are lost
     } else { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
@@ -89,8 +88,8 @@ pub fn process_packet(buffer: &mut [u8], next_packet_id: u64, history: &mut Hist
     }
 }
 
-pub fn create_buffer_dynamic(socket: i32) -> Vec<u8> {
-    let buffer_len = net::get_socket_mtu(socket).expect("Error getting dynamically the socket MTU") as usize;
+pub fn create_buffer_dynamic(socket: Socket) -> Vec<u8> {
+    let buffer_len = socket.get_mtu().expect("Error getting dynamically the socket MTU") as usize;
     info!("UDP MTU of size {} bytes", buffer_len);
     let buffer: Vec<u8> = vec![0; buffer_len];
     buffer

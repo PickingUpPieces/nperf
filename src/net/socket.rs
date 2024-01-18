@@ -1,6 +1,6 @@
 
 use libc::*;
-use log::{info, debug, error, warn};
+use log::{info, trace, debug, error, warn};
 use std::{self, net::Ipv4Addr};
 
 pub struct Socket {
@@ -11,35 +11,36 @@ pub struct Socket {
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize) -> Socket {
-        let socket = create_socket()?; 
+    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize) -> Option<Socket> {
+        let socket = Self::create_socket()?; 
 
-        Socket {
+        Some(Socket {
             ip,
             port,
             mtu_size,
             socket,
-        }
+        })
     }
 
-    fn create_socket() -> Result<i32, &'static str> {
+    fn create_socket() -> Option<i32> {
         let socket = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
         if socket == -1 {
-            return Err("Failed to create socket");
+            error!("Failed to create socket");
+            return None;
         }
         
         info!("Created socket: {:?}", socket);
     
-        Ok(socket)
+        Some(socket)
     }
 
 
     pub fn connect(&self) -> Result<(), &'static str> {
-        let sockaddr = create_sockaddr(self.address, self.port);
+        let sockaddr = Self::create_sockaddr(self.ip, self.port);
     
         let connect_result = unsafe {
             libc::connect(
-                socket,
+                self.socket,
                 &sockaddr as *const _ as _,
                 std::mem::size_of_val(&sockaddr) as libc::socklen_t
             )
@@ -55,7 +56,7 @@ impl Socket {
     }
 
     pub fn bind(&self) -> Result<(), &'static str> {
-        let sockaddr = create_sockaddr(self.address, self.port);
+        let sockaddr = Self::create_sockaddr(self.ip, self.port);
     
         let bind_result = unsafe {
             libc::bind(
@@ -185,7 +186,7 @@ impl Socket {
 
     pub fn set_send_buffer_size(&self, size: u32) -> Result<(), &'static str> {
         let mut size_len = std::mem::size_of_val(&size) as libc::socklen_t;
-        let current_size = get_send_buffer_size(self.socket)?;
+        let current_size = Self::get_send_buffer_size(self.socket)?;
     
         if current_size >= size {
             warn!("New buffer size is smaller than current buffer size");
@@ -208,7 +209,7 @@ impl Socket {
         }
     
         // TODO: Check only for okay with if let
-        match get_send_buffer_size(self.socket) {
+        match Self::get_send_buffer_size(self.socket) {
             Ok(x) => {
                 if x == size {
                     info!("New socket send buffer size: {}", x);
@@ -248,7 +249,7 @@ impl Socket {
     
     pub fn set_receive_buffer_size(&self, size: u32) -> Result<(), &'static str> {
         let size_len = std::mem::size_of::<u32>() as libc::socklen_t;
-        let current_size = get_receive_buffer_size(self.socket)?; 
+        let current_size = Self::get_receive_buffer_size(self.socket)?; 
     
         if current_size >= size {
             warn!("New buffer size is smaller than current buffer size");
@@ -271,7 +272,7 @@ impl Socket {
             return Err("Failed to set socket receive buffer size");
         }
     
-        match get_receive_buffer_size(self.socket) {
+        match Self::get_receive_buffer_size(self.socket) {
             Ok(x) => {
                 info!("New socket receive buffer size: {}", x);
                 Ok(())

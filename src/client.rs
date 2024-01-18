@@ -6,7 +6,7 @@ use log::trace;
 use log::{debug, error, info};
 
 use crate::util;
-use crate::net;
+use crate::net::socket::Socket;
 use crate::util::History;
 
 pub struct Client {
@@ -15,7 +15,7 @@ pub struct Client {
     mtu_size: usize,
     mtu_discovery: bool,
     buffer: Vec<u8>,
-    socket: i32,
+    socket: Socket,
     history: History,
     run_time_length: u64,
 }
@@ -23,7 +23,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, run_time_length: u64) -> Client {
-        let socket = net::create_socket().expect("Error creating socket"); 
+        let socket = Socket::new(ip, remote_port, mtu_size).expect("Error creating socket");
 
         Client {
             ip,
@@ -40,9 +40,9 @@ impl Client {
     pub fn run(&mut self) {
         info!("Current mode: client");
         util::fill_buffer_with_repeating_pattern(&mut self.buffer);
-        net::set_socket_send_buffer_size(self.socket, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE).expect("Error setting socket send buffer size");
-        net::connect(self.socket, self.ip, self.remote_port).expect("Error connecting to remote host"); 
-        net::set_socket_nonblocking(self.socket).expect("Error setting socket to nonblocking mode");
+        self.socket.set_send_buffer_size(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE).expect("Error setting socket send buffer size");
+        self.socket.connect().expect("Error connecting to remote host"); 
+        self.socket.set_nonblocking().expect("Error setting socket to nonblocking mode");
     
         if self.mtu_discovery {
             self.buffer = util::create_buffer_dynamic(self.socket);
@@ -54,7 +54,7 @@ impl Client {
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
             util::prepare_packet(self.history.amount_datagrams, &mut self.buffer);
     
-            match net::send(self.socket, &mut self.buffer, buffer_length) {
+            match self.socket.send(&mut self.buffer, buffer_length) {
                 Ok(_) => {
                     self.history.amount_datagrams += 1;
                     trace!("Sent datagram to remote host");
@@ -72,7 +72,7 @@ impl Client {
         let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
 
         // TODO: Unwrap and do something if it's successfull
-        match net::send(self.socket, &mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
+        match self.socket.send(&mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
             Ok(_) => {
                 self.history.end_time = Instant::now();
                 debug!("Finished sending data to remote host");
@@ -82,8 +82,5 @@ impl Client {
                 error!("{x}"); 
                 panic!()},
         };
-    
-        // Close file descriptor at last
-        unsafe { close(self.socket) }; 
     }
 }

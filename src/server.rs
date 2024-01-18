@@ -1,11 +1,10 @@
 
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use libc::close;
 use log::{debug, error, info};
 
 use crate::util;
-use crate::net;
+use crate::net::socket::Socket;
 use crate::util::History;
 
 
@@ -15,7 +14,7 @@ pub struct Server {
     mtu_size: usize,
     mtu_discovery: bool,
     buffer: Vec<u8>,
-    socket: i32,
+    socket: Socket,
     run_infinite: bool,
     first_packet_received: bool,
     next_packet_id: u64,
@@ -24,7 +23,7 @@ pub struct Server {
 
 impl Server {
     pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, run_infinite: bool) -> Server {
-        let socket = net::create_socket().expect("Error creating socket"); 
+        let socket = Socket::new(ip, local_port, mtu_size).expect("Error creating socket");
 
         Server {
             ip,
@@ -42,12 +41,12 @@ impl Server {
 
     pub fn run(&mut self) {
         info!("Current mode: server");
-        net::bind_socket(self.socket, self.ip, self.local_port).expect("Error binding socket");
-        net::set_socket_receive_buffer_size(self.socket, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE).expect("Error setting socket receive buffer size"); 
-        net::set_socket_nonblocking(self.socket).expect("Error setting socket to nonblocking mode");
+        self.socket.bind().expect("Error binding socket");
+        self.socket.set_receive_buffer_size(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE).expect("Error setting socket receive buffer size"); 
+        self.socket.set_nonblocking().expect("Error setting socket to nonblocking mode");
 
         loop {
-            match net::recv(self.socket, &mut self.buffer) {
+            match self.socket.recv(&mut self.buffer) {
                 Ok(amount_received_bytes) => {
                     if self.first_packet_received == false {
                         self.first_packet_received = true;
@@ -72,7 +71,6 @@ impl Server {
                 Err("EAGAIN") => continue,
                 Err(x) => {
                     error!("{x}"); 
-                    unsafe { close(self.socket) }; 
                     panic!();
                 }
             };
