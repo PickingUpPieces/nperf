@@ -50,6 +50,7 @@ impl Server {
                             // FIXME: getting the IP_MTU from getsockopt throws an error, therefore don't use it for now
                             info!("Set buffer size to MTU");
                             self.buffer = util::create_buffer_dynamic(&mut self.socket);
+                            self.history.datagram_size = self.buffer.len() as u64;
                         }
 
                         self.history.start_time = Instant::now();

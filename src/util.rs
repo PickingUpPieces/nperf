@@ -102,7 +102,7 @@ pub struct History {
     pub end_time: std::time::Instant,
     total_time: std::time::Duration,
     total_data: f64,
-    datagram_size: u64,
+    pub datagram_size: u64,
     pub amount_datagrams: u64,
     pub amount_reordered_datagrams: u64,
     pub amount_duplicated_datagrams: u64,

@@ -37,11 +37,15 @@ impl Client {
         self.socket.set_nonblocking().expect("Error setting socket to nonblocking mode");
     
         if self.mtu_discovery {
+            info!("Set buffer size to MTU");
             self.buffer = util::create_buffer_dynamic(&mut self.socket);
+            self.history.datagram_size = self.buffer.len() as u64;
         }
     
         self.history.start_time = Instant::now();
         let buffer_length = self.buffer.len();
+
+        info!("Start measurement...");
     
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
             util::prepare_packet(self.history.amount_datagrams, &mut self.buffer);
@@ -67,7 +71,7 @@ impl Client {
         match self.socket.send(&mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize) {
             Ok(_) => {
                 self.history.end_time = Instant::now();
-                debug!("Finished sending data to remote host");
+                debug!("...finished measurement");
                 self.history.print();
             },
             Err(x) => { 
