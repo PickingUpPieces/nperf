@@ -43,7 +43,7 @@ impl SocketOptions {
         if fcntl_result == -1 {
             return Err("Failed to set socket flags");
         }
-
+        info!("Set socket to nonblocking mode");
         self.nonblocking = true;
         Ok(())
     }
@@ -203,6 +203,7 @@ impl SocketOptions {
             return Err("Failed to enable GSO on socket");
         }
 
+        info!("Enabled GSO on socket with size {}", gso_size);
         self.gso = (true, gso_size);
         Ok(())
     }
