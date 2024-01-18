@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, time::Duration};
 
 use log::{debug, info};
 
@@ -116,15 +116,15 @@ impl History {
         History {
             start_time: std::time::Instant::now(),
             end_time: std::time::Instant::now(),
-            total_time: calculate_total_time(),
-            total_data: calculate_total_data(),
+            total_time: Duration::new(0, 0),
+            total_data: 0.0,
             datagram_size,
             amount_datagrams: 0,
             amount_reordered_datagrams: 0,
             amount_duplicated_datagrams: 0,
             amount_omitted_datagrams: 0,
-            data_rate: calculate_data_rate(),
-            packet_loss: calculate_packet_loss(),
+            data_rate: 0.0,
+            packet_loss: 0.0,
         }
     }
 
