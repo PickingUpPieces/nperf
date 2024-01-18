@@ -21,7 +21,6 @@ impl SocketOptions {
     }
 
     pub fn update(&mut self, socket: i32) -> Result<(), &'static str> {
-        // TODO: Handle return values
         if self.nonblocking {
             self.set_nonblocking(socket)?;
         } else if self.gso.0 {
@@ -82,7 +81,7 @@ impl SocketOptions {
                     self.send_buffer_size = x;
                     Ok(())
                 } else {
-                    error!("Current buffer size not equal desired one: {} vs {}", x, size);
+                    error!("Current send buffer size not equal desired one: {} vs {}", x, size);
                     // FIXME: Currently the max buffer size is set, not the desired one. Since this size is a lot bigger than the desired one, we fix this bug later.
                     // Err("Failed to set socket send buffer size")
                     Ok(())
@@ -150,7 +149,7 @@ impl SocketOptions {
                     self.recv_buffer_size = x;
                     Ok(())
                 } else {
-                    error!("Current buffer size not equal desired one: {} vs {}", x, size);
+                    error!("Current receive buffer size not equal desired one: {} vs {}", x, size);
                     // FIXME: Currently the max buffer size is set, not the desired one. Since this size is a lot bigger than the desired one, we fix this bug later.
                     // Err("Failed to set socket receive buffer size")
                     Ok(())

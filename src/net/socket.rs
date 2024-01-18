@@ -9,21 +9,21 @@ pub struct Socket {
     port: u16,
     pub mtu_size: usize,
     socket: i32,
-    socket_options: SocketOptions,
+    _socket_options: SocketOptions,
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, mut socket_options: SocketOptions) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, mut _socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
-        socket_options.update(socket);
+        _socket_options.update(socket).expect("Error updating socket options");
 
         Some(Socket {
             ip,
             port,
             mtu_size,
             socket,
-            socket_options, 
+            _socket_options, 
         })
     }
 
