@@ -68,7 +68,7 @@ impl Server {
                         info!("Last packet received!");
                         break;
                     }
-                    self.next_packet_id += util::process_packet(&self.buffer, self.next_packet_id, &mut self.history);
+                    self.next_packet_id += util::process_packet(&mut self.buffer, self.next_packet_id, &mut self.history);
                     self.history.amount_datagrams += 1;
                 },
                 Err("EAGAIN") => continue,

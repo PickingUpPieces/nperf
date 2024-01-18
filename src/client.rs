@@ -2,6 +2,7 @@ use std::net::Ipv4Addr;
 use std::time::Instant;
 
 use libc::close;
+use log::trace;
 use log::{debug, error, info};
 
 use crate::util;
@@ -38,14 +39,10 @@ impl Client {
 
     pub fn run(&self) {
         info!("Current mode: client");
-        // Fill the buffer
         util::fill_buffer_with_repeating_pattern(&mut self.buffer);
-    
         net::set_socket_send_buffer_size(self.socket, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE).expect("Error setting socket send buffer size");
-    
         net::connect(self.socket, self.ip, self.remote_port).expect("Error connecting to remote host"); 
-    
-        net::set_socket_nonblocking(self.socket).expect(msg);
+        net::set_socket_nonblocking(self.socket).expect("Error setting socket to nonblocking mode");
     
         if self.mtu_discovery {
             self.buffer = util::create_buffer_dynamic(self.socket);
@@ -87,6 +84,6 @@ impl Client {
         };
     
         // Close file descriptor at last
-        unsafe { close(measurement.socket) }; 
+        unsafe { close(self.socket) }; 
     }
 }
