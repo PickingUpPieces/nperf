@@ -2,5 +2,3 @@
 RUST_LOG = "info"
 RUST_BACKTRACE = "debug"
 
-[build]
-target = "x86_64-unknown-linux-gnu"

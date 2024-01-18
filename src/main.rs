@@ -1,6 +1,8 @@
-use std::{time::Instant, vec};
 use clap::Parser;
-use log::{info, error};
+use log::{info, error, debug};
+
+use crate::client::Client;
+use crate::server::Server;
 
 mod util;
 mod net;
@@ -9,15 +11,15 @@ mod server;
 
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_UDP_BLKSIZE: usize = 1472;
-
-const LAST_MESSAGE_SIZE: isize = 100;
 const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB;
 const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB;
-// const DURATION: usize = 10 // /* seconds */
+const DEFAULT_DURATION: u64 = 10; // /* seconds */
+const DEFAULT_PORT: u16 = 45001;
 
 // Sanity checks from iPerf3
 // /* Maximum size UDP send is (64K - 1) - IP and UDP header sizes */
 const MAX_UDP_BLOCKSIZE: usize = 65535 - 8 - 20;
+const LAST_MESSAGE_SIZE: isize = 100;
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
@@ -31,7 +33,7 @@ struct Arguments{
     ip: String,
 
     //() Port number to measure against/listen on 
-    #[arg(short, default_value_t = 45001)]
+    #[arg(short, default_value_t = DEFAULT_PORT)]
     port: u16,
 
     /// Don't stop the server after the first measurement
@@ -47,14 +49,14 @@ struct Arguments{
     mtu_discovery: bool,
 
     /// Time to run the test
-    #[arg(short = 't', default_value_t = 10)]
+    #[arg(short = 't', default_value_t = DEFAULT_DURATION)]
     time: u64,
 }
 
 fn main() {
     env_logger::init();
     let args = Arguments::parse();
-    info!("{:?}", args);
+    debug!("{:?}", args);
 
     let mode: util::NPerfMode = match util::parse_mode(args.mode) {
         Some(x) => x,
@@ -73,32 +75,11 @@ fn main() {
         info!("MTU size used: {}", args.mtu_size);
     }
 
-    let mut measurement = util::NperfMeasurement {
-        mode,
-        run_infinite: args.run_server_infinite,
-        ip: ipv4,
-        local_port: args.port,
-        remote_port: 0,
-        buffer: vec![0; args.mtu_size],
-        dynamic_buffer_size: args.mtu_discovery,
-        socket: 0,
-        time: args.time,
-        data_rate: 0,
-        first_packet_received: false,
-        start_time: Instant::now(),
-        end_time: Instant::now(),
-        packet_count: 0,
-        next_packet_id: 0,
-        omitted_packet_count: 0,
-        reordered_packet_count: 0,
-        duplicated_packet_count: 0,
-    };
-
-    measurement.socket = net::create_socket().expect("Error creating socket"); 
-
-    if measurement.mode == util::NPerfMode::Client {
-        client::start_client(&mut measurement);
+    if mode == util::NPerfMode::Client {
+        let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.time);
+        client.run();
     } else {
-        server::start_server(&mut measurement);
+        let mut server = Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.run_server_infinite);
+        server.run();
     }
 }
