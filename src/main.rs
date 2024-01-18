@@ -1,4 +1,3 @@
-use std::{time::Instant, vec};
 use clap::Parser;
 use log::{info, error, debug};
 
@@ -76,32 +75,11 @@ fn main() {
         info!("MTU size used: {}", args.mtu_size);
     }
 
-    let measurement = util::NperfMeasurement {
-        mode,
-        run_infinite: args.run_server_infinite,
-        ip: ipv4,
-        local_port: args.port,
-        remote_port: 0,
-        buffer: vec![0; args.mtu_size],
-        dynamic_buffer_size: args.mtu_discovery,
-        socket: 0,
-        time: args.time,
-        data_rate: 0,
-        first_packet_received: false,
-        start_time: Instant::now(),
-        end_time: Instant::now(),
-        packet_count: 0,
-        next_packet_id: 0,
-        omitted_packet_count: 0,
-        reordered_packet_count: 0,
-        duplicated_packet_count: 0,
-    };
-
-    if measurement.mode == util::NPerfMode::Client {
-        let mut client = Client::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.time);
+    if mode == util::NPerfMode::Client {
+        let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.time);
         client.run();
     } else {
-        let mut server = Server::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.run_infinite);
+        let mut server = Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.run_server_infinite);
         server.run();
     }
 }

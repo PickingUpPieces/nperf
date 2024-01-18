@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, time::Duration};
+use std::time::Duration;
 use log::{debug, info};
 
 use crate::net::socket::Socket;
@@ -8,29 +8,6 @@ pub enum NPerfMode {
     Client,
     Server,
 }
-
-#[derive(Debug)]
-pub struct NperfMeasurement {
-    pub mode: NPerfMode,
-    pub run_infinite: bool,
-    pub ip: Ipv4Addr,
-    pub local_port: u16,
-    pub remote_port: u16,
-    pub buffer: Vec<u8>,
-    pub dynamic_buffer_size: bool,
-    pub socket: i32,
-    pub time: u64,
-    pub data_rate: u64,
-    pub first_packet_received: bool,
-    pub start_time: std::time::Instant,
-    pub end_time: std::time::Instant,
-    pub packet_count: u64,
-    pub next_packet_id: u64,
-    pub omitted_packet_count: i64,
-    pub reordered_packet_count: u64,
-    pub duplicated_packet_count: u64,
-}
-
 
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
