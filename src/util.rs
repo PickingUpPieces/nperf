@@ -88,7 +88,7 @@ pub fn process_packet(buffer: &mut [u8], next_packet_id: u64, history: &mut Hist
     }
 }
 
-pub fn create_buffer_dynamic(socket: &Socket) -> Vec<u8> {
+pub fn create_buffer_dynamic(socket: &mut Socket) -> Vec<u8> {
     let buffer_len = socket.get_mtu().expect("Error getting dynamically the socket MTU") as usize;
     info!("UDP MTU of size {} bytes", buffer_len);
     let buffer: Vec<u8> = vec![0; buffer_len];
