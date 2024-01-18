@@ -5,7 +5,7 @@ use std::time::Instant;
 use libc::close;
 use log::{debug, error, info};
 
-use crate::util::*;
+use crate::util;
 use crate::net;
 
 

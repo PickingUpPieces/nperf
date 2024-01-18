@@ -7,6 +7,9 @@ mod net;
 mod client;
 mod server;
 
+use client::Client;
+use server::Server;
+
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_UDP_BLKSIZE: usize = 1472;
 
@@ -95,10 +98,10 @@ fn main() {
     };
 
     if measurement.mode == util::NPerfMode::Client {
-        let client = client::new(measurement.ip, measurement.local_port, measurement.mtu_size, measurement.mtu_discovery, measurement.time);
+        let client = client::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.time);
         client.run();
     } else {
-        let server = server::new(measurement.ip, measurement.local_port, measurement.mtu_size, measurement.mtu_discovery, measurement.run_infinite);
+        let server = server::new(measurement.ip, measurement.local_port, args.mtu_size, args.mtu_discovery, measurement.run_infinite);
         server.run();
     }
 }

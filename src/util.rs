@@ -58,8 +58,8 @@ pub fn fill_buffer_with_repeating_pattern(buffer: &mut [u8]) {
 }
 
 
-pub fn prepare_packet(next_packet_id: u64, buffer: Vec<u8>) {
-    buffer[0..8].copy_from_slice(next_packet_id.to_be_bytes());
+pub fn prepare_packet(next_packet_id: u64, buffer: &mut Vec<u8>) {
+    buffer[0..8].copy_from_slice(&next_packet_id.to_be_bytes());
     debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[0..8].try_into().unwrap()));
 }
 
