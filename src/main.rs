@@ -7,8 +7,8 @@ mod net;
 mod client;
 mod server;
 
-use client::Client;
-use server::Server;
+use crate::client::Client::*;
+use crate::server::Server::*;
 
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_UDP_BLKSIZE: usize = 1472;

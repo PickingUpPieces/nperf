@@ -8,7 +8,7 @@ use crate::util;
 use crate::net;
 use crate::util::History;
 
-struct Client {
+pub struct Client {
     ip: Ipv4Addr,
     remote_port: u16,
     mtu_size: usize,

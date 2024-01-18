@@ -4,12 +4,12 @@ use std::time::Instant;
 
 use libc::close;
 use log::{debug, error, info};
-
 use crate::util;
 use crate::net;
+use crate::util::History;
 
 
-struct Server {
+pub struct Server {
     ip: Ipv4Addr,
     local_port: u16,
     mtu_size: usize,
