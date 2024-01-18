@@ -9,21 +9,21 @@ pub struct Socket {
     port: u16,
     pub mtu_size: usize,
     socket: i32,
-    options: SocketOptions,
+    socket_options: SocketOptions,
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, use_gso: bool) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
-        let options = SocketOptions::new(true, use_gso, false, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+        socket_options.update(socket);
 
         Some(Socket {
             ip,
             port,
             mtu_size,
             socket,
-            options
+            socket_options, 
         })
     }
 
@@ -170,18 +170,18 @@ impl Socket {
     }
 
     pub fn set_nonblocking(&mut self) -> Result<(), &'static str> {
-        self.options.set_nonblocking(self.socket)
+        self.socket_options.set_nonblocking(self.socket)
     }
 
     pub fn set_receive_buffer_size(&mut self, size: u32) -> Result<(), &'static str> {
-        self.options.set_receive_buffer_size(self.socket, size)
+        self.socket_options.set_receive_buffer_size(self.socket, size)
     }
 
     pub fn set_send_buffer_size(&mut self, size: u32) -> Result<(), &'static str> {
-        self.options.set_send_buffer_size(self.socket, size)
+        self.socket_options.set_send_buffer_size(self.socket, size)
     }
 
     pub fn set_gso(&mut self) -> Result<(), &'static str> {
-        self.options.set_gso(self.socket, self.mtu_size as u64)
+        self.socket_options.set_gso(self.socket, self.mtu_size as u64)
     } 
 }

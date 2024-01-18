@@ -3,6 +3,7 @@ use std::net::Ipv4Addr;
 use std::time::Instant;
 use log::{debug, error, info};
 
+use crate::net::socket_options::SocketOptions;
 use crate::util;
 use crate::net::socket::Socket;
 use crate::util::History;
@@ -19,8 +20,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, use_gso: bool, run_infinite: bool) -> Server {
-        let socket = Socket::new(ip, local_port, mtu_size, use_gso).expect("Error creating socket");
+    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, mut socket_options: SocketOptions, run_infinite: bool) -> Server {
+        let socket = Socket::new(ip, local_port, mtu_size, socket_options).expect("Error creating socket");
 
         Server {
             mtu_discovery,
@@ -36,8 +37,6 @@ impl Server {
     pub fn run(&mut self) {
         info!("Current mode: server");
         self.socket.bind().expect("Error binding socket");
-        self.socket.set_receive_buffer_size(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE).expect("Error setting socket receive buffer size"); 
-        self.socket.set_nonblocking().expect("Error setting socket to nonblocking mode");
 
         loop {
             match self.socket.read(&mut self.buffer) {

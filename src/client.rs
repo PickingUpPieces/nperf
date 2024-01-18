@@ -3,6 +3,7 @@ use std::time::Instant;
 use log::trace;
 use log::{debug, error, info};
 
+use crate::net::socket_options::SocketOptions;
 use crate::util;
 use crate::net::socket::Socket;
 use crate::util::History;
@@ -17,8 +18,8 @@ pub struct Client {
 
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, use_gso: bool, run_time_length: u64) -> Client {
-        let socket = Socket::new(ip, remote_port, mtu_size, use_gso).expect("Error creating socket");
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, mut socket_options: SocketOptions, run_time_length: u64) -> Client {
+        let socket = Socket::new(ip, remote_port, mtu_size, socket_options).expect("Error creating socket");
 
         Client {
             mtu_discovery,
@@ -32,9 +33,7 @@ impl Client {
     pub fn run(&mut self) {
         info!("Current mode: client");
         util::fill_buffer_with_repeating_pattern(&mut self.buffer);
-        self.socket.set_send_buffer_size(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE).expect("Error setting socket send buffer size");
         self.socket.connect().expect("Error connecting to remote host"); 
-        self.socket.set_nonblocking().expect("Error setting socket to nonblocking mode");
     
         if self.mtu_discovery {
             info!("Set buffer size to MTU");
