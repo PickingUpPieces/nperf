@@ -188,7 +188,7 @@ impl Socket {
         let current_size = Self::get_send_buffer_size(self.socket)?;
     
         if current_size >= size {
-            warn!("New buffer size is smaller than current buffer size");
+            warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
             return Ok(());
         }
     
@@ -252,7 +252,7 @@ impl Socket {
         let current_size = Self::get_receive_buffer_size(self.socket)?; 
     
         if current_size >= size {
-            warn!("New buffer size is smaller than current buffer size");
+            warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
             return Ok(());
         }
     
@@ -274,8 +274,13 @@ impl Socket {
     
         match Self::get_receive_buffer_size(self.socket) {
             Ok(x) => {
-                info!("New socket receive buffer size: {}", x);
-                Ok(())
+                if x == size {
+                    info!("New socket receive buffer size: {}", x);
+                    Ok(())
+                } else {
+                    error!("Current buffer size not equal desired one: {} vs {}", x, size);
+                    Err("Failed to set socket receive buffer size")
+                }
             },
             Err(x) => {
                 error!("{x}");
@@ -283,7 +288,6 @@ impl Socket {
             }
         }
     }
-    
     
     fn get_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
         let current_size: u32 = 0;
