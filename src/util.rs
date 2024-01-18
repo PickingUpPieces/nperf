@@ -74,13 +74,13 @@ pub fn process_packet(buffer: &mut [u8], next_packet_id: u64, history: &mut Hist
     } else if packet_id > next_packet_id {
         let lost_packet_count = (packet_id - next_packet_id) as i64;
         history.amount_omitted_datagrams += lost_packet_count;
-        info!("Reordered or lost packet received! {} packets are currently missing", lost_packet_count);
-        return 1
-    } else {
+        info!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
+        return lost_packet_count + 1; // This is the next packet id that we expect, since we assume that the missing packets are lost
+    } else { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
         if history.amount_omitted_datagrams > 0 { 
             history.amount_omitted_datagrams -= 1;
             history.amount_reordered_datagrams  += 1;
-            info!("Received reordered packet");
+            info!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
         } else { 
             history.amount_duplicated_datagrams += 1;
             info!("Received duplicated packet");
