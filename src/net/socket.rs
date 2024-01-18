@@ -169,19 +169,19 @@ impl Socket {
         }
     }
 
-    pub fn set_nonblocking(&self) -> Result<(), &'static str> {
+    pub fn set_nonblocking(&mut self) -> Result<(), &'static str> {
         self.options.set_nonblocking(self.socket)
     }
 
-    pub fn set_receive_buffer_size(&self, size: u32) -> Result<(), &'static str> {
+    pub fn set_receive_buffer_size(&mut self, size: u32) -> Result<(), &'static str> {
         self.options.set_receive_buffer_size(self.socket, size)
     }
 
-    pub fn set_send_buffer_size(&self, size: u32) -> Result<(), &'static str> {
+    pub fn set_send_buffer_size(&mut self, size: u32) -> Result<(), &'static str> {
         self.options.set_send_buffer_size(self.socket, size)
     }
 
-    pub fn set_gso(&self) -> Result<(), &'static str> {
+    pub fn set_gso(&mut self) -> Result<(), &'static str> {
         self.options.set_gso(self.socket, self.mtu_size as u64)
     } 
 }
