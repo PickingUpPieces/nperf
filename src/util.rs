@@ -92,6 +92,7 @@ pub fn create_buffer_dynamic(socket: &Socket) -> Vec<u8> {
     let buffer_len = socket.get_mtu().expect("Error getting dynamically the socket MTU") as usize;
     info!("UDP MTU of size {} bytes", buffer_len);
     let buffer: Vec<u8> = vec![0; buffer_len];
+    socket.mtu_size = buffer_len;
     buffer
 }
 
