@@ -184,7 +184,7 @@ impl Socket {
     }
 
     pub fn set_send_buffer_size(&self, size: u32) -> Result<(), &'static str> {
-        let mut size_len = std::mem::size_of_val(&size) as libc::socklen_t;
+        let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
         let current_size = Self::get_send_buffer_size(self.socket)?;
     
         if current_size >= size {

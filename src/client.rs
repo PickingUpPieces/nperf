@@ -8,9 +8,6 @@ use crate::net::socket::Socket;
 use crate::util::History;
 
 pub struct Client {
-    ip: Ipv4Addr,
-    remote_port: u16,
-    mtu_size: usize,
     mtu_discovery: bool,
     buffer: Vec<u8>,
     socket: Socket,
@@ -24,9 +21,6 @@ impl Client {
         let socket = Socket::new(ip, remote_port, mtu_size).expect("Error creating socket");
 
         Client {
-            ip,
-            remote_port,
-            mtu_size,
             mtu_discovery,
             buffer: vec![0; mtu_size],
             socket,

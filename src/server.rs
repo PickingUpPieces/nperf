@@ -9,13 +9,10 @@ use crate::util::History;
 
 
 pub struct Server {
-    ip: Ipv4Addr,
-    local_port: u16,
-    mtu_size: usize,
     mtu_discovery: bool,
     buffer: Vec<u8>,
     socket: Socket,
-    run_infinite: bool,
+    _run_infinite: bool,
     first_packet_received: bool,
     next_packet_id: u64,
     history: History,
@@ -26,13 +23,10 @@ impl Server {
         let socket = Socket::new(ip, local_port, mtu_size).expect("Error creating socket");
 
         Server {
-            ip,
-            local_port,
-            mtu_size,
             mtu_discovery,
             buffer: vec![0; mtu_size],
             socket,
-            run_infinite,
+            _run_infinite: run_infinite,
             first_packet_received: false,
             next_packet_id: 0,
             history: History::new(mtu_size as u64),
