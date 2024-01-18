@@ -18,7 +18,7 @@ pub struct Client {
 
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, mut socket_options: SocketOptions, run_time_length: u64) -> Client {
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_time_length: u64) -> Client {
         let socket = Socket::new(ip, remote_port, mtu_size, socket_options).expect("Error creating socket");
 
         Client {

@@ -20,7 +20,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, mut socket_options: SocketOptions, run_infinite: bool) -> Server {
+    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_infinite: bool) -> Server {
         let socket = Socket::new(ip, local_port, mtu_size, socket_options).expect("Error creating socket");
 
         Server {

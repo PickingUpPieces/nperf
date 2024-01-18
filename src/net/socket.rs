@@ -168,20 +168,4 @@ impl Socket {
             sin_zero: [0; 8]
         }
     }
-
-    pub fn set_nonblocking(&mut self) -> Result<(), &'static str> {
-        self.socket_options.set_nonblocking(self.socket)
-    }
-
-    pub fn set_receive_buffer_size(&mut self, size: u32) -> Result<(), &'static str> {
-        self.socket_options.set_receive_buffer_size(self.socket, size)
-    }
-
-    pub fn set_send_buffer_size(&mut self, size: u32) -> Result<(), &'static str> {
-        self.socket_options.set_send_buffer_size(self.socket, size)
-    }
-
-    pub fn set_gso(&mut self) -> Result<(), &'static str> {
-        self.socket_options.set_gso(self.socket, self.mtu_size as u64)
-    } 
 }

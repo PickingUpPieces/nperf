@@ -80,7 +80,7 @@ fn main() {
         info!("MTU size used: {}", args.mtu_size);
     }
 
-    let mut socket_options = SocketOptions::new(true, (args.use_gso, args.mtu_size as u64), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+    let socket_options = SocketOptions::new(true, (args.use_gso, args.mtu_size as u64), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     if mode == util::NPerfMode::Client {
         let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.time);
