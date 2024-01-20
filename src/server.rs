@@ -38,6 +38,7 @@ impl Server {
         info!("Current mode: server");
         self.socket.bind().expect("Error binding socket");
 
+        info!("Start server loop...");
         loop {
             match self.socket.read(&mut self.buffer) {
                 Ok(amount_received_bytes) => {

@@ -1,8 +1,8 @@
 use log::{error, info, debug, warn};
 
-
 pub struct SocketOptions {
     nonblocking: bool,
+    dont_fragment: bool,
     gso: (bool, u64),
     _gro: (bool, u64),
     recv_buffer_size: u32,
@@ -10,9 +10,10 @@ pub struct SocketOptions {
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, gso: (bool, u64), _gro: (bool, u64), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
+    pub fn new(nonblocking: bool, dont_fragment: bool, gso: (bool, u64), _gro: (bool, u64), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
         SocketOptions {
             nonblocking,
+            dont_fragment,
             gso,
             _gro,
             recv_buffer_size,
@@ -23,11 +24,36 @@ impl SocketOptions {
     pub fn update(&mut self, socket: i32) -> Result<(), &'static str> {
         if self.nonblocking {
             self.set_nonblocking(socket)?;
+        } else if self.dont_fragment {
+            self.set_dont_fragment(socket)?;
         } else if self.gso.0 {
             self.set_gso(socket, self.gso.1)?;
         }
+
         Self::set_receive_buffer_size(self, socket, self.recv_buffer_size)?;
         Self::set_send_buffer_size(self, socket, self.send_buffer_size)?;
+        Ok(())
+    }
+
+    fn set_socket_option(socket: i32, level: libc::c_int, name: libc::c_int, value: u32) -> Result<(), &'static str> {
+        let value_len = std::mem::size_of_val(&value) as libc::socklen_t;
+
+        let setsockopt_result = unsafe {
+            libc::setsockopt(
+                socket,
+                level,
+                name,
+                &value as *const _ as _,
+                value_len 
+            )
+        };
+
+        if setsockopt_result == -1 {
+            error!("errno when enabling socket option on socket: {}", unsafe { *libc::__errno_location() });
+            return Err("Failed to enable socket option");
+        }
+
+        info!("Enabled socket option on socket with value {}", value);
         Ok(())
     }
 
@@ -206,5 +232,11 @@ impl SocketOptions {
         info!("Enabled GSO on socket with size {}", gso_size);
         self.gso = (true, gso_size);
         Ok(())
+    }
+
+    pub fn set_dont_fragment(&mut self, socket: i32) -> Result<(), &'static str> {
+        let value: u32 = 1;
+        info!("Trying to set socket option IP_DONTFRAG to {}", value);
+        Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_DONTFRAG, value)
     }
 }

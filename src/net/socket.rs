@@ -107,19 +107,18 @@ impl Socket {
         Ok(())
     }
 
-    pub fn sendmsg(&self, buffer: &[u8], buffer_len: usize) -> Result<(), &'static str> {
+    pub fn sendmsg(&self, msghdr: libc::msghdr, buffer_len: usize) -> Result<(), &'static str> {
         if buffer_len == 0 {
             error!("Buffer is empty");
             return Err("Buffer is empty");
         } else {
             debug!("Sending on socket {} with buffer size: {}", self.socket, buffer_len);
-            trace!("Buffer: {:?}", buffer)
         }
     
         let send_result = unsafe {
             libc::sendmsg(
                 self.socket,
-                &buffer as *const _ as _,
+                &msghdr as *const _ as _,
                 0
             )
         };
@@ -137,6 +136,7 @@ impl Socket {
         debug!("Sent datagram with {} bytes", send_result);
         Ok(())
     }
+
     
     pub fn read(&self, buffer: &mut [u8]) -> Result<isize, &'static str> {
         let recv_result: isize = unsafe {
@@ -199,38 +199,45 @@ impl Socket {
             sin_zero: [0; 8]
         }
     }
-
-    fn create_msghdr() -> libc::msghdr {
-        // From man recvmsg(2): (https://linux.die.net/man/2/recvmsg)
-        // The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
-        //    struct iovec {                    /* Scatter/gather array items */
-        //        void  *iov_base;              /* Starting address */
-        //        size_t iov_len;               /* Number of bytes to transfer */
-        //    };
-        //
-        //    struct msghdr {
-        //        void         *msg_name;       /* optional address */
-        //        socklen_t     msg_namelen;    /* size of address */
-        //        struct iovec *msg_iov;        /* scatter/gather array */
-        //        size_t        msg_iovlen;     /* # elements in msg_iov */
-        //        void         *msg_control;    /* ancillary data, see below */
-        //        size_t        msg_controllen; /* ancillary data buffer len */
-        //        int           msg_flags;      /* flags on received message */
-        //    };
-        //
-        // Here msg_name and msg_namelen specify the source address if the socket is unconnected; msg_name may be given as a NULL pointer if no names are desired or required. 
-        // The fields msg_iov and msg_iovlen describe scatter-gather locations, as discussed in readv(2). 
-        // The field msg_control, which has length msg_controllen, points to a buffer for other protocol control-related messages or miscellaneous ancillary data. 
-        // When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
-
-        libc::msghdr {
-            msg_name: std::ptr::null_mut(),
-            msg_namelen: 0,
-            msg_iov: std::ptr::null_mut(),
-            msg_iovlen: 0,
-            msg_control: std::ptr::null_mut(),
-            msg_controllen: 0,
-            msg_flags: 0,
-        }
-    }
 }
+//    fn create_msghdr(buffer: &[u8], buffer_len: usize) -> libc::msghdr {
+//        // From man recvmsg(2): (https://linux.die.net/man/2/recvmsg)
+//        // The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
+//        //    struct iovec {                    /* Scatter/gather array items */
+//        //        void  *iov_base;              /* Starting address */
+//        //        size_t iov_len;               /* Number of bytes to transfer */
+//        //    };
+//        //
+//        //    struct msghdr {
+//        //        void         *msg_name;       /* optional address */
+//        //        socklen_t     msg_namelen;    /* size of address */
+//        //        struct iovec *msg_iov;        /* scatter/gather array */
+//        //        size_t        msg_iovlen;     /* # elements in msg_iov */
+//        //        void         *msg_control;    /* ancillary data, see below */
+//        //        size_t        msg_controllen; /* ancillary data buffer len */
+//        //        int           msg_flags;      /* flags on received message */
+//        //    };
+//        //
+//        // Here msg_name and msg_namelen specify the source address if the socket is unconnected; msg_name may be given as a NULL pointer if no names are desired or required. 
+//        // The fields msg_iov and msg_iovlen describe scatter-gather locations, as discussed in readv(2). 
+//        // The field msg_control, which has length msg_controllen, points to a buffer for other protocol control-related messages or miscellaneous ancillary data. 
+//        // When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
+//
+//        let mut iov = libc::iovec {
+//            iov_base: buffer as *mut _,
+//            iov_len: buffer_len,
+//        };
+//
+//        let control: c_uint = unsafe { libc::CMSG_SPACE(std::mem::size_of::<u16>) } ;
+//
+//        libc::msghdr {
+//            msg_name: std::ptr::null_mut(),
+//            msg_namelen: 0,
+//            msg_iov: iov as *mut _ as _, 
+//            msg_iovlen: 1,
+//            msg_control: control as *mut c_void,
+//            msg_controllen: std::mem::size_of_val(&control),
+//            msg_flags: 0,
+//        }
+//    }
+//}
