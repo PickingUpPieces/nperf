@@ -37,7 +37,7 @@ pub fn fill_buffer_with_repeating_pattern(buffer: &mut [u8]) {
         }
     }
 
-    debug!("Filled buffer with repeating pattern {:?}", buffer);
+    debug!("Filled buffer of size {} with repeating pattern {:?}", buffer.len(), buffer);
 }
 
 pub fn prepare_packet(next_packet_id: u64, buffer: &mut Vec<u8>) {
@@ -102,6 +102,10 @@ pub fn create_buffer_dynamic(socket: &mut Socket) -> Vec<u8> {
     buffer
 }
 
+pub fn destroy_msghdr(msg: &mut libc::msghdr) {
+    let _ = unsafe { Box::from_raw(msg.msg_iov as *mut libc::iovec) };
+}
+
 pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
     // From man recvmsg(2): (https://linux.die.net/man/2/recvmsg)
     // The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
@@ -124,21 +128,26 @@ pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
     // The fields msg_iov and msg_iovlen describe scatter-gather locations, as discussed in readv(2). 
     // The field msg_control, which has length msg_controllen, points to a buffer for other protocol control-related messages or miscellaneous ancillary data. 
     // When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
+    let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
 
-    let mut iov = libc::iovec {
+    // let mut iov = libc::iovec {
+    //     iov_base: buffer.as_mut_ptr() as *mut _,
+    //     iov_len: buffer_len,
+    // };
+
+    let iov = Box::new(libc::iovec {
         iov_base: buffer.as_mut_ptr() as *mut _,
         iov_len: buffer_len,
-    };
+    });
 
-    libc::msghdr {
-        msg_name: std::ptr::null_mut(), // Since we are using connected sockets, we don't need to specify the address
-        msg_namelen: 0,
-        msg_iov: &mut iov as *mut _ as _, 
-        msg_iovlen: 1,
-        msg_control: std::ptr::null_mut(),
-        msg_controllen: 0,
-        msg_flags: 0,
-    }
+    //msghdr.msg_iov = &mut iov as *mut _ as _;
+    msghdr.msg_iov = Box::into_raw(iov) as *mut _ as _;
+    msghdr.msg_iovlen = 1;
+
+    // Deallocation has to be done
+    //let _ = unsafe { Box::from_raw(msghdr.msg_iov as *mut libc::iovec) };
+
+    msghdr
 }
 
 
