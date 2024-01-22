@@ -4,7 +4,7 @@ use log::trace;
 use log::{debug, error, info};
 
 use crate::net::socket_options::SocketOptions;
-use crate::util::{self, SendFunction};
+use crate::util::{self, ExchangeFunction};
 use crate::net::socket::Socket;
 use crate::util::History;
 
@@ -17,7 +17,7 @@ pub struct Client {
     socket: Socket,
     history: History,
     run_time_length: u64,
-    send_function: SendFunction,
+    exchange_function: ExchangeFunction,
 }
 
 impl Node for Client {
@@ -62,7 +62,7 @@ impl Node for Client {
 
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_time_length: u64, send_function: SendFunction) -> Self {
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
         let socket = Socket::new(ip, remote_port, mtu_size, socket_options).expect("Error creating socket");
 
         Client {
@@ -72,7 +72,7 @@ impl Client {
             socket,
             history: History::new(mtu_size as u64),
             run_time_length,
-            send_function
+            exchange_function
         }
     }
 
@@ -82,10 +82,10 @@ impl Client {
     }
 
     fn send_messages(&mut self, packets_amount: u64) -> Result<(), &'static str> {
-        match self.send_function {
-            SendFunction::Send => self.send(),
-            SendFunction::Sendmsg => self.sendmsg(),
-            SendFunction::Sendmmsg => self.sendmmsg(),
+        match self.exchange_function {
+            ExchangeFunction::Normal => self.send(),
+            ExchangeFunction::Msg => self.sendmsg(),
+            ExchangeFunction::Mmsg => self.sendmmsg(packets_amount),
         }
     }
 
@@ -106,11 +106,22 @@ impl Client {
     fn sendmsg(&mut self) -> Result<(), &'static str> {
         util::prepare_packet(self.history.amount_datagrams, &mut self.buffer);
 
-        Ok(())
+        let msghdr = util::create_msghdr(&mut self.buffer, self.buffer_len);
+        debug!("Sending message with msghdr length: {}", msghdr.msg_iovlen);
+
+        match self.socket.sendmsg(msghdr) {
+            Ok(_) => {
+                self.history.amount_datagrams += 1;
+                trace!("Sent datagram to remote host");
+                Ok(())
+            },
+            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err(x) => Err(x) 
+        }
     }
 
-    fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        error!("Not yet implemented!!!!");
+    fn sendmmsg(&mut self, packets_amount: u64) -> Result<(), &'static str> {
+        error!("Not yet implemented: {}!!!!", packets_amount);
         Ok(())
     }
 }

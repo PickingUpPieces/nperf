@@ -1,5 +1,5 @@
 use std::time::Duration;
-use log::{debug, info};
+use log::{debug, info, trace};
 
 use crate::net::socket::Socket;
 
@@ -10,10 +10,10 @@ pub enum NPerfMode {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum SendFunction {
-    Send,
-    Sendmsg,
-    Sendmmsg
+pub enum ExchangeFunction {
+    Normal,
+    Msg,
+    Mmsg
 }
 
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
@@ -40,18 +40,40 @@ pub fn fill_buffer_with_repeating_pattern(buffer: &mut [u8]) {
     debug!("Filled buffer with repeating pattern {:?}", buffer);
 }
 
-
 pub fn prepare_packet(next_packet_id: u64, buffer: &mut Vec<u8>) {
     buffer[0..8].copy_from_slice(&next_packet_id.to_be_bytes());
     debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[0..8].try_into().unwrap()));
 }
 
-// Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
-// https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225 
-pub fn process_packet(buffer: &mut [u8], next_packet_id: u64, history: &mut History) -> u64 {
+pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, next_packet_id: u64, history: &mut History) -> (u64, u64) {
+    let mut absolut_packets_received = 0;
+    let mut next_packet_id = next_packet_id;
+    // Iterate over the msg_iov (which are the packets received) and extract the buffer
+    debug!("Received {} meta packets! Start iterating over them...", msghdr.msg_iovlen);
+    let messages: Vec<libc::iovec> = unsafe { Vec::from_raw_parts(msghdr.msg_iov as *mut libc::iovec, msghdr.msg_iovlen as usize, msghdr.msg_iovlen as usize) };
+
+
+    for i in 0..msghdr.msg_iovlen {
+        let buffer: &[u8] = unsafe {
+            std::slice::from_raw_parts(messages[i].iov_base as *mut u8, messages[i].iov_len)
+        };
+        trace!("Buffer {}", i);
+        next_packet_id += process_packet(buffer, next_packet_id, history);
+        absolut_packets_received += 1;
+    }
+
+    (next_packet_id, absolut_packets_received)
+} 
+
+pub fn process_packet(buffer: &[u8], next_packet_id: u64, history: &mut History) -> u64 {
     let packet_id = u64::from_be_bytes(buffer[0..8].try_into().unwrap());
     debug!("Received packet number: {}", packet_id);
+    process_packet_number(packet_id, next_packet_id, history)
+}
 
+// Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
+// https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225 
+fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut History) -> u64 {
     if packet_id == next_packet_id {
         return 1
     } else if packet_id > next_packet_id {
@@ -79,6 +101,47 @@ pub fn create_buffer_dynamic(socket: &mut Socket) -> Vec<u8> {
     socket.mtu_size = buffer_len;
     buffer
 }
+
+pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
+    // From man recvmsg(2): (https://linux.die.net/man/2/recvmsg)
+    // The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
+    //    struct iovec {                    /* Scatter/gather array items */
+    //        void  *iov_base;              /* Starting address */
+    //        size_t iov_len;               /* Number of bytes to transfer */
+    //    };
+    //
+    //    struct msghdr {
+    //        void         *msg_name;       /* optional address */
+    //        socklen_t     msg_namelen;    /* size of address */
+    //        struct iovec *msg_iov;        /* scatter/gather array */
+    //        size_t        msg_iovlen;     /* # elements in msg_iov */
+    //        void         *msg_control;    /* ancillary data, see below */
+    //        size_t        msg_controllen; /* ancillary data buffer len */
+    //        int           msg_flags;      /* flags on received message */
+    //    };
+    //
+    // Here msg_name and msg_namelen specify the source address if the socket is unconnected; msg_name may be given as a NULL pointer if no names are desired or required. 
+    // The fields msg_iov and msg_iovlen describe scatter-gather locations, as discussed in readv(2). 
+    // The field msg_control, which has length msg_controllen, points to a buffer for other protocol control-related messages or miscellaneous ancillary data. 
+    // When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
+
+    let mut iov = libc::iovec {
+        iov_base: buffer.as_mut_ptr() as *mut _,
+        iov_len: buffer_len,
+    };
+
+    libc::msghdr {
+        msg_name: std::ptr::null_mut(), // Since we are using connected sockets, we don't need to specify the address
+        msg_namelen: 0,
+        msg_iov: &mut iov as *mut _ as _, 
+        msg_iovlen: 1,
+        msg_control: std::ptr::null_mut(),
+        msg_controllen: 0,
+        msg_flags: 0,
+    }
+}
+
+
 
 #[derive(Debug)]
 pub struct History {
