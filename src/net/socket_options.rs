@@ -206,7 +206,9 @@ impl SocketOptions {
     pub fn set_without_ip_frag(&mut self, socket: i32) -> Result<(), &'static str> {
         let value: u32 = 1;
         info!("Trying to set socket option IP_DONTFRAG to {}", value);
+
         // Normally the option should be IP_DONTFRAG, but this fails to resolve
-        Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IPV6_DONTFRAG, value)
+        // Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_DONTFRAG, value)
+        Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
     }
 }

@@ -58,7 +58,7 @@ struct Arguments{
     with_gso: bool,
 
     /// Disable fragmentation on sending socket
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     without_ip_frag: bool,
 }
 
