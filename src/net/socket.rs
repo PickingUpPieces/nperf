@@ -118,6 +118,8 @@ impl Socket {
     }
 
     pub fn sendmsg(&self, msghdr: libc::msghdr) -> Result<(), &'static str> {
+        debug!("Trying to send message with msghdr length: {}", msghdr.msg_iovlen);
+
         let send_result = unsafe {
             libc::sendmsg(
                 self.socket,
@@ -127,12 +129,13 @@ impl Socket {
         };
     
         if send_result == -1 {
+            let errno = unsafe { *libc::__errno_location() };
             // CHeck for connection refused
-            if unsafe { *libc::__errno_location() } == libc::ECONNREFUSED {
-                error!("Connection refused while trying to send data!");
+            if errno == libc::ECONNREFUSED {
+                error!("'Connection refused' while trying to send data!");
                 return Err("ECONNREFUSED");
             }
-            error!("Errno when trying to send data: {}", unsafe { *libc::__errno_location() });
+            error!("Errno when trying to send data: {}", errno);
             return Err("Failed to send data");
         }
     
@@ -151,9 +154,11 @@ impl Socket {
     
         if recv_result == -1 {
             // Check for non-blocking mode
-            if unsafe { *libc::__errno_location() } == libc::EAGAIN {
+            let errno = unsafe { *libc::__errno_location() };
+            if errno == libc::EAGAIN {
                 return Err("EAGAIN");
             } else {
+                error!("Errno when trying to receive data: {}", errno);
                 return Err("Failed to receive data!");
             }
         } 
@@ -202,6 +207,4 @@ impl Socket {
             sin_zero: [0; 8]
         }
     }
-
-    
 }

@@ -1,7 +1,7 @@
 
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 
 use crate::net::socket_options::SocketOptions;
 use crate::util::{self, ExchangeFunction};
@@ -12,6 +12,7 @@ use super::Node;
 pub struct Server {
     mtu_discovery: bool,
     buffer: Vec<u8>,
+    buffer_len: usize,
     socket: Socket,
     _run_infinite: bool,
     first_packet_received: bool,
@@ -53,6 +54,7 @@ impl Server {
         Server {
             mtu_discovery,
             buffer: vec![0; mtu_size],
+            buffer_len: mtu_size,
             socket,
             _run_infinite: run_infinite,
             first_packet_received: false,
@@ -81,7 +83,8 @@ impl Server {
                         // FIXME: getting the IP_MTU from getsockopt throws an error, therefore don't use it for now
                         info!("Set buffer size to MTU");
                         self.buffer = util::create_buffer_dynamic(&mut self.socket);
-                        self.history.datagram_size = self.buffer.len() as u64;
+                        self.buffer_len = self.buffer.len();
+                        self.history.datagram_size = self.buffer_len as u64;
                     }
 
                     self.history.start_time = Instant::now();
@@ -103,10 +106,9 @@ impl Server {
     }
 
     fn recvmsg(&mut self) -> Result<(), &'static str> {
-        util::prepare_packet(self.history.amount_datagrams, &mut self.buffer);
-        let buffer_len = self.buffer.len();
-        let mut msghdr = util::create_msghdr(&mut self.buffer, buffer_len);
-        debug!("Sending message with msghdr length: {}", msghdr.msg_iovlen);
+        let mut msghdr = util::create_msghdr(&mut self.buffer, self.buffer_len);
+        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
@@ -118,7 +120,8 @@ impl Server {
                         // FIXME: getting the IP_MTU from getsockopt throws an error, therefore don't use it for now
                         info!("Set buffer size to MTU");
                         self.buffer = util::create_buffer_dynamic(&mut self.socket);
-                        self.history.datagram_size = self.buffer.len() as u64;
+                        self.buffer_len = self.buffer.len();
+                        self.history.datagram_size = self.buffer_len as u64;
                     }
 
                     self.history.start_time = Instant::now();
@@ -134,9 +137,10 @@ impl Server {
                 (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += absolut_packets_received;
                 debug!("Received {} packets, and next packet id should be {}", absolut_packets_received, self.next_packet_id);
+                util::destroy_msghdr(&mut msghdr);
                 Ok(())
             },
-            Err("EAGAIN") => Ok(()),
+            Err("EAGAIN") => { util::destroy_msghdr(&mut msghdr); Ok(()) },
             Err(x) => Err(x)
         }
     }
@@ -145,6 +149,4 @@ impl Server {
         error!("Not implemented yet!");
         Ok(())
     }
-
-
 }
