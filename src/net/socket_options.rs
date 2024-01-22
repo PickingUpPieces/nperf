@@ -1,19 +1,20 @@
 use log::{error, info, debug, warn};
 
+#[derive(PartialEq, Debug)]
 pub struct SocketOptions {
     nonblocking: bool,
-    dont_fragment: bool,
-    gso: (bool, u64),
-    _gro: (bool, u64),
+    without_ip_frag: bool,
+    gso: (bool, u32),
+    _gro: (bool, u32),
     recv_buffer_size: u32,
     send_buffer_size: u32,
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, dont_fragment: bool, gso: (bool, u64), _gro: (bool, u64), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
+    pub fn new(nonblocking: bool, without_ip_frag: bool, gso: (bool, u32), _gro: (bool, u32), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
         SocketOptions {
             nonblocking,
-            dont_fragment,
+            without_ip_frag,
             gso,
             _gro,
             recv_buffer_size,
@@ -22,11 +23,14 @@ impl SocketOptions {
     }
 
     pub fn update(&mut self, socket: i32) -> Result<(), &'static str> {
+        debug!("Updating socket options with {:?}", self);
         if self.nonblocking {
             self.set_nonblocking(socket)?;
-        } else if self.dont_fragment {
-            self.set_dont_fragment(socket)?;
-        } else if self.gso.0 {
+        } 
+        if self.without_ip_frag {
+            self.set_without_ip_frag(socket)?;
+        } 
+        if self.gso.0 {
             self.set_gso(socket, self.gso.1)?;
         }
 
@@ -53,7 +57,7 @@ impl SocketOptions {
             return Err("Failed to enable socket option");
         }
 
-        info!("Enabled socket option on socket with value {}", value);
+        debug!("Enabled socket option on socket with value {}", value);
         Ok(())
     }
 
@@ -75,7 +79,6 @@ impl SocketOptions {
     }
 
     pub fn set_send_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
-        let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
         let current_size = Self::get_send_buffer_size(socket)?;
         debug!("Trying to set send buffer size from {} to {}", current_size, size);
     
@@ -83,20 +86,13 @@ impl SocketOptions {
             warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
             return Ok(());
         }
-    
-        let setsockopt_result = unsafe {
-            libc::setsockopt(
-                socket,
-                libc::SOL_SOCKET,
-                libc::SO_SNDBUF,
-                &size as *const _ as _,
-                size_len
-            )
-        };
-    
-        if setsockopt_result == -1 {
-            error!("errno when setting send buffer size: {}", unsafe { *libc::__errno_location() });
-            return Err("Failed to set socket send buffer size");
+
+        match Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF, size) {
+            Ok(_) => {},
+            Err(x) => {
+                error!("{x}");
+                return Err("Failed to set socket send buffer size");
+            }
         }
     
         // TODO: Check only for okay with if let
@@ -143,7 +139,6 @@ impl SocketOptions {
     }
     
     pub fn set_receive_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
-        let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
         let current_size = Self::get_receive_buffer_size(socket)?; 
         debug!("Trying to set receive buffer size from {} to {}", current_size, size);
     
@@ -151,21 +146,13 @@ impl SocketOptions {
             warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
             return Ok(());
         }
-    
-        // Set bigger buffer size
-        let setsockopt_result = unsafe {
-            libc::setsockopt(
-                socket,
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                &size as *const _ as _,
-                size_len
-            )
-        };
-    
-        if setsockopt_result == -1 {
-            error!("errno when setting receive buffer size: {}", unsafe { *libc::__errno_location() });
-            return Err("Failed to set socket receive buffer size");
+
+        match Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF, size) {
+            Ok(_) => {},
+            Err(x) => {
+                error!("{x}");
+                return Err("Failed to set socket receive buffer size");
+            }
         }
     
         match Self::get_receive_buffer_size(socket) {
@@ -210,33 +197,16 @@ impl SocketOptions {
         }
     }
 
-    pub fn set_gso(&mut self, socket: i32, gso_size: u64) -> Result<(), &'static str> {
-        // gso_size should be equal to MTU = ETH_MTU - header(ipv4) - heaser(udp)
-        let size_len = std::mem::size_of_val(&gso_size) as libc::socklen_t;
-
-        // getsockopt(fd, SOL_UDP, UDP_SEGMENT, &gso_size, sizeof(gso_size))
-        let setsockopt_result = unsafe {
-            libc::setsockopt(
-                socket,
-                libc::SOL_UDP,
-                libc::UDP_SEGMENT,
-                &gso_size as *const _ as _,
-                size_len
-            )};
-
-        if setsockopt_result == -1 {
-            error!("errno when enabling GSO on socket: {}", unsafe { *libc::__errno_location() });
-            return Err("Failed to enable GSO on socket");
-        }
-
-        info!("Enabled GSO on socket with size {}", gso_size);
-        self.gso = (true, gso_size);
-        Ok(())
+    pub fn set_gso(&mut self, socket: i32, gso_size: u32) -> Result<(), &'static str> {
+        // gso_size should be equal to MTU = ETH_MTU - header(ipv4) - header(udp)
+        info!("Trying to set socket option GSO to {}", gso_size);
+        Self::set_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT, gso_size)
     }
 
-    pub fn set_dont_fragment(&mut self, socket: i32) -> Result<(), &'static str> {
+    pub fn set_without_ip_frag(&mut self, socket: i32) -> Result<(), &'static str> {
         let value: u32 = 1;
         info!("Trying to set socket option IP_DONTFRAG to {}", value);
-        Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_DONTFRAG, value)
+        // Normally the option should be IP_DONTFRAG, but this fails to resolve
+        Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IPV6_DONTFRAG, value)
     }
 }

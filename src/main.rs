@@ -26,7 +26,7 @@ const LAST_MESSAGE_SIZE: isize = 100;
 #[clap(version, about="A network performance measurement tool")]
 struct Arguments{
     /// Mode of operation: client or server
-    #[arg(short, default_value_t = String::from("server"))]
+    #[arg(default_value_t = String::from("server"))]
     mode: String,
 
     /// IP address to measure against/listen on
@@ -46,7 +46,7 @@ struct Arguments{
     mtu_size: usize,
 
     /// Dynamic MTU size discovery
-    #[arg(short = 'd', default_value_t = false)]
+    #[arg(long, default_value_t = false)]
     mtu_discovery: bool,
 
     /// Time to run the test
@@ -55,7 +55,11 @@ struct Arguments{
 
     /// Enable GSO on sending socket
     #[arg(long, default_value_t = false)]
-    use_gso: bool,
+    with_gso: bool,
+
+    /// Disable fragmentation on sending socket
+    #[arg(long, default_value_t = false)]
+    without_ip_frag: bool,
 }
 
 fn main() {
@@ -80,7 +84,7 @@ fn main() {
         info!("MTU size used: {}", args.mtu_size);
     }
 
-    let socket_options = SocketOptions::new(true, true, (args.use_gso, args.mtu_size as u64), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+    let socket_options = SocketOptions::new(true, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     if mode == util::NPerfMode::Client {
         let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.time);
