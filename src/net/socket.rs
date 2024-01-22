@@ -1,6 +1,7 @@
 
 use log::{info, trace, debug, error};
 use std::{self, net::Ipv4Addr};
+use std::io::Error;
 
 use super::socket_options::SocketOptions;
 
@@ -96,8 +97,9 @@ impl Socket {
     
         if send_result == -1 {
             // CHeck for connection refused
-            let errno = unsafe { *libc::__errno_location() };
-            match errno {
+            let errno = Error::last_os_error();
+            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
+            match raw_os_err {
                 libc::ECONNREFUSED => {
                     error!("Connection refused while trying to send data!");
                     return Err("ECONNREFUSED");
@@ -129,14 +131,16 @@ impl Socket {
         };
     
         if send_result == -1 {
-            let errno = unsafe { *libc::__errno_location() };
-            // CHeck for connection refused
-            if errno == libc::ECONNREFUSED {
-                error!("'Connection refused' while trying to send data!");
-                return Err("ECONNREFUSED");
-            }
+            let errno = Error::last_os_error();
             error!("Errno when trying to send data: {}", errno);
-            return Err("Failed to send data");
+
+            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
+            // Check for connection refused
+            if raw_os_err == libc::ECONNREFUSED {
+                return Err("ECONNREFUSED");
+            } else {
+                return Err("Failed to send data");
+            }
         }
     
         debug!("Sent datagram(s) with {} bytes", send_result);
@@ -154,11 +158,12 @@ impl Socket {
     
         if recv_result == -1 {
             // Check for non-blocking mode
-            let errno = unsafe { *libc::__errno_location() };
-            if errno == libc::EAGAIN {
+            let errno = Error::last_os_error();
+            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
+            if raw_os_err == libc::EAGAIN {
                 return Err("EAGAIN");
             } else {
-                error!("Errno when trying to receive data: {}", errno);
+                error!("Errno when trying to receive data with recvmsg(): {}", errno);
                 return Err("Failed to receive data!");
             }
         } 
@@ -180,9 +185,12 @@ impl Socket {
     
         if recv_result == -1 {
             // Check for non-blocking mode
-            if unsafe { *libc::__errno_location() } == libc::EAGAIN {
+            let errno = Error::last_os_error();
+            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
+            if raw_os_err == libc::EAGAIN {
                 return Err("EAGAIN");
             } else {
+                error!("Errno when trying to receive data with read(): {}", errno);
                 return Err("Failed to receive data");
             }
         } 
@@ -191,6 +199,26 @@ impl Socket {
         Ok(recv_result)
     }
 
+    pub fn wait_for_data(&self) -> Result<(), &'static str> {
+        info!("Waiting for data on socket {}...", self.socket);
+        // Prepare the file descriptor set for select
+        let mut read_fds = unsafe {
+            let mut fds: libc::fd_set = std::mem::zeroed();
+            libc::FD_SET(self.socket, &mut fds);
+            fds
+        };
+        
+        // Call select
+        let nfds = self.socket + 1;
+        let result = unsafe { libc::select(nfds, &mut read_fds, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
+        
+        if result == -1 {
+            let err = std::io::Error::last_os_error();
+            error!("Error calling select: {}", err);
+            return Err("Error calling select");
+        }
+        Ok(())
+    }
 
     pub fn get_mtu(&self) -> Result<u32, &'static str> {
         self._socket_options.get_mtu(self.socket)

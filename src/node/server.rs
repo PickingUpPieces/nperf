@@ -8,6 +8,7 @@ use crate::util::{self, ExchangeFunction};
 use crate::net::socket::Socket;
 use crate::util::History;
 use super::Node;
+use std::time::Duration;
 
 pub struct Server {
     mtu_discovery: bool,
@@ -27,6 +28,10 @@ impl Node for Server {
         self.socket.bind().expect("Error binding socket");
 
         info!("Start server loop...");
+        // TODO: Implement select() to wait for incoming data
+
+        self.socket.wait_for_data().expect("Error waiting for data");
+
         loop {
             match self.recv_messages() {
                 Ok(_) => {},
@@ -127,6 +132,7 @@ impl Server {
                     self.history.start_time = Instant::now();
                 }
                 debug!("Received {} bytes in {} packages", amount_received_bytes, msghdr.msg_iovlen); 
+                trace!("Received message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
                     info!("Last packet received!");
@@ -137,10 +143,9 @@ impl Server {
                 (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += absolut_packets_received;
                 debug!("Received {} packets, and next packet id should be {}", absolut_packets_received, self.next_packet_id);
-                util::destroy_msghdr(&mut msghdr);
                 Ok(())
             },
-            Err("EAGAIN") => { util::destroy_msghdr(&mut msghdr); Ok(()) },
+            Err("EAGAIN") => Ok(()),
             Err(x) => Err(x)
         }
     }

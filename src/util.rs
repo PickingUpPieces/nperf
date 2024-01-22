@@ -48,18 +48,19 @@ pub fn prepare_packet(next_packet_id: u64, buffer: &mut Vec<u8>) {
 pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, next_packet_id: u64, history: &mut History) -> (u64, u64) {
     let mut absolut_packets_received = 0;
     let mut next_packet_id = next_packet_id;
+    debug!("Process packet msghdr to extract the packets received. Received {} iov packets. Start iterating over them...", msghdr.msg_iovlen);
     // Iterate over the msg_iov (which are the packets received) and extract the buffer
-    debug!("Received {} meta packets! Start iterating over them...", msghdr.msg_iovlen);
     let messages: Vec<libc::iovec> = unsafe { Vec::from_raw_parts(msghdr.msg_iov as *mut libc::iovec, msghdr.msg_iovlen as usize, msghdr.msg_iovlen as usize) };
 
+    trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
     for i in 0..msghdr.msg_iovlen {
         let buffer: &[u8] = unsafe {
             std::slice::from_raw_parts(messages[i].iov_base as *mut u8, messages[i].iov_len)
         };
-        trace!("Buffer {}", i);
         next_packet_id += process_packet(buffer, next_packet_id, history);
         absolut_packets_received += 1;
+        trace!("iovec buffer number: {} with now absolut packets received {} and next packet id: {}", i, next_packet_id, absolut_packets_received);
     }
 
     (next_packet_id, absolut_packets_received)
@@ -102,10 +103,6 @@ pub fn create_buffer_dynamic(socket: &mut Socket) -> Vec<u8> {
     buffer
 }
 
-pub fn destroy_msghdr(msg: &mut libc::msghdr) {
-    let _ = unsafe { Box::from_raw(msg.msg_iov as *mut libc::iovec) };
-}
-
 pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
     // From man recvmsg(2): (https://linux.die.net/man/2/recvmsg)
     // The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
@@ -130,23 +127,13 @@ pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
     // When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
     let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
 
-    // let mut iov = libc::iovec {
-    //     iov_base: buffer.as_mut_ptr() as *mut _,
-    //     iov_len: buffer_len,
-    // };
-
     let iov = Box::new(libc::iovec {
         iov_base: buffer.as_mut_ptr() as *mut _,
         iov_len: buffer_len,
     });
 
-    //msghdr.msg_iov = &mut iov as *mut _ as _;
     msghdr.msg_iov = Box::into_raw(iov) as *mut _ as _;
     msghdr.msg_iovlen = 1;
-
-    // Deallocation has to be done
-    //let _ = unsafe { Box::from_raw(msghdr.msg_iov as *mut libc::iovec) };
-
     msghdr
 }
 

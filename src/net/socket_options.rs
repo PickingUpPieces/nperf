@@ -1,4 +1,5 @@
 use log::{error, info, debug, warn};
+use std::io::Error;
 
 #[derive(PartialEq, Debug)]
 pub struct SocketOptions {
@@ -53,7 +54,7 @@ impl SocketOptions {
         };
 
         if setsockopt_result == -1 {
-            error!("errno when enabling socket option on socket: {}", unsafe { *libc::__errno_location() });
+            error!("errno when enabling socket option on socket: {}", Error::last_os_error());
             return Err("Failed to enable socket option");
         }
 
@@ -131,7 +132,7 @@ impl SocketOptions {
         };
     
         if getsockopt_result == -1 {
-            error!("errno when getting send buffer size: {}", unsafe { *libc::__errno_location() });
+            error!("errno when getting send buffer size: {}", Error::last_os_error());
             Err("Failed to get current socket send buffer size")
         } else {
             Ok(current_size)
@@ -190,7 +191,7 @@ impl SocketOptions {
         };
     
         if getsockopt_result == -1 {
-            error!("errno when getting receive buffer size: {}", unsafe { *libc::__errno_location() });
+            error!("errno when getting receive buffer size: {}", Error::last_os_error());
             Err("Failed to get socket receive buffer size")
         } else {
             Ok(current_size)
@@ -230,7 +231,7 @@ impl SocketOptions {
         };
 
         if getsockopt_result == -1 {
-            error!("errno when getting Ethernet MTU: {}", unsafe { *libc::__errno_location() });
+            error!("errno when getting Ethernet MTU: {}", Error::last_os_error());
             Err("Failed to get socket Ethernet MTU")
         } else {
             info!("Current socket Ethernet MTU: {}", current_size);

@@ -68,6 +68,10 @@ struct Arguments{
     /// Use sendmmsg/recvmmsg method for sending data
     #[arg(long, default_value_t = false)]
     with_mmsg: bool, 
+
+    /// Enable non-blocking socket
+    #[arg(long, default_value_t = true)]
+    with_non_blocking: bool,
 }
 
 fn main() {
@@ -102,7 +106,7 @@ fn main() {
         }
     };
 
-    let socket_options = SocketOptions::new(true, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
         Box::new(Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.time, exchange_function))
