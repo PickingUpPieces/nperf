@@ -211,4 +211,31 @@ impl SocketOptions {
         // Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_DONTFRAG, value)
         Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
     }
+
+    pub fn get_mtu(&self, socket: i32) -> Result<u32, &'static str> {
+        // https://man7.org/linux/man-pages/man7/ip.7.html
+        // MSS from TCP returned an error
+        let current_size: u32 = 0;
+        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
+
+        // IP_MTU
+        let getsockopt_result = unsafe {
+            libc::getsockopt(
+                socket,
+                libc::IPPROTO_IP,
+                libc::IP_MTU,
+                &current_size as *const _ as _,
+                &mut size_len as *mut _
+            )
+        };
+
+        if getsockopt_result == -1 {
+            error!("errno when getting Ethernet MTU: {}", unsafe { *libc::__errno_location() });
+            Err("Failed to get socket Ethernet MTU")
+        } else {
+            info!("Current socket Ethernet MTU: {}", current_size);
+            // Minus IP header size and UDP header size
+            Ok(current_size - 20 - 8)
+        }
+    }
 }

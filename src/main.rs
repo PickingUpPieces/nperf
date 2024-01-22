@@ -1,14 +1,14 @@
 use clap::Parser;
 use log::{info, error, debug};
 
-use crate::client::Client;
-use crate::server::Server;
+use crate::node::client::Client;
+use crate::node::server::Server;
+use crate::node::Node;
 use crate::net::socket_options::SocketOptions;
 
+mod node;
 mod util;
 mod net;
-mod client;
-mod server;
 
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_UDP_BLKSIZE: usize = 1472;
@@ -37,9 +37,9 @@ struct Arguments{
     #[arg(short, default_value_t = DEFAULT_PORT)]
     port: u16,
 
-    /// Don't stop the server after the first measurement
+    /// Don't stop the node after the first measurement
     #[arg(short, long, default_value_t = false)]
-    run_server_infinite: bool,
+    run_infinite: bool,
 
     /// Set MTU size (Without IP and UDP headers)
     #[arg(short = 'l', default_value_t = DEFAULT_UDP_BLKSIZE)]
@@ -60,6 +60,14 @@ struct Arguments{
     /// Disable fragmentation on sending socket
     #[arg(long, default_value_t = true)]
     without_ip_frag: bool,
+
+    /// Use sendmsg method for sending data
+    #[arg(long, default_value_t = false)]
+    with_sendmsg: bool,    
+
+    /// Use sendmmsg method for sending data
+    #[arg(long, default_value_t = false)]
+    with_sendmmsg: bool, 
 }
 
 fn main() {
@@ -84,13 +92,28 @@ fn main() {
         info!("MTU size used: {}", args.mtu_size);
     }
 
+    let send_function = if args.with_sendmsg {
+        util::SendFunction::Sendmsg
+    } else {
+        if args.with_sendmmsg {
+            util::SendFunction::Sendmmsg
+        } else {
+            util::SendFunction::Send
+        }
+    };
+
     let socket_options = SocketOptions::new(true, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
-    if mode == util::NPerfMode::Client {
-        let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.time);
-        client.run();
+    let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
+        Box::new(Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.time, send_function))
     } else {
-        let mut server = Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.run_server_infinite);
-        server.run();
+        Box::new(Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.run_infinite))
+    };
+
+    match node.run() {
+        Ok(_) => info!("Finished measurement!"),
+        Err(x) => {
+            error!("Error running app: {}", x);
+        }
     }
 }

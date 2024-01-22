@@ -9,6 +9,13 @@ pub enum NPerfMode {
     Server,
 }
 
+#[derive(PartialEq, Debug)]
+pub enum SendFunction {
+    Send,
+    Sendmsg,
+    Sendmmsg
+}
+
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),

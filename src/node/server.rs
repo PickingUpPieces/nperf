@@ -1,12 +1,14 @@
 
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use log::{debug, error, info};
+use log::{debug, info};
 
 use crate::net::socket_options::SocketOptions;
 use crate::util;
 use crate::net::socket::Socket;
 use crate::util::History;
+
+use super::Node;
 
 
 pub struct Server {
@@ -19,22 +21,8 @@ pub struct Server {
     history: History,
 }
 
-impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_infinite: bool) -> Server {
-        let socket = Socket::new(ip, local_port, mtu_size, socket_options).expect("Error creating socket");
-
-        Server {
-            mtu_discovery,
-            buffer: vec![0; mtu_size],
-            socket,
-            _run_infinite: run_infinite,
-            first_packet_received: false,
-            next_packet_id: 0,
-            history: History::new(mtu_size as u64),
-        }
-    }
-
-    pub fn run(&mut self) {
+impl Node for Server { 
+    fn run(&mut self) -> Result<(), &'static str>{
         info!("Current mode: server");
         self.socket.bind().expect("Error binding socket");
 
@@ -65,14 +53,29 @@ impl Server {
                 },
                 Err("EAGAIN") => continue,
                 Err(x) => {
-                    error!("{x}"); 
-                    panic!();
+                    return Err(x)
                 }
             };
         }
-
         self.history.end_time = Instant::now();
         debug!("Finished receiving data from remote host");
         self.history.print();
+        Ok(())
+    }
+}
+
+impl Server {
+    pub fn new(ip: Ipv4Addr, local_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_infinite: bool) -> Server {
+        let socket = Socket::new(ip, local_port, mtu_size, socket_options).expect("Error creating socket");
+
+        Server {
+            mtu_discovery,
+            buffer: vec![0; mtu_size],
+            socket,
+            _run_infinite: run_infinite,
+            first_packet_received: false,
+            next_packet_id: 0,
+            history: History::new(mtu_size as u64),
+        }
     }
 }
