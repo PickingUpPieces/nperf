@@ -9,6 +9,7 @@ use crate::net::socket::Socket;
 use crate::util::History;
 use super::Node;
 
+#[derive(Debug)]
 pub struct Server {
     mtu_discovery: bool,
     buffer: Vec<u8>,
@@ -24,6 +25,7 @@ pub struct Server {
 impl Node for Server { 
     fn run(&mut self) -> Result<(), &'static str>{
         info!("Current mode: server");
+        debug!("Server: {:?}", self);
         self.socket.bind().expect("Error binding socket");
 
         info!("Start server loop...");
@@ -42,6 +44,7 @@ impl Node for Server {
                     return Err(x);
                 }
             }
+        self.socket.wait_for_data().expect("Error waiting for data");
         }
         self.history.end_time = Instant::now();
         debug!("Finished receiving data from remote host");
@@ -111,6 +114,7 @@ impl Server {
 
     fn recvmsg(&mut self) -> Result<(), &'static str> {
         let mut msghdr = util::create_msghdr(&mut self.buffer, self.buffer_len);
+        util::add_cmsg_buffer(&mut msghdr);
         debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
         trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
@@ -127,10 +131,10 @@ impl Server {
                         self.buffer_len = self.buffer.len();
                         self.history.datagram_size = self.buffer_len as u64;
                     }
-
                     self.history.start_time = Instant::now();
                 }
-                debug!("Received {} bytes in {} packages", amount_received_bytes, msghdr.msg_iovlen); 
+                let gso_size = util::get_gso_size_from_cmsg(&mut msghdr);
+                debug!("Received {} bytes in {} packages with gso_size {:?}", amount_received_bytes, msghdr.msg_iovlen, gso_size); 
                 trace!("Received message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {

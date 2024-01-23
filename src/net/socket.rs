@@ -5,6 +5,7 @@ use std::io::Error;
 
 use super::socket_options::SocketOptions;
 
+#[derive(Debug)]
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
@@ -200,7 +201,7 @@ impl Socket {
     }
 
     pub fn wait_for_data(&self) -> Result<(), &'static str> {
-        info!("Waiting for data on socket {}...", self.socket);
+        debug!("Waiting for data on socket {}...", self.socket);
         // Prepare the file descriptor set for select
         let mut read_fds = unsafe {
             let mut fds: libc::fd_set = std::mem::zeroed();

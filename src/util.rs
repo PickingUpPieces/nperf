@@ -105,7 +105,6 @@ pub fn create_buffer_dynamic(socket: &mut Socket) -> Vec<u8> {
 }
 
 pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
-    //let mut cmsg: &mut libc::cmsghdr;
     let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
 
     let iov = Box::new(libc::iovec {
@@ -123,6 +122,32 @@ pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
     msghdr
 }
 
+pub fn add_cmsg_buffer(msghdr: &mut libc::msghdr) {
+    let control = Box::new([0u8; 1000]);
+    let control_len = control.len();
+    msghdr.msg_control = Box::into_raw(control) as *mut _ as _;
+    msghdr.msg_controllen = control_len as _;
+}
+
+pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
+    let mut cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msghdr) };
+    while !cmsg.is_null() {
+        let level = unsafe { (*cmsg).cmsg_level };
+        let cmsg_type = unsafe { (*cmsg).cmsg_type };
+        let cmsg_len = unsafe { (*cmsg).cmsg_len };
+        debug!("Received cmsg with level: {}, type: {}, len: {}", level, cmsg_type, cmsg_len);
+
+        if level == libc::SOL_UDP && cmsg_type == libc::UDP_GRO {
+            let data_ptr = unsafe { libc::CMSG_DATA(cmsg) };
+            let gso_size = unsafe { *(data_ptr as *const u32) };
+            debug!("Received GSO size in cmsg: {}", gso_size);
+            return Some(gso_size);
+        }
+
+        cmsg = unsafe { libc::CMSG_NXTHDR(msghdr, cmsg) };
+    }
+    None
+}
 
 #[derive(Debug)]
 pub struct History {

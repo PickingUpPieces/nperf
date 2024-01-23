@@ -10,6 +10,7 @@ use crate::util::History;
 
 use super::Node;
 
+#[derive(Debug)]
 pub struct Client {
     mtu_discovery: bool,
     buffer: Vec<u8>,
@@ -24,6 +25,7 @@ impl Node for Client {
    
     fn run(&mut self) -> Result<(), &'static str> {
         info!("Current mode: client");
+        debug!("Client: {:?}", self);
         util::fill_buffer_with_repeating_pattern(&mut self.buffer);
         self.socket.connect().expect("Error connecting to remote host"); 
     

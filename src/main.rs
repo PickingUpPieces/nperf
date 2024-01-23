@@ -115,12 +115,12 @@ fn main() {
         }
     };
     
-    let mtu = if args.with_gso {
+    let mtu = if args.with_gso || args.with_gro {
+        info!("GSO/GRO enabled with buffer size {}", args.with_gso_buffer_size);
         args.with_gso_buffer_size
     } else {
         args.mtu_size
     };
-
     info!("Exchange function used: {:?}", exchange_function);
 
     let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (args.with_gro, args.mtu_size as u32), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);

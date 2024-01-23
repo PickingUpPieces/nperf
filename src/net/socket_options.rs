@@ -215,9 +215,6 @@ impl SocketOptions {
 
     pub fn set_without_ip_frag(&mut self, socket: i32) -> Result<(), &'static str> {
         info!("Trying to set socket option IP_DONTFRAG to {}", libc::IP_PMTUDISC_DO);
-
-        // Normally the option should be IP_DONTFRAG, but this fails to resolve
-        // Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_DONTFRAG, value)
         Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
     }
 
@@ -227,7 +224,6 @@ impl SocketOptions {
         let current_size: u32 = 0;
         let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
 
-        // IP_MTU
         let getsockopt_result = unsafe {
             libc::getsockopt(
                 socket,
