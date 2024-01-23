@@ -111,7 +111,7 @@ impl Client {
         debug!("Trying to send message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
         trace!("Trying to send message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
-        match self.socket.sendmsg(msghdr) {
+        match self.socket.sendmsg(&msghdr) {
             Ok(_) => {
                 self.history.amount_datagrams += 1;
                 trace!("Sent datagram to remote host");

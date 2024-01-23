@@ -57,6 +57,10 @@ struct Arguments{
     #[arg(long, default_value_t = false)]
     with_gso: bool,
 
+    /// Enable GRO on receiving socket
+    #[arg(long, default_value_t = false)]
+    with_gro: bool,
+
     /// Disable fragmentation on sending socket
     #[arg(long, default_value_t = true)]
     without_ip_frag: bool,
@@ -106,7 +110,9 @@ fn main() {
         }
     };
 
-    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (false, 0), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+    info!("Exchange function used: {:?}", exchange_function);
+
+    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (args.with_gro, args.mtu_size as u32), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
         Box::new(Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, socket_options, args.time, exchange_function))

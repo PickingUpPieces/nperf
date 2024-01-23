@@ -8,7 +8,6 @@ use crate::util::{self, ExchangeFunction};
 use crate::net::socket::Socket;
 use crate::util::History;
 use super::Node;
-use std::time::Duration;
 
 pub struct Server {
     mtu_discovery: bool,

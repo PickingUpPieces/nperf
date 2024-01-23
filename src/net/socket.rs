@@ -119,13 +119,13 @@ impl Socket {
         Ok(())
     }
 
-    pub fn sendmsg(&self, msghdr: libc::msghdr) -> Result<(), &'static str> {
+    pub fn sendmsg(&self, msghdr: &libc::msghdr) -> Result<(), &'static str> {
         debug!("Trying to send message with msghdr length: {}", msghdr.msg_iovlen);
 
         let send_result = unsafe {
             libc::sendmsg(
                 self.socket,
-                &msghdr as *const _ as _,
+                msghdr as *const _ as _,
                 0
             )
         };
@@ -151,7 +151,7 @@ impl Socket {
         let recv_result: isize = unsafe {
             libc::recvmsg(
                 self.socket,
-                &msghdr as *const _ as _,
+                msghdr as *const _ as _,
                 0
             )
         };

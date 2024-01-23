@@ -104,27 +104,7 @@ pub fn create_buffer_dynamic(socket: &mut Socket) -> Vec<u8> {
 }
 
 pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
-    // From man recvmsg(2): (https://linux.die.net/man/2/recvmsg)
-    // The recvmsg() call uses a msghdr structure to minimize the number of directly supplied arguments. This structure is defined as follows in <sys/socket.h>:
-    //    struct iovec {                    /* Scatter/gather array items */
-    //        void  *iov_base;              /* Starting address */
-    //        size_t iov_len;               /* Number of bytes to transfer */
-    //    };
-    //
-    //    struct msghdr {
-    //        void         *msg_name;       /* optional address */
-    //        socklen_t     msg_namelen;    /* size of address */
-    //        struct iovec *msg_iov;        /* scatter/gather array */
-    //        size_t        msg_iovlen;     /* # elements in msg_iov */
-    //        void         *msg_control;    /* ancillary data, see below */
-    //        size_t        msg_controllen; /* ancillary data buffer len */
-    //        int           msg_flags;      /* flags on received message */
-    //    };
-    //
-    // Here msg_name and msg_namelen specify the source address if the socket is unconnected; msg_name may be given as a NULL pointer if no names are desired or required. 
-    // The fields msg_iov and msg_iovlen describe scatter-gather locations, as discussed in readv(2). 
-    // The field msg_control, which has length msg_controllen, points to a buffer for other protocol control-related messages or miscellaneous ancillary data. 
-    // When recvmsg() is called, msg_controllen should contain the length of the available buffer in msg_control; upon return from a successful call it will contain the length of the control message sequence.
+    //let mut cmsg: &mut libc::cmsghdr;
     let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
 
     let iov = Box::new(libc::iovec {
@@ -132,8 +112,13 @@ pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
         iov_len: buffer_len,
     });
 
+    msghdr.msg_name = std::ptr::null_mut();
+    msghdr.msg_namelen = 0;
     msghdr.msg_iov = Box::into_raw(iov) as *mut _ as _;
     msghdr.msg_iovlen = 1;
+    msghdr.msg_control = std::ptr::null_mut();
+    msghdr.msg_controllen = 0;
+
     msghdr
 }
 

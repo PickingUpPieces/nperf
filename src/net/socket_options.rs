@@ -6,18 +6,18 @@ pub struct SocketOptions {
     nonblocking: bool,
     without_ip_frag: bool,
     gso: (bool, u32),
-    _gro: (bool, u32),
+    gro: (bool, u32),
     recv_buffer_size: u32,
     send_buffer_size: u32,
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, without_ip_frag: bool, gso: (bool, u32), _gro: (bool, u32), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
+    pub fn new(nonblocking: bool, without_ip_frag: bool, gso: (bool, u32), gro: (bool, u32), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
         SocketOptions {
             nonblocking,
             without_ip_frag,
             gso,
-            _gro,
+            gro,
             recv_buffer_size,
             send_buffer_size,
         }
@@ -33,6 +33,9 @@ impl SocketOptions {
         } 
         if self.gso.0 {
             self.set_gso(socket, self.gso.1)?;
+        }
+        if self.gro.0 {
+            self.set_gro(socket)?;
         }
 
         Self::set_receive_buffer_size(self, socket, self.recv_buffer_size)?;
@@ -204,9 +207,14 @@ impl SocketOptions {
         Self::set_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT, gso_size)
     }
 
+    pub fn set_gro(&mut self, socket: i32) -> Result<(), &'static str> {
+        let value = 1;
+        info!("Trying to set socket option GRO to {}", value);
+        Self::set_socket_option(socket, libc::SOL_UDP, libc::UDP_GRO, value)
+    }
+
     pub fn set_without_ip_frag(&mut self, socket: i32) -> Result<(), &'static str> {
-        let value: u32 = 1;
-        info!("Trying to set socket option IP_DONTFRAG to {}", value);
+        info!("Trying to set socket option IP_DONTFRAG to {}", libc::IP_PMTUDISC_DO);
 
         // Normally the option should be IP_DONTFRAG, but this fails to resolve
         // Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_DONTFRAG, value)
