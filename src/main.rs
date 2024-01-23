@@ -21,7 +21,7 @@ const DEFAULT_PORT: u16 = 45001;
 // Sanity checks from iPerf3
 // /* Maximum size UDP send is (64K - 1) - IP and UDP header sizes */
 const MAX_UDP_BLOCKSIZE: usize = 65535 - 8 - 20;
-const LAST_MESSAGE_SIZE: isize = 100;
+const LAST_MESSAGE_SIZE: usize = 100;
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
@@ -123,7 +123,7 @@ fn main() {
     };
     info!("Exchange function used: {:?}", exchange_function);
 
-    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), (args.with_gro, args.mtu_size as u32), crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.mtu_size as u32), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
         Box::new(Client::new(ipv4, args.port, mtu, args.mtu_discovery, socket_options, args.time, exchange_function))

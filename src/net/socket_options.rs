@@ -6,13 +6,13 @@ pub struct SocketOptions {
     nonblocking: bool,
     without_ip_frag: bool,
     gso: (bool, u32),
-    gro: (bool, u32),
+    gro: bool,
     recv_buffer_size: u32,
     send_buffer_size: u32,
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, without_ip_frag: bool, gso: (bool, u32), gro: (bool, u32), recv_buffer_size: u32, send_buffer_size: u32) -> Self {
+    pub fn new(nonblocking: bool, without_ip_frag: bool, gso: (bool, u32), gro: bool, recv_buffer_size: u32, send_buffer_size: u32) -> Self {
         SocketOptions {
             nonblocking,
             without_ip_frag,
@@ -34,7 +34,7 @@ impl SocketOptions {
         if self.gso.0 {
             self.set_gso(socket, self.gso.1)?;
         }
-        if self.gro.0 {
+        if self.gro {
             self.set_gro(socket)?;
         }
 
@@ -241,6 +241,30 @@ impl SocketOptions {
             info!("Current socket Ethernet MTU: {}", current_size);
             // Minus IP header size and UDP header size
             Ok(current_size - 20 - 8)
+        }
+    }
+
+    pub fn get_gso_size(&self, socket: i32) -> Result<usize, &'static str> {
+        let current_size: u32 = 0;
+        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
+
+        let getsockopt_result = unsafe {
+            libc::getsockopt(
+                socket,
+                libc::SOL_UDP,
+                libc::UDP_SEGMENT,
+                &current_size as *const _ as _,
+                &mut size_len as *mut _
+            )
+        };
+
+        if getsockopt_result == -1 {
+            error!("errno when getting GSO size: {}", Error::last_os_error());
+            Err("Failed to get socket GSO size")
+        } else {
+            info!("Current socket GSO size: {}", current_size);
+            // FIXME: Check if this is correct 
+            Ok(self.gso.1 as usize)
         }
     }
 }

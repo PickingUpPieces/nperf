@@ -11,21 +11,21 @@ pub struct Socket {
     port: u16,
     pub mtu_size: usize,
     socket: i32,
-    _socket_options: SocketOptions,
+    socket_options: SocketOptions,
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, mut _socket_options: SocketOptions) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
-        _socket_options.update(socket).expect("Error updating socket options");
+        socket_options.update(socket).expect("Error updating socket options");
 
         Some(Socket {
             ip,
             port,
             mtu_size,
             socket,
-            _socket_options, 
+            socket_options, 
         })
     }
 
@@ -148,7 +148,7 @@ impl Socket {
         Ok(())
     }
 
-    pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<isize, &'static str> {
+    pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
             libc::recvmsg(
                 self.socket,
@@ -157,7 +157,7 @@ impl Socket {
             )
         };
     
-        if recv_result == -1 {
+        if recv_result <= -1 {
             // Check for non-blocking mode
             let errno = Error::last_os_error();
             let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
@@ -170,21 +170,22 @@ impl Socket {
         } 
     
         debug!("Received {} bytes", recv_result);
-        Ok(recv_result)
+        Ok(recv_result as usize)
     }
 
     
-    pub fn read(&self, buffer: &mut [u8]) -> Result<isize, &'static str> {
+    pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
             // FIXME: Use read() like in iPerf
-            libc::read(
+            libc::recv(
                 self.socket,
                 buffer.as_mut_ptr() as *mut _,
-                buffer.len()
+                buffer.len(),
+                0
             )
         };
     
-        if recv_result == -1 {
+        if recv_result <= -1 {
             // Check for non-blocking mode
             let errno = Error::last_os_error();
             let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
@@ -197,7 +198,7 @@ impl Socket {
         } 
     
         debug!("Received {} bytes", recv_result);
-        Ok(recv_result)
+        Ok(recv_result as usize)
     }
 
     pub fn wait_for_data(&self) -> Result<(), &'static str> {
@@ -222,7 +223,7 @@ impl Socket {
     }
 
     pub fn get_mtu(&self) -> Result<u32, &'static str> {
-        self._socket_options.get_mtu(self.socket)
+        self.socket_options.get_mtu(self.socket)
     }
 
     fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
@@ -235,5 +236,9 @@ impl Socket {
             sin_addr: libc::in_addr { s_addr: addr_u32 },
             sin_zero: [0; 8]
         }
+    }
+
+    pub fn get_gso_size(&self) -> Result<usize, &'static str> {
+        self.socket_options.get_gso_size(self.socket)
     }
 }
