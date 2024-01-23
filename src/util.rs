@@ -37,7 +37,8 @@ pub fn fill_buffer_with_repeating_pattern(buffer: &mut [u8]) {
         }
     }
 
-    debug!("Filled buffer of size {} with repeating pattern {:?}", buffer.len(), buffer);
+    debug!("Filled buffer of size {} with repeating pattern", buffer.len());
+    trace!("Filled buffer with {:?}", buffer);
 }
 
 pub fn prepare_packet(next_packet_id: u64, buffer: &mut Vec<u8>) {
@@ -121,7 +122,6 @@ pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
 
     msghdr
 }
-
 
 
 #[derive(Debug)]
