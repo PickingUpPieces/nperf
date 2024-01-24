@@ -6,30 +6,30 @@ use super::history::History;
 #[derive(Debug)]
 pub struct PacketBuffer {
     buffer: Vec<u8>,
-    packet_size: usize,
-    _last_packet_size: usize,
+    datagram_size: u32,
+    _last_packet_size: u32,
     packets_amount: usize,
 }
 
 impl PacketBuffer {
-    pub fn new(mss_size: usize, packet_size: usize) -> Option<Self> {
-        let buffer = vec![0; mss_size];
+    pub fn new(mss: u32, datagram_size: u32) -> Option<Self> {
+        let buffer = vec![0; mss.try_into().unwrap()];
 
-        let rest_of_buffer = mss_size % packet_size;
+        let rest_of_buffer = mss % datagram_size;
         let _last_packet_size = if rest_of_buffer == 0 {
             info!("Buffer length is a multiple of packet size!");
-            packet_size
+            datagram_size
         } else {
             warn!("Buffer length is not a multiple of packet size! Last packet size is: {}", rest_of_buffer);
             rest_of_buffer
         };
 
-        let packets_amount = (mss_size as f64 / packet_size as f64).ceil() as usize;
-        debug!("Created PacketBuffer with packet size: {}, last packet size: {}, buffer length: {}, packets amount: {}", packet_size, _last_packet_size, mss_size, packets_amount);
+        let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
+        debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
 
         Some(PacketBuffer {
             buffer,
-            packet_size,
+            datagram_size,
             _last_packet_size,
             packets_amount,
         })
@@ -83,7 +83,7 @@ impl PacketBuffer {
         let mut amount_used_packet_ids: u64 = 0;
 
         for i in 0..self.packets_amount {
-            let start_of_packet = i * self.packet_size;
+            let start_of_packet = i * self.datagram_size as usize;
             let buffer = &mut self.buffer[start_of_packet..(start_of_packet+8)];
             buffer[0..8].copy_from_slice(&(next_packet_id + amount_used_packet_ids as u64).to_be_bytes());
             debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[0..8].try_into().unwrap()));

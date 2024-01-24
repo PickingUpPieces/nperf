@@ -22,9 +22,9 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mss_size: usize, socket_options: SocketOptions, run_infinite: bool, exchange_function: ExchangeFunction) -> Server {
-        let socket = Socket::new(ip, local_port, mss_size, socket_options).expect("Error creating socket");
-        let packet_buffer = PacketBuffer::new(mss_size, socket.get_gso_size().unwrap()).expect("Error creating packet buffer");
+    pub fn new(ip: Ipv4Addr, local_port: u16, mss: u32, datagram_size: u32, socket_options: SocketOptions, run_infinite: bool, exchange_function: ExchangeFunction) -> Server {
+        let socket = Socket::new(ip, local_port, socket_options).expect("Error creating socket");
+        let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
 
         Server {
             packet_buffer,

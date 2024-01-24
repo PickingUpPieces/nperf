@@ -244,7 +244,7 @@ impl SocketOptions {
         }
     }
 
-    pub fn get_gso_size(&self, socket: i32) -> Result<usize, &'static str> {
+    pub fn _get_gso_size(&self, socket: i32) -> Result<u32, &'static str> {
         let current_size: u32 = 0;
         let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
 
@@ -264,7 +264,7 @@ impl SocketOptions {
         } else {
             debug!("Current socket GSO size: {}", current_size);
             // FIXME: Check if this is correct 
-            Ok(self.gso.1 as usize)
+            Ok(current_size)
         }
     }
 }

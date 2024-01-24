@@ -23,9 +23,9 @@ pub struct Client {
 
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mss_size: usize, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
-        let socket = Socket::new(ip, remote_port, mss_size, socket_options).expect("Error creating socket");
-        let packet_buffer = PacketBuffer::new(mss_size, socket.get_gso_size().unwrap()).expect("Error creating packet buffer");
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mss: u32, datagram_size: u32, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
+        let socket = Socket::new(ip, remote_port, socket_options).expect("Error creating socket");
+        let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
 
         Client {
             packet_buffer,

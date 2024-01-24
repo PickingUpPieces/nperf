@@ -9,13 +9,12 @@ use super::socket_options::SocketOptions;
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
-    pub mss_size: usize,
     socket: i32,
     socket_options: SocketOptions,
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mss_size: usize, mut socket_options: SocketOptions) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, port: u16, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
         socket_options.update(socket).expect("Error updating socket options");
@@ -23,7 +22,6 @@ impl Socket {
         Some(Socket {
             ip,
             port,
-            mss_size,
             socket,
             socket_options, 
         })
@@ -241,9 +239,5 @@ impl Socket {
             sin_addr: libc::in_addr { s_addr: addr_u32 },
             sin_zero: [0; 8]
         }
-    }
-
-    pub fn get_gso_size(&self) -> Result<usize, &'static str> {
-        self.socket_options.get_gso_size(self.socket)
     }
 }
