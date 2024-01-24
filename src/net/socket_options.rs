@@ -65,6 +65,29 @@ impl SocketOptions {
         Ok(())
     }
 
+    fn get_socket_option(socket: i32, level: libc::c_int, name: libc::c_int) -> Result<u32, &'static str> {
+        let ret = 0;
+        let mut ret_len = std::mem::size_of_val(&ret) as libc::socklen_t;
+
+        let getsockopt_result = unsafe {
+            libc::getsockopt(
+                socket,
+                level,
+                name,
+                &ret as *const _ as _,
+                &mut ret_len as *mut _
+            )
+        };
+    
+        if getsockopt_result == -1 {
+            error!("errno when getting send buffer size: {}", Error::last_os_error());
+            Err("Failed to get current socket send buffer size")
+        } else {
+            debug!("Got socket option on socket: {}", ret);
+            Ok(ret)
+        }
+    }
+
     pub fn set_nonblocking(&mut self, socket: i32) -> Result<(), &'static str> {    
         let mut flags = unsafe { libc::fcntl(socket, libc::F_GETFL, 0) };
         if flags == -1 {
@@ -95,25 +118,7 @@ impl SocketOptions {
     }
     
     fn get_send_buffer_size(socket: i32) -> Result<u32, &'static str> {
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-    
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                socket,
-                libc::SOL_SOCKET,
-                libc::SO_SNDBUF,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-    
-        if getsockopt_result == -1 {
-            error!("errno when getting send buffer size: {}", Error::last_os_error());
-            Err("Failed to get current socket send buffer size")
-        } else {
-            Ok(current_size)
-        }
+        Self::get_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF)
     }
     
     pub fn set_receive_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
@@ -129,25 +134,7 @@ impl SocketOptions {
     }
     
     fn get_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-    
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                socket,
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-    
-        if getsockopt_result == -1 {
-            error!("errno when getting receive buffer size: {}", Error::last_os_error());
-            Err("Failed to get socket receive buffer size")
-        } else {
-            Ok(current_size)
-        }
+        Self::get_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF)
     }
 
     pub fn set_gso(&mut self, socket: i32, gso_size: u32) -> Result<(), &'static str> {
@@ -170,50 +157,13 @@ impl SocketOptions {
     pub fn get_mss(&self, socket: i32) -> Result<u32, &'static str> {
         // https://man7.org/linux/man-pages/man7/ip.7.html
         // MSS from TCP returned an error
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                socket,
-                libc::IPPROTO_IP,
-                libc::IP_MTU,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-
-        if getsockopt_result == -1 {
-            error!("errno when getting Ethernet MTU: {}", Error::last_os_error());
-            Err("Failed to get socket Ethernet MTU")
-        } else {
-            info!("Current socket Ethernet MTU is: {}", current_size);
-            // Minus IP header size and UDP header size
-            Ok(current_size - 20 - 8)
+        match Self::get_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU) {
+            Ok(mtu) => Ok(mtu - 20 - 8), // Return MSS instead of MTU
+            Err(_) => Err("Failed to get MSS")
         }
     }
 
     pub fn _get_gso_size(&self, socket: i32) -> Result<u32, &'static str> {
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                socket,
-                libc::SOL_UDP,
-                libc::UDP_SEGMENT,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-
-        if getsockopt_result == -1 {
-            error!("errno when getting GSO size: {}", Error::last_os_error());
-            Err("Failed to get socket GSO size")
-        } else {
-            debug!("Current socket GSO size: {}", current_size);
-            // FIXME: Check if this is correct 
-            Ok(current_size)
-        }
+        Self::get_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT)
     }
 }
