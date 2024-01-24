@@ -1,5 +1,5 @@
 use std::net::Ipv4Addr;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use log::trace;
 use log::{debug, error, info};
 
@@ -39,16 +39,16 @@ impl Client {
         }
     }
 
-    fn send_last_message(&mut self) -> Result<(), &'static str> {
+    fn send_last_message(&mut self) -> Result<usize, &'static str> {
         let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
         self.socket.send(&mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize)
     }
 
-    fn send_messages(&mut self, packets_amount: u64) -> Result<(), &'static str> {
+    fn send_messages(&mut self) -> Result<(), &'static str> {
         match self.exchange_function {
             ExchangeFunction::Normal => self.send(),
             ExchangeFunction::Msg => self.sendmsg(),
-            ExchangeFunction::Mmsg => self.sendmmsg(packets_amount),
+            ExchangeFunction::Mmsg => self.sendmmsg(),
         }
     }
 
@@ -57,8 +57,9 @@ impl Client {
         let buffer_length = self.packet_buffer.get_buffer_length();
 
         match self.socket.send(&mut self.packet_buffer.get_buffer_pointer() , buffer_length) {
-            Ok(_) => {
+            Ok(amount_send_bytes) => {
                 self.history.amount_datagrams += 1;
+                self.history.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
@@ -68,17 +69,16 @@ impl Client {
     }
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
-        self.next_packet_id += self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_packets = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        self.next_packet_id += amount_packets;
 
         let buffer_length = self.packet_buffer.get_buffer_length();
         let msghdr = util::create_msghdr(&mut self.packet_buffer.get_buffer_pointer(), buffer_length);
-        debug!("Sending message with buffer size {} and packet number {}",  self.packet_buffer.get_buffer_length(), self.history.amount_datagrams);
-        debug!("Trying to send message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
-        trace!("Trying to send message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         match self.socket.sendmsg(&msghdr) {
-            Ok(_) => {
-                self.history.amount_datagrams += 1;
+            Ok(amount_send_bytes) => {
+                self.history.amount_datagrams += amount_packets;
+                self.history.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
@@ -87,8 +87,8 @@ impl Client {
         }
     }
 
-    fn sendmmsg(&mut self, packets_amount: u64) -> Result<(), &'static str> {
-        error!("Not yet implemented: {}!!!!", packets_amount);
+    fn sendmmsg(&mut self) -> Result<(), &'static str> {
+        error!("Not yet implemented:!!!");
         Ok(())
     }
 }
@@ -112,7 +112,7 @@ impl Node for Client {
         info!("Start measurement...");
     
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages(1) {
+            match self.send_messages() {
                 Ok(_) => {},
                 Err(x) => {
                     error!("Error sending message! Aborting measurement...");
@@ -121,8 +121,6 @@ impl Node for Client {
             }
         }
 
-        std::thread::sleep(Duration::from_millis(100));
-        
         match self.send_last_message() {
             Ok(_) => { 
                 self.history.end_time = Instant::now();

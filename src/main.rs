@@ -5,10 +5,11 @@ use crate::node::client::Client;
 use crate::node::server::Server;
 use crate::node::Node;
 use crate::net::socket_options::SocketOptions;
+use crate::util::ExchangeFunction;
 
 mod node;
-mod util;
 mod net;
+mod util;
 
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_UDP_BLKSIZE: usize = 1472;
@@ -106,12 +107,12 @@ fn main() {
     }
 
     let exchange_function = if args.with_msg {
-        util::ExchangeFunction::Msg
+        ExchangeFunction::Msg
     } else {
         if args.with_mmsg {
-            util::ExchangeFunction::Mmsg
+            ExchangeFunction::Mmsg
         } else {
-            util::ExchangeFunction::Normal
+            ExchangeFunction::Normal
         }
     };
     

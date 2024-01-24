@@ -7,8 +7,8 @@ use crate::net::socket_options::SocketOptions;
 use crate::util::{self, ExchangeFunction};
 use crate::net::socket::Socket;
 use crate::util::history::History;
-use super::Node;
 use crate::util::packet_buffer::PacketBuffer;
+use super::Node;
 
 #[derive(Debug)]
 pub struct Server {
@@ -73,6 +73,7 @@ impl Server {
                 }
 
                 self.next_packet_id += util::process_packet(&mut self.packet_buffer.get_buffer_pointer(), self.next_packet_id, &mut self.history);
+                self.history.amount_data_bytes += amount_received_bytes;
                 Ok(())
             },
             Err("EAGAIN") => Ok(()),
@@ -113,6 +114,7 @@ impl Server {
                 let absolut_packets_received;
                 (self.next_packet_id, absolut_packets_received) = self.packet_buffer.process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += absolut_packets_received;
+                self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets, and next packet id should be {}", absolut_packets_received, self.next_packet_id);
                 Ok(())
             },

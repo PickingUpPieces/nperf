@@ -1,7 +1,7 @@
 pub mod history;
 pub mod packet_buffer;
 
-use log::{debug, info, trace};
+use log::debug;
 use history::History;
 
 #[derive(PartialEq, Debug)]
@@ -25,7 +25,6 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     }
 }
 
-
 pub fn process_packet(buffer: &[u8], next_packet_id: u64, history: &mut History) -> u64 {
     let packet_id = u64::from_be_bytes(buffer[0..8].try_into().unwrap());
     debug!("Received packet number: {}", packet_id);
@@ -40,16 +39,16 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
     } else if packet_id > next_packet_id {
         let lost_packet_count = (packet_id - next_packet_id) as u64;
         history.amount_omitted_datagrams += lost_packet_count as i64;
-        info!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
+        debug!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
         return lost_packet_count + 1; // This is the next packet id that we expect, since we assume that the missing packets are lost
     } else { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
         if history.amount_omitted_datagrams > 0 { 
             history.amount_omitted_datagrams -= 1;
             history.amount_reordered_datagrams  += 1;
-            info!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
+            debug!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
         } else { 
             history.amount_duplicated_datagrams += 1;
-            info!("Received duplicated packet");
+            debug!("Received duplicated packet");
         }
         return 0
     }

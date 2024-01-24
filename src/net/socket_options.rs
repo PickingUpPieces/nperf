@@ -214,7 +214,7 @@ impl SocketOptions {
     }
 
     pub fn set_without_ip_frag(&mut self, socket: i32) -> Result<(), &'static str> {
-        info!("Trying to set socket option IP_DONTFRAG to {}", libc::IP_PMTUDISC_DO);
+        info!("Set socket to no IP fragmentation");
         Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
     }
 
@@ -262,7 +262,7 @@ impl SocketOptions {
             error!("errno when getting GSO size: {}", Error::last_os_error());
             Err("Failed to get socket GSO size")
         } else {
-            info!("Current socket GSO size: {}", current_size);
+            debug!("Current socket GSO size: {}", current_size);
             // FIXME: Check if this is correct 
             Ok(self.gso.1 as usize)
         }

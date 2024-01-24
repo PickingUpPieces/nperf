@@ -78,7 +78,7 @@ impl Socket {
         return Ok(())
     }
 
-    pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<(), &'static str> {
+    pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<usize, &'static str> {
         if buffer_len == 0 {
             error!("Buffer is empty");
             return Err("Buffer is empty");
@@ -96,16 +96,15 @@ impl Socket {
             )
         };
     
-        if send_result == -1 {
+        if send_result <= -1 {
             // CHeck for connection refused
             let errno = Error::last_os_error();
-            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
-            match raw_os_err {
-                libc::ECONNREFUSED => {
+            match errno.raw_os_error() {
+                Some(libc::ECONNREFUSED) => {
                     error!("Connection refused while trying to send data!");
                     return Err("ECONNREFUSED");
                 },
-                libc::EMSGSIZE => {
+                Some(libc::EMSGSIZE) => {
                     error!("EMSGSIZE while trying to send data! The message is too large for the transport protocol.");
                     return Err("EMSGSIZE");
                 },
@@ -117,11 +116,12 @@ impl Socket {
         }
     
         debug!("Sent datagram with {} bytes", send_result);
-        Ok(())
+        Ok(send_result as usize)
     }
 
-    pub fn sendmsg(&self, msghdr: &libc::msghdr) -> Result<(), &'static str> {
-        debug!("Trying to send message with msghdr length: {}", msghdr.msg_iovlen);
+    pub fn sendmsg(&self, msghdr: &libc::msghdr) -> Result<usize, &'static str> {
+        debug!("Trying to send message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        trace!("Trying to send message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         let send_result = unsafe {
             libc::sendmsg(
@@ -131,21 +131,22 @@ impl Socket {
             )
         };
     
-        if send_result == -1 {
+        if send_result <= -1 {
             let errno = Error::last_os_error();
-            error!("Errno when trying to send data: {}", errno);
-
-            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
-            // Check for connection refused
-            if raw_os_err == libc::ECONNREFUSED {
-                return Err("ECONNREFUSED");
-            } else {
-                return Err("Failed to send data");
+            match errno.raw_os_error() {
+                Some(libc::ECONNREFUSED) => {
+                    error!("Connection refused while trying to send data!");
+                    return Err("ECONNREFUSED");
+                },
+                _ => {
+                    error!("Errno when trying to send data with sendmsg(): {}", errno);
+                    return Err("Failed to send data");
+                }
             }
         }
     
         debug!("Sent datagram(s) with {} bytes", send_result);
-        Ok(())
+        Ok(send_result as usize)
     }
 
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
@@ -158,14 +159,15 @@ impl Socket {
         };
     
         if recv_result <= -1 {
-            // Check for non-blocking mode
             let errno = Error::last_os_error();
-            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
-            if raw_os_err == libc::EAGAIN {
-                return Err("EAGAIN");
-            } else {
-                error!("Errno when trying to receive data with recvmsg(): {}", errno);
-                return Err("Failed to receive data!");
+            match errno.raw_os_error() {
+                Some(libc::EAGAIN) => {
+                    return Err("EAGAIN");
+                },
+                _ => {
+                    error!("Errno when trying to receive data with recvmsg(): {}", errno);
+                    return Err("Failed to receive data!");
+                }
             }
         } 
     
@@ -184,16 +186,17 @@ impl Socket {
                 0
             )
         };
-    
+
         if recv_result <= -1 {
-            // Check for non-blocking mode
             let errno = Error::last_os_error();
-            let raw_os_err = errno.raw_os_error().expect("Failed to get raw os error");
-            if raw_os_err == libc::EAGAIN {
-                return Err("EAGAIN");
-            } else {
-                error!("Errno when trying to receive data with read(): {}", errno);
-                return Err("Failed to receive data");
+            match errno.raw_os_error() {
+                Some(libc::EAGAIN) => {
+                    return Err("EAGAIN");
+                },
+                _ => {
+                    error!("Errno when trying to receive data with recv(): {}", errno);
+                    return Err("Failed to receive data!");
+                }
             }
         } 
     
@@ -215,8 +218,7 @@ impl Socket {
         let result = unsafe { libc::select(nfds, &mut read_fds, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
         
         if result == -1 {
-            let err = std::io::Error::last_os_error();
-            error!("Error calling select: {}", err);
+            error!("Error calling select: {}", Error::last_os_error());
             return Err("Error calling select");
         }
         Ok(())

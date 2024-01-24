@@ -1,4 +1,6 @@
-use log::{debug, trace, info, warn, error};
+use std::io::IoSlice;
+
+use log::{debug, trace, info, warn};
 use super::history::History;
 
 #[derive(Debug)]
@@ -89,27 +91,25 @@ impl PacketBuffer {
         };
     
         debug!("Process packet msghdr to extract the packets received. Received {} iov packets. Start iterating over them...", msghdr.msg_iovlen);
-        // Iterate over the msg_iov (which are the packets received) and extract the buffer
-        // Check if msghdr.msg_iovlen == 1 
+        // Make sure that iovlen == 1, since we only support one packet per msghdr.
         let iovec = if msghdr.msg_iovlen == 1 {
-            unsafe { &mut *msghdr.msg_iov }
+            unsafe { *msghdr.msg_iov }
         } else {
-            error!("Received more than one packet in one msghdr. This is not supported yet!");
-            std::ptr::null_mut()
+            panic!("Received more than one packet in one msghdr. This is not supported yet!"); 
         };
 
-        // Get &mut [u8] from iovec
-        let messages: Vec<libc::iovec> = unsafe { Vec::from_raw_parts(msghdr.msg_iov as *mut libc::iovec, msghdr.msg_iovlen as usize, msghdr.msg_iovlen as usize) };
-    
-        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
-    
-        for i in 0..messages.len() {
-            let buffer: &[u8] = unsafe {
-                std::slice::from_raw_parts(messages[i].iov_base as *mut u8, messages[i].iov_len)
-            };
-            next_packet_id += super::process_packet(buffer, next_packet_id, history);
+        assert_eq!(iovec.iov_len, amount_received_bytes as _);
+
+        let datagrams: IoSlice = unsafe {
+            IoSlice::new(std::slice::from_raw_parts(iovec.iov_base as *const u8, iovec.iov_len))
+        };
+
+        trace!("Received datagram length {}", datagrams.len());
+
+        for packet in datagrams.chunks(single_packet_size as usize) {
+            next_packet_id += super::process_packet(packet, next_packet_id, history);
             absolut_packets_received += 1;
-            trace!("iovec buffer number: {} with now absolut packets received {} and next packet id: {}", i, next_packet_id, absolut_packets_received);
+            trace!("iovec buffer: {:?} with now absolut packets received {} and next packet id: {}", packet, next_packet_id, absolut_packets_received);
         }
     
         (next_packet_id, absolut_packets_received)

@@ -9,6 +9,7 @@ pub struct History {
     total_data: f64,
     pub datagram_size: u64,
     pub amount_datagrams: u64,
+    pub amount_data_bytes: usize,
     pub amount_reordered_datagrams: u64,
     pub amount_duplicated_datagrams: u64,
     pub amount_omitted_datagrams: i64,
@@ -25,6 +26,7 @@ impl History {
             total_data: 0.0,
             datagram_size,
             amount_datagrams: 0,
+            amount_data_bytes: 0,
             amount_reordered_datagrams: 0,
             amount_duplicated_datagrams: 0,
             amount_omitted_datagrams: 0,
@@ -50,19 +52,19 @@ impl History {
         println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
         println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
         println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
-        println!("Data rate: {:.2} GiBytes/s / {:.2} GiBit/s", self.data_rate, (self.data_rate * 8.0));
+        println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate, (self.data_rate * 8.0));
         println!("Packet loss: {:.2}%", self.packet_loss);
     }
 
     fn calculate_total_data(&self) -> f64 {
-        let total_data = (self.amount_datagrams * self.datagram_size as u64) as f64 / 1024.0 / 1024.0 / 1024.0;
+        let total_data = self.amount_data_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
         total_data 
     }
     
     fn calculate_data_rate(&self) -> f64{
         let elapsed_time = self.end_time - self.start_time;
         let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
-        let data_rate = ((self.amount_datagrams as f64 * self.datagram_size as f64) / (1024 * 1024 * 1024) as f64) / elapsed_time_in_seconds;
+        let data_rate = self.total_data / elapsed_time_in_seconds;
         data_rate
     }
     
