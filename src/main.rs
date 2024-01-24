@@ -15,8 +15,8 @@ mod util;
 const DEFAULT_MSS: u32= 1472;
 const DEFAULT_UDP_DATAGRAM_SIZE: u32 = 1472;
 const DEFAULT_GSO_BUFFER_SIZE: u32= 65507;
-const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB;
-const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB;
+const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
+const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const DEFAULT_DURATION: u64 = 10; // /* seconds */
 const DEFAULT_PORT: u16 = 45001;
 

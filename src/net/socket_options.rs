@@ -84,40 +84,14 @@ impl SocketOptions {
 
     pub fn set_send_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
         let current_size = Self::get_send_buffer_size(socket)?;
-        debug!("Trying to set send buffer size from {} to {}", current_size, size);
+        debug!("Trying to set send buffer size from {} to {}", current_size, size * 2);
     
-        if current_size >= size {
-            warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
+        if current_size >= size * 2 {
+            warn!("New buffer size {}*2 is smaller than current buffer size {}. Abort setting it...", size, current_size);
             return Ok(());
         }
 
-        match Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF, size) {
-            Ok(_) => {},
-            Err(x) => {
-                error!("{x}");
-                return Err("Failed to set socket send buffer size");
-            }
-        }
-    
-        // TODO: Check only for okay with if let
-        match Self::get_send_buffer_size(socket) {
-            Ok(x) => {
-                if x == size {
-                    info!("New socket send buffer size: {}", x);
-                    self.send_buffer_size = x;
-                    Ok(())
-                } else {
-                    error!("Current send buffer size not equal desired one: {} vs {}", x, size);
-                    // FIXME: Currently the max buffer size is set, not the desired one. Since this size is a lot bigger than the desired one, we fix this bug later.
-                    // Err("Failed to set socket send buffer size")
-                    Ok(())
-                }
-            },
-            Err(x) => {
-                error!("{x}");
-                Err("Failed to get new socket send buffer size")
-            }
-        }
+        Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF, size)
     }
     
     fn get_send_buffer_size(socket: i32) -> Result<u32, &'static str> {
@@ -144,39 +118,14 @@ impl SocketOptions {
     
     pub fn set_receive_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
         let current_size = Self::get_receive_buffer_size(socket)?; 
-        debug!("Trying to set receive buffer size from {} to {}", current_size, size);
+        debug!("Trying to set receive buffer size from {} to {}", current_size, size * 2);
     
-        if current_size >= size {
-            warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
+        if current_size >= size * 2 {
+            warn!("New buffer size {}*2 is smaller than current buffer size {}. Abort setting it...", size, current_size);
             return Ok(());
         }
 
-        match Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF, size) {
-            Ok(_) => {},
-            Err(x) => {
-                error!("{x}");
-                return Err("Failed to set socket receive buffer size");
-            }
-        }
-    
-        match Self::get_receive_buffer_size(socket) {
-            Ok(x) => {
-                if x == size {
-                    info!("New socket receive buffer size: {}", x);
-                    self.recv_buffer_size = x;
-                    Ok(())
-                } else {
-                    error!("Current receive buffer size not equal desired one: {} vs {}", x, size);
-                    // FIXME: Currently the max buffer size is set, not the desired one. Since this size is a lot bigger than the desired one, we fix this bug later.
-                    // Err("Failed to set socket receive buffer size")
-                    Ok(())
-                }
-            },
-            Err(x) => {
-                error!("{x}");
-                Err("Failed to get new socket receive buffer size")
-            }
-        }
+        Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF, size)
     }
     
     fn get_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
