@@ -1,31 +1,34 @@
 use clap::Parser;
 use log::{info, error, debug};
 
-use crate::client::Client;
-use crate::server::Server;
+use crate::node::client::Client;
+use crate::node::server::Server;
+use crate::node::Node;
+use crate::net::socket_options::SocketOptions;
+use crate::util::ExchangeFunction;
 
-mod util;
+mod node;
 mod net;
-mod client;
-mod server;
+mod util;
 
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
-const DEFAULT_UDP_BLKSIZE: usize = 1472;
-const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB;
-const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB;
+const DEFAULT_MSS: u32= 1472;
+const DEFAULT_UDP_DATAGRAM_SIZE: u32 = 1472;
+const DEFAULT_GSO_BUFFER_SIZE: u32= 65507;
+const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
+const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const DEFAULT_DURATION: u64 = 10; // /* seconds */
 const DEFAULT_PORT: u16 = 45001;
 
-// Sanity checks from iPerf3
-// /* Maximum size UDP send is (64K - 1) - IP and UDP header sizes */
-const MAX_UDP_BLOCKSIZE: usize = 65535 - 8 - 20;
-const LAST_MESSAGE_SIZE: isize = 100;
+// /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
+const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
+const LAST_MESSAGE_SIZE: usize = 100;
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
 struct Arguments{
     /// Mode of operation: client or server
-    #[arg(short, default_value_t = String::from("server"))]
+    #[arg(default_value_t = String::from("server"))]
     mode: String,
 
     /// IP address to measure against/listen on
@@ -36,21 +39,49 @@ struct Arguments{
     #[arg(short, default_value_t = DEFAULT_PORT)]
     port: u16,
 
-    /// Don't stop the server after the first measurement
+    /// Don't stop the node after the first measurement
     #[arg(short, long, default_value_t = false)]
-    run_server_infinite: bool,
+    run_infinite: bool,
 
-    /// Set MTU size (Without IP and UDP headers)
-    #[arg(short = 'l', default_value_t = DEFAULT_UDP_BLKSIZE)]
-    mtu_size: usize,
-
-    /// Dynamic MTU size discovery
-    #[arg(short = 'd', default_value_t = false)]
-    mtu_discovery: bool,
+    /// Set length of single datagram (Without IP and UDP headers)
+    #[arg(short = 'l', default_value_t = DEFAULT_UDP_DATAGRAM_SIZE)]
+    datagram_size: u32,
 
     /// Time to run the test
     #[arg(short = 't', default_value_t = DEFAULT_DURATION)]
     time: u64,
+
+    /// Enable GSO on sending socket
+    #[arg(long, default_value_t = false)]
+    with_gso: bool,
+
+    /// Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
+    #[arg(long, default_value_t = DEFAULT_GSO_BUFFER_SIZE)]
+    with_gso_buffer: u32,
+
+    /// Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled.
+    #[arg(long, default_value_t = DEFAULT_MSS)]
+    with_mss: u32,
+
+    /// Enable GRO on receiving socket
+    #[arg(long, default_value_t = false)]
+    with_gro: bool,
+
+    /// Disable fragmentation on sending socket
+    #[arg(long, default_value_t = true)]
+    without_ip_frag: bool,
+
+    /// Use sendmsg/recvmsg method for sending data
+    #[arg(long, default_value_t = false)]
+    with_msg: bool,    
+
+    /// Use sendmmsg/recvmmsg method for sending data
+    #[arg(long, default_value_t = false)]
+    with_mmsg: bool, 
+
+    /// Enable non-blocking socket
+    #[arg(long, default_value_t = true)]
+    with_non_blocking: bool,
 }
 
 fn main() {
@@ -68,18 +99,42 @@ fn main() {
         Err(_) => { error!("Invalid IPv4 address!"); panic!()},
     };
 
-    if args.mtu_size > MAX_UDP_BLOCKSIZE {
-        error!("MTU size is too big! Maximum is {}", MAX_UDP_BLOCKSIZE);
+    if args.datagram_size > MAX_UDP_DATAGRAM_SIZE {
+        error!("UDP datagram size is too big! Maximum is {}", MAX_UDP_DATAGRAM_SIZE);
         panic!();
     } else {
-        info!("MTU size used: {}", args.mtu_size);
+        info!("UDP datagram size used: {}", args.datagram_size);
     }
 
-    if mode == util::NPerfMode::Client {
-        let mut client = Client::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.time);
-        client.run();
+    let exchange_function = if args.with_msg {
+        ExchangeFunction::Msg
+    } else if args.with_mmsg {
+        ExchangeFunction::Mmsg
     } else {
-        let mut server = Server::new(ipv4, args.port, args.mtu_size, args.mtu_discovery, args.run_server_infinite);
-        server.run();
+        ExchangeFunction::Normal
+    };
+    
+    let mss = if args.with_gso || args.with_gro {
+        info!("GSO/GRO enabled with buffer size {}", args.with_gso_buffer);
+        args.with_gso_buffer
+    } else {
+        args.with_mss
+    };
+    info!("MSS used: {}", mss);
+    info!("Exchange function used: {:?}", exchange_function);
+
+    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+
+    let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
+        Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, socket_options, args.time, exchange_function))
+    } else {
+        Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, socket_options, args.run_infinite, exchange_function))
+    };
+
+    match node.run() {
+        Ok(_) => info!("Finished measurement!"),
+        Err(x) => {
+            error!("Error running app: {}", x);
+        }
     }
 }

@@ -1,23 +1,29 @@
 
-use log::{info, trace, debug, error, warn};
+use log::{info, trace, debug, error};
 use std::{self, net::Ipv4Addr};
+use std::io::Error;
 
+use super::socket_options::SocketOptions;
+
+#[derive(Debug)]
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
-    pub mtu_size: usize,
     socket: i32,
+    socket_options: SocketOptions,
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, port: u16, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
+
+        socket_options.update(socket).expect("Error updating socket options");
 
         Some(Socket {
             ip,
             port,
-            mtu_size,
             socket,
+            socket_options, 
         })
     }
 
@@ -29,7 +35,6 @@ impl Socket {
         }
         
         info!("Created socket: {:?}", socket);
-    
         Some(socket)
     }
 
@@ -44,7 +49,6 @@ impl Socket {
                 std::mem::size_of_val(&sockaddr) as libc::socklen_t
             )
         };
-    
         debug!("'Connected' to remote host with result: {:?}", connect_result);
     
         if connect_result == -1 {
@@ -69,10 +73,10 @@ impl Socket {
             return Err("Failed to bind socket to port");
         }
     
-        return Ok(())
+        Ok(())
     }
 
-    pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<(), &'static str> {
+    pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<usize, &'static str> {
         if buffer_len == 0 {
             error!("Buffer is empty");
             return Err("Buffer is empty");
@@ -82,28 +86,98 @@ impl Socket {
         }
     
         let send_result = unsafe {
-            libc::write(
+            libc::send(
                 self.socket,
                 buffer.as_ptr() as *const _,
-                buffer_len as usize
+                buffer_len,
+                0
             )
         };
     
-        if send_result == -1 {
+        if send_result <= -1 {
             // CHeck for connection refused
-            if unsafe { *libc::__errno_location() } == libc::ECONNREFUSED {
-                error!("Connection refused while trying to send data!");
-                return Err("ECONNREFUSED");
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::ECONNREFUSED) => {
+                    error!("Connection refused while trying to send data!");
+                    return Err("ECONNREFUSED");
+                },
+                Some(libc::EMSGSIZE) => {
+                    error!("EMSGSIZE while trying to send data! The message is too large for the transport protocol.");
+                    return Err("EMSGSIZE");
+                },
+                _ => {
+                    error!("Errno when trying to send data: {}", errno);
+                    return Err("Failed to send data");
+                }
             }
-            error!("Errno when trying to send data: {}", unsafe { *libc::__errno_location() });
-            return Err("Failed to send data");
         }
     
         debug!("Sent datagram with {} bytes", send_result);
-        Ok(())
+        Ok(send_result as usize)
     }
+
+    pub fn sendmsg(&self, msghdr: &libc::msghdr) -> Result<usize, &'static str> {
+        debug!("Trying to send message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        trace!("Trying to send message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
+
+        let send_result = unsafe {
+            libc::sendmsg(
+                self.socket,
+                msghdr as *const _ as _,
+                0
+            )
+        };
     
-    pub fn recv(&self, buffer: &mut [u8]) -> Result<isize, &'static str> {
+        if send_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::ECONNREFUSED) => {
+                    error!("Connection refused while trying to send data!");
+                    return Err("ECONNREFUSED");
+                },
+                _ => {
+                    error!("Errno when trying to send data with sendmsg(): {}", errno);
+                    return Err("Failed to send data");
+                }
+            }
+        }
+    
+        debug!("Sent datagram(s) with {} bytes", send_result);
+        Ok(send_result as usize)
+    }
+
+    pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
+        //debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        //trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
+
+        let recv_result: isize = unsafe {
+            libc::recvmsg(
+                self.socket,
+                msghdr as *const _ as _,
+                0
+            )
+        };
+    
+        if recv_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::EAGAIN) => {
+                    return Err("EAGAIN");
+                },
+                _ => {
+                    error!("Errno when trying to receive data with recvmsg(): {}", errno);
+                    return Err("Failed to receive data!");
+                }
+            }
+        } 
+    
+        debug!("Received {} bytes", recv_result);
+        Ok(recv_result as usize)
+    }
+
+    
+    pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
             // FIXME: Use read() like in iPerf
             libc::recv(
@@ -113,62 +187,46 @@ impl Socket {
                 0
             )
         };
-    
-        if recv_result == -1 {
-            // Check for non-blocking mode
-            if unsafe { *libc::__errno_location() } == libc::EAGAIN {
-                return Err("EAGAIN");
-            } else {
-                return Err("Failed to receive data");
+
+        if recv_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::EAGAIN) => {
+                    return Err("EAGAIN");
+                },
+                _ => {
+                    error!("Errno when trying to receive data with recv(): {}", errno);
+                    return Err("Failed to receive data!");
+                }
             }
         } 
     
         debug!("Received {} bytes", recv_result);
-        Ok(recv_result)
+        Ok(recv_result as usize)
     }
 
-    pub fn set_nonblocking(&self) -> Result<(), &'static str> {    
-        let mut flags = unsafe { libc::fcntl(self.socket, libc::F_GETFL, 0) };
-        if flags == -1 {
-            return Err("Failed to get socket flags");
+    pub fn wait_for_data(&self) -> Result<(), &'static str> {
+        debug!("Waiting for data on socket {}...", self.socket);
+        // Prepare the file descriptor set for select
+        let mut read_fds = unsafe {
+            let mut fds: libc::fd_set = std::mem::zeroed();
+            libc::FD_SET(self.socket, &mut fds);
+            fds
+        };
+        
+        // Call select
+        let nfds = self.socket + 1;
+        let result = unsafe { libc::select(nfds, &mut read_fds, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
+        
+        if result == -1 {
+            error!("Error calling select: {}", Error::last_os_error());
+            return Err("Error calling select");
         }
-    
-        flags |= libc::O_NONBLOCK;
-    
-        let fcntl_result = unsafe { libc::fcntl(self.socket, libc::F_SETFL, flags) };
-        if fcntl_result == -1 {
-            return Err("Failed to set socket flags");
-        }
-    
         Ok(())
     }
 
-
-    pub fn get_mtu(&self) -> Result<u32, &'static str> {
-        // https://man7.org/linux/man-pages/man7/ip.7.html
-        // MSS from TCP returned an error
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-
-        // IP_MTU
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                self.socket,
-                libc::IPPROTO_IP,
-                libc::IP_MTU,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-
-        if getsockopt_result == -1 {
-            error!("errno when getting Ethernet MTU: {}", unsafe { *libc::__errno_location() });
-            Err("Failed to get socket Ethernet MTU")
-        } else {
-            info!("Current socket Ethernet MTU: {}", current_size);
-            // Minus IP header size and UDP header size
-            Ok(current_size - 20 - 8)
-        }
+    pub fn get_mss(&self) -> Result<u32, &'static str> {
+        self.socket_options.get_mss(self.socket)
     }
 
     fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
@@ -180,140 +238,6 @@ impl Socket {
             sin_port: port.to_be(), // Convert to big endian
             sin_addr: libc::in_addr { s_addr: addr_u32 },
             sin_zero: [0; 8]
-        }
-    }
-
-    pub fn set_send_buffer_size(&self, size: u32) -> Result<(), &'static str> {
-        let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
-        let current_size = Self::get_send_buffer_size(self.socket)?;
-        debug!("Trying to set send buffer size from {} to {}", current_size, size);
-    
-        if current_size >= size {
-            warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
-            return Ok(());
-        }
-    
-        let setsockopt_result = unsafe {
-            libc::setsockopt(
-                self.socket,
-                libc::SOL_SOCKET,
-                libc::SO_SNDBUF,
-                &size as *const _ as _,
-                size_len
-            )
-        };
-    
-        if setsockopt_result == -1 {
-            error!("errno when setting send buffer size: {}", unsafe { *libc::__errno_location() });
-            return Err("Failed to set socket send buffer size");
-        }
-    
-        // TODO: Check only for okay with if let
-        match Self::get_send_buffer_size(self.socket) {
-            Ok(x) => {
-                if x == size {
-                    info!("New socket send buffer size: {}", x);
-                    Ok(())
-                } else {
-                    error!("Current buffer size not equal desired one: {} vs {}", x, size);
-                    // FIXME: Currently the max buffer size is set, not the desired one. Since this size is a lot bigger than the desired one, we fix this bug later.
-                    // Err("Failed to set socket send buffer size")
-                    Ok(())
-                }
-            },
-            Err(x) => {
-                error!("{x}");
-                Err("Failed to get new socket send buffer size")
-            }
-        }
-    }
-    
-    fn get_send_buffer_size(socket: i32) -> Result<u32, &'static str> {
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-    
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                socket,
-                libc::SOL_SOCKET,
-                libc::SO_SNDBUF,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-    
-        if getsockopt_result == -1 {
-            error!("errno when getting send buffer size: {}", unsafe { *libc::__errno_location() });
-            Err("Failed to get current socket send buffer size")
-        } else {
-            Ok(current_size)
-        }
-    }
-    
-    pub fn set_receive_buffer_size(&self, size: u32) -> Result<(), &'static str> {
-        let size_len = std::mem::size_of_val(&size) as libc::socklen_t;
-        let current_size = Self::get_receive_buffer_size(self.socket)?; 
-        debug!("Trying to set receive buffer size from {} to {}", current_size, size);
-    
-        if current_size >= size {
-            warn!("New buffer size {} is smaller than current buffer size {}", size, current_size);
-            return Ok(());
-        }
-    
-        // Set bigger buffer size
-        let setsockopt_result = unsafe {
-            libc::setsockopt(
-                self.socket,
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                &size as *const _ as _,
-                size_len
-            )
-        };
-    
-        if setsockopt_result == -1 {
-            error!("errno when setting receive buffer size: {}", unsafe { *libc::__errno_location() });
-            return Err("Failed to set socket receive buffer size");
-        }
-    
-        match Self::get_receive_buffer_size(self.socket) {
-            Ok(x) => {
-                if x == size {
-                    info!("New socket receive buffer size: {}", x);
-                    Ok(())
-                } else {
-                    error!("Current buffer size not equal desired one: {} vs {}", x, size);
-                    // FIXME: Currently the max buffer size is set, not the desired one. Since this size is a lot bigger than the desired one, we fix this bug later.
-                    // Err("Failed to set socket receive buffer size")
-                    Ok(())
-                }
-            },
-            Err(x) => {
-                error!("{x}");
-                Err("Failed to get new socket receive buffer size")
-            }
-        }
-    }
-    
-    fn get_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
-        let current_size: u32 = 0;
-        let mut size_len = std::mem::size_of_val(&current_size) as libc::socklen_t;
-    
-        let getsockopt_result = unsafe {
-            libc::getsockopt(
-                socket,
-                libc::SOL_SOCKET,
-                libc::SO_RCVBUF,
-                &current_size as *const _ as _,
-                &mut size_len as *mut _
-            )
-        };
-    
-        if getsockopt_result == -1 {
-            error!("errno when getting receive buffer size: {}", unsafe { *libc::__errno_location() });
-            Err("Failed to get socket receive buffer size")
-        } else {
-            Ok(current_size)
         }
     }
 }
