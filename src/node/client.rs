@@ -38,8 +38,8 @@ impl Client {
     }
 
     fn send_last_message(&mut self) -> Result<usize, &'static str> {
-        let mut last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE as usize] = [0; crate::LAST_MESSAGE_SIZE as usize];
-        self.socket.send(&mut last_message_buffer, crate::LAST_MESSAGE_SIZE as usize)
+        let last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE] = [0; crate::LAST_MESSAGE_SIZE];
+        self.socket.send(&last_message_buffer, crate::LAST_MESSAGE_SIZE)
     }
 
     fn send_messages(&mut self) -> Result<(), &'static str> {
@@ -54,7 +54,7 @@ impl Client {
         self.next_packet_id += self.packet_buffer.add_packet_ids(self.next_packet_id)?;
         let buffer_length = self.packet_buffer.get_buffer_length();
 
-        match self.socket.send(&mut self.packet_buffer.get_buffer_pointer() , buffer_length) {
+        match self.socket.send(self.packet_buffer.get_buffer_pointer() , buffer_length) {
             Ok(amount_send_bytes) => {
                 self.history.amount_datagrams += 1;
                 self.history.amount_data_bytes += amount_send_bytes;

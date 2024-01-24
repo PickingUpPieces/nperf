@@ -1,6 +1,8 @@
 pub mod history;
 pub mod packet_buffer;
 
+use std::os::raw::c_void;
+
 use log::debug;
 use history::History;
 
@@ -37,7 +39,7 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
     if packet_id == next_packet_id {
         return 1
     } else if packet_id > next_packet_id {
-        let lost_packet_count = (packet_id - next_packet_id) as u64;
+        let lost_packet_count = packet_id - next_packet_id;
         history.amount_omitted_datagrams += lost_packet_count as i64;
         debug!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
         return lost_packet_count + 1; // This is the next packet id that we expect, since we assume that the missing packets are lost
@@ -57,7 +59,7 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
 pub fn add_cmsg_buffer(msghdr: &mut libc::msghdr) {
     let control = Box::new([0u8; 1000]);
     let control_len = control.len();
-    msghdr.msg_control = Box::into_raw(control) as *mut _ as _;
+    msghdr.msg_control = Box::into_raw(control) as *mut c_void;
     msghdr.msg_controllen = control_len as _;
 }
 

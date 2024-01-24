@@ -55,24 +55,20 @@ impl History {
     }
 
     fn calculate_total_data(&self) -> f64 {
-        let total_data = self.amount_data_bytes as f64 / 1024.0 / 1024.0 / 1024.0;
-        total_data 
+        self.amount_data_bytes as f64 / 1024.0 / 1024.0 / 1024.0
     }
     
     fn calculate_data_rate(&self) -> f64{
         let elapsed_time = self.end_time - self.start_time;
         let elapsed_time_in_seconds = elapsed_time.as_secs_f64();
-        let data_rate = self.total_data / elapsed_time_in_seconds;
-        data_rate
+        self.total_data / elapsed_time_in_seconds
     }
     
     fn calculate_packet_loss(&self) -> f64 {
-        let packet_loss = (self.amount_omitted_datagrams as f64 / self.amount_datagrams as f64) * 100.0;
-        packet_loss
+        (self.amount_omitted_datagrams as f64 / self.amount_datagrams as f64) * 100.0
     }
     
     fn calculate_total_time(&self) -> std::time::Duration {
-        let total_time = self.end_time - self.start_time;
-        total_time
+        self.end_time - self.start_time
     }
 }

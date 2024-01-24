@@ -73,7 +73,7 @@ impl Socket {
             return Err("Failed to bind socket to port");
         }
     
-        return Ok(())
+        Ok(())
     }
 
     pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<usize, &'static str> {
@@ -89,7 +89,7 @@ impl Socket {
             libc::send(
                 self.socket,
                 buffer.as_ptr() as *const _,
-                buffer_len as usize,
+                buffer_len,
                 0
             )
         };
@@ -148,8 +148,8 @@ impl Socket {
     }
 
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
-        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
-        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
+        //debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        //trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         let recv_result: isize = unsafe {
             libc::recvmsg(

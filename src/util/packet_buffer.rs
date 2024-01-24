@@ -45,12 +45,17 @@ impl PacketBuffer {
     
         msghdr.msg_name = std::ptr::null_mut();
         msghdr.msg_namelen = 0;
-        msghdr.msg_iov = Box::into_raw(iov) as *mut _ as _;
+        msghdr.msg_iov = Box::into_raw(iov);
         msghdr.msg_iovlen = 1;
         msghdr.msg_control = std::ptr::null_mut();
         msghdr.msg_controllen = 0;
     
         msghdr
+    }
+
+    pub fn destroy_msghdr(&mut self, msghdr: libc::msghdr) {
+        unsafe { drop(Box::from_raw(msghdr.msg_iov as *mut libc::iovec))};
+        unsafe { drop(Box::from_raw(msghdr.msg_control as *mut Box<[u8; 1000]>))};
     }
 
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
@@ -85,12 +90,12 @@ impl PacketBuffer {
         for i in 0..self.packets_amount {
             let start_of_packet = i * self.datagram_size as usize;
             let buffer = &mut self.buffer[start_of_packet..(start_of_packet+8)];
-            buffer[0..8].copy_from_slice(&(next_packet_id + amount_used_packet_ids as u64).to_be_bytes());
+            buffer[0..8].copy_from_slice(&(next_packet_id + amount_used_packet_ids).to_be_bytes());
             debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[0..8].try_into().unwrap()));
             amount_used_packet_ids += 1;
         }
 
-        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, next_packet_id + amount_used_packet_ids as u64);
+        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, next_packet_id + amount_used_packet_ids);
         // Return amount of used packet IDs
         Ok(amount_used_packet_ids)
     }
@@ -123,7 +128,7 @@ impl PacketBuffer {
             absolut_packets_received += 1;
             trace!("iovec buffer: {:?} with now absolut packets received {} and next packet id: {}", packet, next_packet_id, absolut_packets_received);
         }
-    
+
         (next_packet_id, absolut_packets_received)
     } 
 }

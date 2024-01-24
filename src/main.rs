@@ -108,12 +108,10 @@ fn main() {
 
     let exchange_function = if args.with_msg {
         ExchangeFunction::Msg
+    } else if args.with_mmsg {
+        ExchangeFunction::Mmsg
     } else {
-        if args.with_mmsg {
-            ExchangeFunction::Mmsg
-        } else {
-            ExchangeFunction::Normal
-        }
+        ExchangeFunction::Normal
     };
     
     let mss = if args.with_gso || args.with_gro {
@@ -125,7 +123,7 @@ fn main() {
     info!("MSS used: {}", mss);
     info!("Exchange function used: {:?}", exchange_function);
 
-    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size as u32), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
         Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, socket_options, args.time, exchange_function))

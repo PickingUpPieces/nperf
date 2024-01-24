@@ -46,9 +46,9 @@ impl Server {
     }
 
     fn recv(&mut self) -> Result<(), &'static str> {
-        match self.socket.recv(&mut self.packet_buffer.get_buffer_pointer()) {
+        match self.socket.recv(self.packet_buffer.get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
-                if self.first_packet_received == false {
+                if !self.first_packet_received {
                     self.first_packet_received = true;
                     info!("First packet received!");
                     self.history.start_time = Instant::now();
@@ -59,7 +59,7 @@ impl Server {
                     return Err("LAST_MESSAGE_RECEIVED");
                 }
 
-                self.next_packet_id += util::process_packet(&mut self.packet_buffer.get_buffer_pointer(), self.next_packet_id, &mut self.history);
+                self.next_packet_id += util::process_packet(self.packet_buffer.get_buffer_pointer(), self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += 1;
                 self.history.amount_data_bytes += amount_received_bytes;
                 Ok(())
@@ -75,7 +75,7 @@ impl Server {
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
-                if self.first_packet_received == false {
+                if !self.first_packet_received {
                     self.first_packet_received = true;
                     info!("First packet received!");
                     self.history.start_time = Instant::now();
@@ -91,9 +91,14 @@ impl Server {
                 self.history.amount_datagrams += absolut_packets_received;
                 self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
+
+                self.packet_buffer.destroy_msghdr(msghdr);
                 Ok(())
             },
-            Err("EAGAIN") => Ok(()),
+            Err("EAGAIN") => {
+                self.packet_buffer.destroy_msghdr(msghdr);
+                Ok(())
+            },
             Err(x) => Err(x)
         }
     }
