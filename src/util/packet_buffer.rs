@@ -6,17 +6,16 @@ use super::history::History;
 #[derive(Debug)]
 pub struct PacketBuffer {
     buffer: Vec<u8>,
-    buffer_len: usize,
     packet_size: usize,
     _last_packet_size: usize,
     packets_amount: usize,
 }
 
 impl PacketBuffer {
-    pub fn new(mtu_size: usize, packet_size: usize) -> Option<Self> {
-        let buffer = vec![0; mtu_size];
+    pub fn new(mss_size: usize, packet_size: usize) -> Option<Self> {
+        let buffer = vec![0; mss_size];
 
-        let rest_of_buffer = mtu_size % packet_size;
+        let rest_of_buffer = mss_size % packet_size;
         let _last_packet_size = if rest_of_buffer == 0 {
             info!("Buffer length is a multiple of packet size!");
             packet_size
@@ -25,16 +24,33 @@ impl PacketBuffer {
             rest_of_buffer
         };
 
-        let packets_amount = (mtu_size as f64 / packet_size as f64).ceil() as usize;
-        debug!("Created PacketBuffer with packet size: {}, last packet size: {}, buffer length: {}, packets amount: {}", packet_size, _last_packet_size, mtu_size, packets_amount);
+        let packets_amount = (mss_size as f64 / packet_size as f64).ceil() as usize;
+        debug!("Created PacketBuffer with packet size: {}, last packet size: {}, buffer length: {}, packets amount: {}", packet_size, _last_packet_size, mss_size, packets_amount);
 
         Some(PacketBuffer {
             buffer,
-            buffer_len: mtu_size,
             packet_size,
             _last_packet_size,
             packets_amount,
         })
+    }
+
+    pub fn create_msghdr(&mut self) -> libc::msghdr {
+        let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
+    
+        let iov = Box::new(libc::iovec {
+            iov_base: self.buffer.as_mut_ptr() as *mut _,
+            iov_len: self.buffer.len(),
+        });
+    
+        msghdr.msg_name = std::ptr::null_mut();
+        msghdr.msg_namelen = 0;
+        msghdr.msg_iov = Box::into_raw(iov) as *mut _ as _;
+        msghdr.msg_iovlen = 1;
+        msghdr.msg_control = std::ptr::null_mut();
+        msghdr.msg_controllen = 0;
+    
+        msghdr
     }
 
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
@@ -42,7 +58,7 @@ impl PacketBuffer {
     }
 
     pub fn get_buffer_length(&self) -> usize {
-        self.buffer_len
+        self.buffer.len()
     }
 
     // Similar to iperf3's fill_with_repeating_pattern
@@ -58,7 +74,7 @@ impl PacketBuffer {
             }
         }
 
-        debug!("Filled buffer of size {} with repeating pattern", self.buffer_len);
+        debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
         trace!("Filled buffer with {:?}", self.buffer);
     }
 
@@ -103,8 +119,6 @@ impl PacketBuffer {
         let datagrams: IoSlice = unsafe {
             IoSlice::new(std::slice::from_raw_parts(iovec.iov_base as *const u8, iovec.iov_len))
         };
-
-        trace!("Received datagram length {}", datagrams.len());
 
         for packet in datagrams.chunks(single_packet_size as usize) {
             next_packet_id += super::process_packet(packet, next_packet_id, history);

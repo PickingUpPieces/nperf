@@ -4,7 +4,7 @@ use log::trace;
 use log::{debug, error, info};
 
 use crate::net::socket_options::SocketOptions;
-use crate::util::{self, ExchangeFunction};
+use crate::util::ExchangeFunction;
 use crate::net::socket::Socket;
 use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
@@ -13,7 +13,6 @@ use super::Node;
 
 #[derive(Debug)]
 pub struct Client {
-    mtu_discovery: bool,
     packet_buffer: PacketBuffer,
     socket: Socket,
     history: History,
@@ -24,15 +23,14 @@ pub struct Client {
 
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mtu_size: usize, mtu_discovery: bool, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
-        let socket = Socket::new(ip, remote_port, mtu_size, socket_options).expect("Error creating socket");
-        let packet_buffer = PacketBuffer::new(mtu_size, socket.get_gso_size().unwrap()).expect("Error creating packet buffer");
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mss_size: usize, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
+        let socket = Socket::new(ip, remote_port, mss_size, socket_options).expect("Error creating socket");
+        let packet_buffer = PacketBuffer::new(mss_size, socket.get_gso_size().unwrap()).expect("Error creating packet buffer");
 
         Client {
-            mtu_discovery,
             packet_buffer,
             socket,
-            history: History::new(mtu_size as u64),
+            history: History::new(),
             run_time_length,
             next_packet_id: 0,
             exchange_function
@@ -71,9 +69,7 @@ impl Client {
     fn sendmsg(&mut self) -> Result<(), &'static str> {
         let amount_packets = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
         self.next_packet_id += amount_packets;
-
-        let buffer_length = self.packet_buffer.get_buffer_length();
-        let msghdr = util::create_msghdr(&mut self.packet_buffer.get_buffer_pointer(), buffer_length);
+        let msghdr = self.packet_buffer.create_msghdr();
 
         match self.socket.sendmsg(&msghdr) {
             Ok(amount_send_bytes) => {
@@ -96,19 +92,15 @@ impl Client {
 impl Node for Client {
     fn run(&mut self) -> Result<(), &'static str> {
         info!("Current mode: client");
-        debug!("Client: {:?}", self);
+        debug!("{:?}", self);
         self.packet_buffer.fill_with_repeating_pattern();
         self.socket.connect().expect("Error connecting to remote host"); 
-    
-        if self.mtu_discovery {
-            info!("Set buffer size to MTU");
-            let dynamic_mtu_size = self.socket.get_mtu().expect("Error getting dynamically the socket MTU") as usize;
-            self.packet_buffer = PacketBuffer::new(dynamic_mtu_size, self.socket.get_gso_size().unwrap()).expect("Error creating packet buffer");
-            self.history.datagram_size = dynamic_mtu_size as u64;
-        }
-    
-        self.history.start_time = Instant::now();
 
+        if let Ok(mss) = self.socket.get_mss() {
+            info!("On the current socket the MSS is {}", mss);
+        }
+        
+        self.history.start_time = Instant::now();
         info!("Start measurement...");
     
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {

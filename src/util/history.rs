@@ -7,7 +7,6 @@ pub struct History {
     pub end_time: std::time::Instant,
     total_time: std::time::Duration,
     total_data: f64,
-    pub datagram_size: u64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
     pub amount_reordered_datagrams: u64,
@@ -18,13 +17,12 @@ pub struct History {
 }
 
 impl History {
-    pub fn new(datagram_size: u64) -> History {
+    pub fn new() -> History {
         History {
             start_time: std::time::Instant::now(),
             end_time: std::time::Instant::now(),
             total_time: Duration::new(0, 0),
             total_data: 0.0,
-            datagram_size,
             amount_datagrams: 0,
             amount_data_bytes: 0,
             amount_reordered_datagrams: 0,

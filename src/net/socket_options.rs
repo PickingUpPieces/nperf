@@ -202,7 +202,7 @@ impl SocketOptions {
     }
 
     pub fn set_gso(&mut self, socket: i32, gso_size: u32) -> Result<(), &'static str> {
-        // gso_size should be equal to MTU = ETH_MTU - header(ipv4) - header(udp)
+        // gso_size should be equal to MSS = ETH_MSS - header(ipv4) - header(udp)
         info!("Trying to set socket option GSO to {}", gso_size);
         Self::set_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT, gso_size)
     }
@@ -218,7 +218,7 @@ impl SocketOptions {
         Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
     }
 
-    pub fn get_mtu(&self, socket: i32) -> Result<u32, &'static str> {
+    pub fn get_mss(&self, socket: i32) -> Result<u32, &'static str> {
         // https://man7.org/linux/man-pages/man7/ip.7.html
         // MSS from TCP returned an error
         let current_size: u32 = 0;
@@ -238,7 +238,7 @@ impl SocketOptions {
             error!("errno when getting Ethernet MTU: {}", Error::last_os_error());
             Err("Failed to get socket Ethernet MTU")
         } else {
-            info!("Current socket Ethernet MTU: {}", current_size);
+            info!("Current socket Ethernet MTU is: {}", current_size);
             // Minus IP header size and UDP header size
             Ok(current_size - 20 - 8)
         }

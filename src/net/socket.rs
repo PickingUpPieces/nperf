@@ -9,13 +9,13 @@ use super::socket_options::SocketOptions;
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
-    pub mtu_size: usize,
+    pub mss_size: usize,
     socket: i32,
     socket_options: SocketOptions,
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mtu_size: usize, mut socket_options: SocketOptions) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, port: u16, mss_size: usize, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
         socket_options.update(socket).expect("Error updating socket options");
@@ -23,7 +23,7 @@ impl Socket {
         Some(Socket {
             ip,
             port,
-            mtu_size,
+            mss_size,
             socket,
             socket_options, 
         })
@@ -150,6 +150,9 @@ impl Socket {
     }
 
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
+        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
+
         let recv_result: isize = unsafe {
             libc::recvmsg(
                 self.socket,
@@ -224,8 +227,8 @@ impl Socket {
         Ok(())
     }
 
-    pub fn get_mtu(&self) -> Result<u32, &'static str> {
-        self.socket_options.get_mtu(self.socket)
+    pub fn get_mss(&self) -> Result<u32, &'static str> {
+        self.socket_options.get_mss(self.socket)
     }
 
     fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {

@@ -54,24 +54,6 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
     }
 }
 
-pub fn create_msghdr(buffer: &mut [u8], buffer_len: usize) -> libc::msghdr {
-    let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
-
-    let iov = Box::new(libc::iovec {
-        iov_base: buffer.as_mut_ptr() as *mut _,
-        iov_len: buffer_len,
-    });
-
-    msghdr.msg_name = std::ptr::null_mut();
-    msghdr.msg_namelen = 0;
-    msghdr.msg_iov = Box::into_raw(iov) as *mut _ as _;
-    msghdr.msg_iovlen = 1;
-    msghdr.msg_control = std::ptr::null_mut();
-    msghdr.msg_controllen = 0;
-
-    msghdr
-}
-
 pub fn add_cmsg_buffer(msghdr: &mut libc::msghdr) {
     let control = Box::new([0u8; 1000]);
     let control_len = control.len();
