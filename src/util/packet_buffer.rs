@@ -101,7 +101,7 @@ impl PacketBuffer {
         let single_packet_size = match super::get_gso_size_from_cmsg(msghdr) {
             Some(gso_size) => gso_size,
             None => {
-                debug!("No GSO size received in cmsg. Assuming that only one packet was received with size ");
+                debug!("No GSO size received in cmsg. Assuming that only one packet was received with size {}", amount_received_bytes);
                 amount_received_bytes as u32
             }
         };
@@ -114,10 +114,8 @@ impl PacketBuffer {
             panic!("Received more than one packet in one msghdr. This is not supported yet!"); 
         };
 
-        assert_eq!(iovec.iov_len, amount_received_bytes as _);
-
         let datagrams: IoSlice = unsafe {
-            IoSlice::new(std::slice::from_raw_parts(iovec.iov_base as *const u8, iovec.iov_len))
+            IoSlice::new(std::slice::from_raw_parts(iovec.iov_base as *const u8, amount_received_bytes))
         };
 
         for packet in datagrams.chunks(single_packet_size as usize) {
