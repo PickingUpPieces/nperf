@@ -13,7 +13,7 @@ use super::Node;
 
 #[derive(Debug)]
 pub struct Client {
-    packet_buffer: PacketBuffer,
+    packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
     history: History,
     run_time_length: u64,
@@ -25,6 +25,7 @@ pub struct Client {
 impl Client {
     pub fn new(ip: Ipv4Addr, remote_port: u16, mss: u32, datagram_size: u32, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
         let socket = Socket::new(ip, remote_port, socket_options).expect("Error creating socket");
+        // TODO: Initialize Vec<PacketBuffer>
         let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
 
         Client {
@@ -84,6 +85,10 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
+        // TODO: Create x msghdr and mmsghdr struct for each
+        // TODO: Create from all these Vec<mmsghdr> 
+        // TODO: Call socket.sendmmsg()
+        // TODO: Parse results
         error!("Not yet implemented:!!!");
         Ok(())
     }

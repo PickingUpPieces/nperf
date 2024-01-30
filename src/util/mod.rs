@@ -3,6 +3,7 @@ pub mod packet_buffer;
 
 use std::os::raw::c_void;
 
+use libc::mmsghdr;
 use log::debug;
 use history::History;
 
@@ -81,4 +82,11 @@ pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
         cmsg = unsafe { libc::CMSG_NXTHDR(msghdr, cmsg) };
     }
     None
+}
+
+pub fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
+    mmsghdr { 
+        msg_hdr: msghdr, 
+        msg_len: 0 
+    }
 }

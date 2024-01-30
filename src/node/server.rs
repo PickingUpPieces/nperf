@@ -12,7 +12,7 @@ use super::Node;
 
 #[derive(Debug)]
 pub struct Server {
-    packet_buffer: PacketBuffer,
+    packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
     _run_infinite: bool,
     first_packet_received: bool,

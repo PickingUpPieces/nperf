@@ -147,9 +147,42 @@ impl Socket {
         Ok(send_result as usize)
     }
 
+    pub fn recvmmsg(&self, msgvec: &mut [libc::mmsghdr], timeout: Option<libc::timespec>) -> Result<usize, &'static str> {
+        let timeout_ptr = match timeout {
+            Some(t) => &t as *const _,
+            None => std::ptr::null(),
+        };
+    
+        let recv_result: i32 = unsafe {
+            libc::recvmmsg(
+                self.socket,
+                msgvec.as_mut_ptr(),
+                msgvec.len() as u32,
+                0,
+                timeout_ptr as *mut _
+            )
+        };
+    
+        if recv_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::EAGAIN) => {
+                    return Err("EAGAIN");
+                },
+                _ => {
+                    error!("Errno when trying to receive data with recvmmsg(): {}", errno);
+                    return Err("Failed to receive data!");
+                }
+            }
+        } 
+    
+        debug!("Received {} messages", recv_result);
+        Ok(recv_result as usize)
+    }
+
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
-        //debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
-        //trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
+        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         let recv_result: isize = unsafe {
             libc::recvmsg(
@@ -175,7 +208,6 @@ impl Socket {
         debug!("Received {} bytes", recv_result);
         Ok(recv_result as usize)
     }
-
     
     pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
