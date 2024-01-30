@@ -20,6 +20,8 @@ pub enum ExchangeFunction {
     Mmsg
 }
 
+const MSG_CONTROL_BUFFER_SIZE: usize = 1000;
+
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),
@@ -58,7 +60,7 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
 }
 
 pub fn add_cmsg_buffer(msghdr: &mut libc::msghdr) {
-    let control = Box::new([0u8; 1000]);
+    let control = Box::new([0u8; MSG_CONTROL_BUFFER_SIZE]);
     let control_len = control.len();
     msghdr.msg_control = Box::into_raw(control) as *mut c_void;
     msghdr.msg_controllen = control_len as _;

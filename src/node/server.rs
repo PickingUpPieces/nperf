@@ -22,9 +22,9 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mss: u32, datagram_size: u32, socket_options: SocketOptions, run_infinite: bool, exchange_function: ExchangeFunction) -> Server {
+    pub fn new(ip: Ipv4Addr, local_port: u16, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, run_infinite: bool, exchange_function: ExchangeFunction) -> Server {
         let socket = Socket::new(ip, local_port, socket_options).expect("Error creating socket");
-        let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
+        let packet_buffer = Vec::from_iter((0..packet_buffer_size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
 
         Server {
             packet_buffer,
@@ -46,7 +46,7 @@ impl Server {
     }
 
     fn recv(&mut self) -> Result<(), &'static str> {
-        match self.socket.recv(self.packet_buffer.get_buffer_pointer()) {
+        match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
                 if !self.first_packet_received {
                     self.first_packet_received = true;
@@ -59,7 +59,7 @@ impl Server {
                     return Err("LAST_MESSAGE_RECEIVED");
                 }
 
-                self.next_packet_id += util::process_packet(self.packet_buffer.get_buffer_pointer(), self.next_packet_id, &mut self.history);
+                self.next_packet_id += util::process_packet(self.packet_buffer[0].get_buffer_pointer(), self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += 1;
                 self.history.amount_data_bytes += amount_received_bytes;
                 Ok(())
@@ -70,7 +70,7 @@ impl Server {
     }
 
     fn recvmsg(&mut self) -> Result<(), &'static str> {
-        let mut msghdr = self.packet_buffer.create_msghdr();
+        let mut msghdr = self.packet_buffer[0].create_msghdr();
         util::add_cmsg_buffer(&mut msghdr);
 
         match self.socket.recvmsg(&mut msghdr) {
@@ -87,16 +87,16 @@ impl Server {
                 }
 
                 let absolut_packets_received;
-                (self.next_packet_id, absolut_packets_received) = self.packet_buffer.process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.history);
+                (self.next_packet_id, absolut_packets_received) = self.packet_buffer[0].process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += absolut_packets_received;
                 self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
-                self.packet_buffer.destroy_msghdr(msghdr);
+                PacketBuffer::destroy_msghdr(msghdr);
                 Ok(())
             },
             Err("EAGAIN") => {
-                self.packet_buffer.destroy_msghdr(msghdr);
+                PacketBuffer::destroy_msghdr(msghdr);
                 Ok(())
             },
             Err(x) => Err(x)

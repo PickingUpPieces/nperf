@@ -21,12 +21,12 @@ pub struct Client {
     exchange_function: ExchangeFunction,
 }
 
-
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mss: u32, datagram_size: u32, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
+    pub fn new(ip: Ipv4Addr, remote_port: u16, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
         let socket = Socket::new(ip, remote_port, socket_options).expect("Error creating socket");
         // TODO: Initialize Vec<PacketBuffer>
-        let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
+        //let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
+        let packet_buffer = Vec::from_iter((0..packet_buffer_size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
 
         Client {
             packet_buffer,
@@ -52,10 +52,10 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        self.next_packet_id += self.packet_buffer.add_packet_ids(self.next_packet_id)?;
-        let buffer_length = self.packet_buffer.get_buffer_length();
+        self.next_packet_id += self.packet_buffer[0].add_packet_ids(self.next_packet_id)?;
+        let buffer_length = self.packet_buffer[0].get_buffer_length();
 
-        match self.socket.send(self.packet_buffer.get_buffer_pointer() , buffer_length) {
+        match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
             Ok(amount_send_bytes) => {
                 self.history.amount_datagrams += 1;
                 self.history.amount_data_bytes += amount_send_bytes;
@@ -68,9 +68,9 @@ impl Client {
     }
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
-        let amount_packets = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_packets = self.packet_buffer[0].add_packet_ids(self.next_packet_id)?;
         self.next_packet_id += amount_packets;
-        let msghdr = self.packet_buffer.create_msghdr();
+        let msghdr = self.packet_buffer[0].create_msghdr();
 
         match self.socket.sendmsg(&msghdr) {
             Ok(amount_send_bytes) => {
@@ -98,7 +98,7 @@ impl Node for Client {
     fn run(&mut self) -> Result<(), &'static str> {
         info!("Current mode: client");
         debug!("{:?}", self);
-        self.packet_buffer.fill_with_repeating_pattern();
+        self.packet_buffer[0].fill_with_repeating_pattern();
         self.socket.connect().expect("Error connecting to remote host"); 
 
         if let Ok(mss) = self.socket.get_mss() {

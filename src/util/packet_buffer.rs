@@ -53,9 +53,11 @@ impl PacketBuffer {
         msghdr
     }
 
-    pub fn destroy_msghdr(&mut self, msghdr: libc::msghdr) {
+    pub fn destroy_msghdr(msghdr: libc::msghdr) {
         unsafe { drop(Box::from_raw(msghdr.msg_iov as *mut libc::iovec))};
-        unsafe { drop(Box::from_raw(msghdr.msg_control as *mut Box<[u8; 1000]>))};
+        unsafe { 
+            let boxe = Box::from_raw(msghdr.msg_control as *mut Box<[u8; super::MSG_CONTROL_BUFFER_SIZE]>);
+            drop(boxe);};
     }
 
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {

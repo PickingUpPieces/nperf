@@ -24,6 +24,8 @@ const DEFAULT_PORT: u16 = 45001;
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
 const LAST_MESSAGE_SIZE: usize = 100;
 
+const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
+
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
 struct Arguments{
@@ -106,12 +108,12 @@ fn main() {
         info!("UDP datagram size used: {}", args.datagram_size);
     }
 
-    let exchange_function = if args.with_msg {
-        ExchangeFunction::Msg
+    let (exchange_function, packet_buffer_size) = if args.with_msg {
+        (ExchangeFunction::Msg, 1)
     } else if args.with_mmsg {
-        ExchangeFunction::Mmsg
+        (ExchangeFunction::Mmsg, DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)
     } else {
-        ExchangeFunction::Normal
+        (ExchangeFunction::Normal, 1)
     };
     
     let mss = if args.with_gso || args.with_gro {
@@ -126,9 +128,9 @@ fn main() {
     let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
     let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
-        Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, socket_options, args.time, exchange_function))
+        Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.time, exchange_function))
     } else {
-        Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, socket_options, args.run_infinite, exchange_function))
+        Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.run_infinite, exchange_function))
     };
 
     match node.run() {

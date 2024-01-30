@@ -43,7 +43,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["server", "--with-msg"],
+            "args": ["server", "--with-msg", "--with-gro"],
             "cwd": "${workspaceFolder}"
         },
         {

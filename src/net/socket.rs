@@ -187,7 +187,7 @@ impl Socket {
         let recv_result: isize = unsafe {
             libc::recvmsg(
                 self.socket,
-                msghdr as *const _ as _,
+                msghdr as *mut _ as _,
                 0
             )
         };
