@@ -25,8 +25,6 @@ pub struct Client {
 impl Client {
     pub fn new(ip: Ipv4Addr, remote_port: u16, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
         let socket = Socket::new(ip, remote_port, socket_options).expect("Error creating socket");
-        // TODO: Initialize Vec<PacketBuffer>
-        //let packet_buffer = PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer");
         let packet_buffer = Vec::from_iter((0..packet_buffer_size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
 
         Client {
@@ -73,11 +71,11 @@ impl Client {
         let msghdr = self.packet_buffer[0].create_msghdr();
 
         match self.socket.sendmsg(&msghdr) {
-            Ok(amount_send_bytes) => {
+            Ok(amount_sent_bytes) => {
+                // FIXME: Check if all packets were sent
                 self.history.amount_datagrams += amount_datagrams;
-                self.history.amount_data_bytes += amount_send_bytes;
+                self.history.amount_data_bytes += amount_sent_bytes;
                 trace!("Sent datagram to remote host");
-                // TODO: Check if all packets were sent
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
@@ -86,14 +84,12 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        // TODO: Add packet IDs to each packet_buffer
         let amount_datagrams = self.add_packet_ids()?;
-
         let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer, false);
 
         match self.socket.sendmmsg(&mut mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
-                // TODO: Check if all packets were sent successfully
+                // FIXME: Check if all packets were sent
                 self.history.amount_datagrams += amount_datagrams;
                 self.history.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
