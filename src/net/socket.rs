@@ -195,7 +195,7 @@ impl Socket {
                 self.socket,
                 msgvec.as_mut_ptr(),
                 msgvec.len() as u32,
-                libc::MSG_DONTWAIT,
+                0,
                 timeout
             )
         };
