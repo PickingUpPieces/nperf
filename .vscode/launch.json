@@ -22,8 +22,9 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["client", "--with-msg"],
-            "cwd": "${workspaceFolder}"
+            "args": ["client", "--with-msg", "--with-gso"],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "delay"
         },
         {
             "type": "lldb",
@@ -41,7 +42,7 @@
                 }
             },
             "env": {
-                "RUST_LOG": "TRACE",
+                "RUST_LOG": "INFO",
             },
             "args": ["server", "--with-msg", "--with-gro"],
             "cwd": "${workspaceFolder}"
@@ -49,21 +50,43 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'nperf'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=nperf",
-                    "--package=nperf"
-                ],
-                "filter": {
-                    "name": "nperf",
-                    "kind": "bin"
-                }
+            "name": "Run client",
+            "env": {
+                "RUST_LOG": "INFO",
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+            "program": "${workspaceFolder}/target/debug/nperf",
+            "args": ["client", "--with-msg", "--with-gso"],
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false,
+            "preLaunchTask": "delay"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Run server",
+            "env": {
+                "RUST_LOG": "INFO",
+            },
+            "program": "${workspaceFolder}/target/debug/nperf",
+            "args": ["server", "--with-msg", "--with-gro"],
+            "cwd": "${workspaceFolder}",
+            "stopOnEntry": false,
+        },
+    ],
+    "compounds": [
+        {
+            "name": "Compound server",
+            "configurations": [
+                "Debug server",
+                "Run client"
+            ]
+        },
+        {
+            "name": "Compound client",
+            "configurations": [
+                "Run server",
+                "Debug client"
+            ]
         }
     ]
 }

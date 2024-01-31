@@ -11,7 +11,6 @@ use crate::util::packet_buffer::PacketBuffer;
 
 use super::Node;
 
-#[derive(Debug)]
 pub struct Client {
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
@@ -97,7 +96,6 @@ impl Client {
 impl Node for Client {
     fn run(&mut self) -> Result<(), &'static str> {
         info!("Current mode: client");
-        debug!("{:?}", self);
         self.packet_buffer[0].fill_with_repeating_pattern();
         self.socket.connect().expect("Error connecting to remote host"); 
 

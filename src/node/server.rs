@@ -10,7 +10,6 @@ use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
 use super::Node;
 
-#[derive(Debug)]
 pub struct Server {
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
@@ -71,7 +70,7 @@ impl Server {
 
     fn recvmsg(&mut self) -> Result<(), &'static str> {
         let mut msghdr = self.packet_buffer[0].create_msghdr();
-        util::add_cmsg_buffer(&mut msghdr);
+        self.packet_buffer[0].add_cmsg_buffer(&mut msghdr);
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
@@ -92,11 +91,9 @@ impl Server {
                 self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
-                PacketBuffer::destroy_msghdr(msghdr);
                 Ok(())
             },
             Err("EAGAIN") => {
-                PacketBuffer::destroy_msghdr(msghdr);
                 Ok(())
             },
             Err(x) => Err(x)
@@ -112,7 +109,6 @@ impl Server {
 impl Node for Server { 
     fn run(&mut self) -> Result<(), &'static str>{
         info!("Current mode: server");
-        debug!("{:?}", self);
         self.socket.bind().expect("Error binding socket");
 
         info!("Start server loop...");

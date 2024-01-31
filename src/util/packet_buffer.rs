@@ -3,9 +3,10 @@ use std::io::IoSlice;
 use log::{debug, trace, info, warn};
 use super::history::History;
 
-#[derive(Debug)]
 pub struct PacketBuffer {
     buffer: Vec<u8>,
+    iov: libc::iovec,
+    msg_control: [u8; 1000],
     datagram_size: u32,
     _last_packet_size: u32,
     packets_amount: usize,
@@ -13,7 +14,7 @@ pub struct PacketBuffer {
 
 impl PacketBuffer {
     pub fn new(mss: u32, datagram_size: u32) -> Option<Self> {
-        let buffer = vec![0; mss.try_into().unwrap()];
+        let mut buffer = vec![0; mss as usize];
 
         let rest_of_buffer = mss % datagram_size;
         let _last_packet_size = if rest_of_buffer == 0 {
@@ -27,8 +28,15 @@ impl PacketBuffer {
         let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
         debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
 
+        let iov = libc::iovec {
+            iov_base: buffer.as_mut_ptr() as *mut _,
+            iov_len: buffer.len(),
+        };
+
         Some(PacketBuffer {
             buffer,
+            iov,
+            msg_control: [0; 1000],
             datagram_size,
             _last_packet_size,
             packets_amount,
@@ -37,15 +45,10 @@ impl PacketBuffer {
 
     pub fn create_msghdr(&mut self) -> libc::msghdr {
         let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
-    
-        let iov = Box::new(libc::iovec {
-            iov_base: self.buffer.as_mut_ptr() as *mut _,
-            iov_len: self.buffer.len(),
-        });
-    
+        
         msghdr.msg_name = std::ptr::null_mut();
         msghdr.msg_namelen = 0;
-        msghdr.msg_iov = Box::into_raw(iov);
+        msghdr.msg_iov = (&mut self.iov) as *mut _;
         msghdr.msg_iovlen = 1;
         msghdr.msg_control = std::ptr::null_mut();
         msghdr.msg_controllen = 0;
@@ -53,19 +56,9 @@ impl PacketBuffer {
         msghdr
     }
 
-    pub fn destroy_msghdr(msghdr: libc::msghdr) {
-        unsafe { drop(Box::from_raw(msghdr.msg_iov as *mut libc::iovec))};
-        unsafe { 
-            let boxe = Box::from_raw(msghdr.msg_control as *mut Box<[u8; super::MSG_CONTROL_BUFFER_SIZE]>);
-            drop(boxe);};
-    }
-
-    pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
-        &mut self.buffer
-    }
-
-    pub fn get_buffer_length(&self) -> usize {
-        self.buffer.len()
+    pub fn add_cmsg_buffer(&mut self, msghdr: &mut libc::msghdr) {
+        msghdr.msg_control = (&mut self.msg_control) as *mut _ as *mut libc::c_void;
+        msghdr.msg_controllen = self.msg_control.len();
     }
 
     // Similar to iperf3's fill_with_repeating_pattern
@@ -133,4 +126,13 @@ impl PacketBuffer {
 
         (next_packet_id, absolut_packets_received)
     } 
+
+
+    pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
+        &mut self.buffer
+    }
+
+    pub fn get_buffer_length(&self) -> usize {
+        self.buffer.len()
+    }
 }
