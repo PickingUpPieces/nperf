@@ -81,6 +81,10 @@ struct Arguments{
     #[arg(long, default_value_t = false)]
     with_mmsg: bool, 
 
+    /// Amount of message packs of gso_buffers to send when using sendmmsg
+    #[arg(long, default_value_t = DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)]
+    with_mmsg_amount: usize,
+
     /// Enable non-blocking socket
     #[arg(long, default_value_t = true)]
     with_non_blocking: bool,
@@ -111,7 +115,7 @@ fn main() {
     let (exchange_function, packet_buffer_size) = if args.with_msg {
         (ExchangeFunction::Msg, 1)
     } else if args.with_mmsg {
-        (ExchangeFunction::Mmsg, DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)
+        (ExchangeFunction::Mmsg, args.with_mmsg_amount)
     } else {
         (ExchangeFunction::Normal, 1)
     };
