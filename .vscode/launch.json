@@ -22,7 +22,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["client", "--with-msg", "--with-gso"],
+            "args": ["client", "--with-mmsg", "--with-gso"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "delay"
         },
@@ -68,7 +68,7 @@
                 "RUST_LOG": "INFO",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["server", "--with-msg", "--with-gro"],
+            "args": ["server", "--with-mmsg", "--with-gro"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
         },

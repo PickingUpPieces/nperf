@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::thread::sleep;
 use std::time::Instant;
 use log::trace;
 use log::{debug, error, info};
@@ -8,6 +9,7 @@ use crate::util::ExchangeFunction;
 use crate::net::socket::Socket;
 use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
+use crate::util;
 
 use super::Node;
 
@@ -51,7 +53,7 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        self.next_packet_id += self.packet_buffer[0].add_packet_ids(self.next_packet_id)?;
+        self.add_packet_ids()?;
         let buffer_length = self.packet_buffer[0].get_buffer_length();
 
         match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
@@ -67,15 +69,15 @@ impl Client {
     }
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
-        let amount_packets = self.packet_buffer[0].add_packet_ids(self.next_packet_id)?;
-        self.next_packet_id += amount_packets;
+        let amount_datagrams = self.add_packet_ids()?;
         let msghdr = self.packet_buffer[0].create_msghdr();
 
         match self.socket.sendmsg(&msghdr) {
             Ok(amount_send_bytes) => {
-                self.history.amount_datagrams += amount_packets;
+                self.history.amount_datagrams += amount_datagrams;
                 self.history.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
+                // TODO: Check if all packets were sent
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
@@ -84,19 +86,69 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        // TODO: Create x msghdr and mmsghdr struct for each
-        // TODO: Create from all these Vec<mmsghdr> 
-        // TODO: Call socket.sendmmsg()
-        // TODO: Parse results
-        error!("Not yet implemented:!!!");
-        Ok(())
+        // TODO: Add packet IDs to each packet_buffer
+        let amount_datagrams = self.add_packet_ids()?;
+
+        let mut mmsghdr_vec = self.create_mmsghdr_vec();
+
+        match self.socket.sendmmsg(&mut mmsghdr_vec) {
+            Ok(amount_send_mmsghdr) => { 
+                // TODO: Check if all packets were sent successfully
+                self.history.amount_datagrams += amount_datagrams;
+                self.history.amount_data_bytes += Self::get_total_sent_bytes(&mmsghdr_vec);
+                trace!("Sent {} msg_hdr to remote host", amount_send_mmsghdr);
+                Ok(())
+            },
+            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err(x) => Err(x)
+        }
+    }
+
+    fn add_packet_ids(&mut self) -> Result<u64, &'static str> {
+        let mut total_amount_used_packet_ids: u64 = 0;
+
+        for packet_buffer in self.packet_buffer.iter_mut() {
+            let amount_used_packet_ids = packet_buffer.add_packet_ids(self.next_packet_id)?;
+            self.next_packet_id += amount_used_packet_ids;
+            total_amount_used_packet_ids += amount_used_packet_ids;
+        }
+
+        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", total_amount_used_packet_ids, self.next_packet_id);
+        // Return amount of used packet IDs
+        Ok(total_amount_used_packet_ids)
+    }
+
+    fn create_mmsghdr_vec(&mut self) -> Vec<libc::mmsghdr> {
+        let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
+        for packet_buffer in self.packet_buffer.iter_mut() {
+            let msghdr = packet_buffer.create_msghdr();
+            let mmsghdr = util::create_mmsghdr(msghdr);
+            mmsghdr_vec.push(mmsghdr);
+        }
+        mmsghdr_vec
+    }
+
+    fn fill_packet_buffers_with_repeating_pattern(&mut self) {
+        for packet_buffer in self.packet_buffer.iter_mut() {
+            packet_buffer.fill_with_repeating_pattern();
+        }
+    }
+
+    fn get_total_sent_bytes(mmsghdr_vec: &Vec<libc::mmsghdr>) -> usize {
+        let mut amount_sent_bytes = 0;
+        for mmsghdr in mmsghdr_vec.iter() {
+            amount_sent_bytes += mmsghdr.msg_len;
+        }
+        debug!("Total amount of sent bytes: {}", amount_sent_bytes);
+        amount_sent_bytes as usize
     }
 }
+
 
 impl Node for Client {
     fn run(&mut self) -> Result<(), &'static str> {
         info!("Current mode: client");
-        self.packet_buffer[0].fill_with_repeating_pattern();
+        self.fill_packet_buffers_with_repeating_pattern(); 
         self.socket.connect().expect("Error connecting to remote host"); 
 
         if let Ok(mss) = self.socket.get_mss() {
@@ -116,9 +168,11 @@ impl Node for Client {
             }
         }
 
+        sleep(std::time::Duration::from_millis(200));
+
         match self.send_last_message() {
             Ok(_) => { 
-                self.history.end_time = Instant::now();
+                self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep above as well
                 debug!("...finished measurement");
                 self.history.print();
                 Ok(())

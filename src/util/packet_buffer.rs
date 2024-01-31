@@ -75,7 +75,6 @@ impl PacketBuffer {
         }
 
         debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
-        trace!("Filled buffer with {:?}", self.buffer);
     }
 
     // Iterate over all packets and add the packet ID starting from next_packet_id

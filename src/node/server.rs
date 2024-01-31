@@ -128,7 +128,7 @@ impl Node for Server {
         //self.socket.wait_for_data().expect("Error waiting for data");
         }
         self.socket.close()?;
-        self.history.end_time = Instant::now();
+        self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
         self.history.print();
         Ok(())

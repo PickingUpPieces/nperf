@@ -79,6 +79,6 @@ pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
 pub fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
     mmsghdr { 
         msg_hdr: msghdr, 
-        msg_len: 0 
+        msg_len: 0 // Is set to transmitted bytes by sendmmsg 
     }
 }

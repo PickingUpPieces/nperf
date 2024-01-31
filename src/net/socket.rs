@@ -159,6 +159,34 @@ impl Socket {
         Ok(send_result as usize)
     }
 
+    pub fn sendmmsg(&self, mmsgvec: &mut [libc::mmsghdr]) -> Result<usize, &'static str> {
+        let send_result: i32 = unsafe {
+            libc::sendmmsg(
+                self.socket,
+                mmsgvec.as_mut_ptr(),
+                mmsgvec.len() as u32,
+                0
+            )
+        };
+    
+        if send_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::ECONNREFUSED) => {
+                    error!("Connection refused while trying to send data!");
+                    return Err("ECONNREFUSED");
+                },
+                _ => {
+                    error!("Errno when trying to send data with sendmmsg(): {}", errno);
+                    return Err("Failed to send data");
+                }
+            }
+        }
+    
+        debug!("Sent {} mmsghdr(s)", send_result);
+        Ok(send_result as usize)
+    }
+
     pub fn recvmmsg(&self, msgvec: &mut [libc::mmsghdr], timeout: Option<libc::timespec>) -> Result<usize, &'static str> {
         let timeout_ptr = match timeout {
             Some(t) => &t as *const _,
