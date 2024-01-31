@@ -5,7 +5,7 @@ use log::trace;
 use log::{debug, error, info};
 
 use crate::net::socket_options::SocketOptions;
-use crate::util::ExchangeFunction;
+use crate::util::{ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
 use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
@@ -124,7 +124,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self) -> Result<(), &'static str> {
+    fn run(&mut self, io_model: IOModel) -> Result<(), &'static str> {
         info!("Current mode: client");
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.socket.connect().expect("Error connecting to remote host"); 
@@ -135,16 +135,12 @@ impl Node for Client {
         
         self.history.start_time = Instant::now();
         info!("Start measurement...");
-    
-        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages() {
-                Ok(_) => {},
-                Err(x) => {
-                    error!("Error sending message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
-        }
+
+        match io_model {
+            IOModel::BusyWaiting => self.loop_busy_waiting(),
+            IOModel::Select => self.loop_select(),
+            IOModel::Poll => self.loop_poll(),
+        }?;
 
         sleep(std::time::Duration::from_millis(200));
 
@@ -157,5 +153,26 @@ impl Node for Client {
             },
             Err(_) => Err("Error sending last message"),
         }
+    }
+
+    fn loop_busy_waiting(&mut self) -> Result<(), &'static str> {
+        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
+            match self.send_messages() {
+                Ok(_) => {},
+                Err(x) => {
+                    error!("Error sending message! Aborting measurement...");
+                    return Err(x)
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn loop_select(&mut self) -> Result<(), &'static str> {
+        todo!()
+    }
+
+    fn loop_poll(&mut self) -> Result<(), &'static str> {
+        todo!()
     }
 }

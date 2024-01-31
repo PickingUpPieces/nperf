@@ -4,7 +4,7 @@ use std::time::Instant;
 use log::{debug, error, info, trace};
 
 use crate::net::socket_options::SocketOptions;
-use crate::util::{self, ExchangeFunction};
+use crate::util::{self, ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
 use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
@@ -129,11 +129,11 @@ impl Server {
                     if index >= amount_received_mmsghdr {
                         break;
                     }
-                    let mut msghdr = &mut mmsghdr.msg_hdr;
+                    let msghdr = &mut mmsghdr.msg_hdr;
                     let msghdr_bytes = mmsghdr.msg_len as usize;
 
                     let datagrams_received;
-                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(&mut msghdr, msghdr_bytes, self.next_packet_id, &mut self.history);
+                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, &mut self.history);
                     absolut_datagrams_received += datagrams_received;
                 }
                 // TODO: Check if all packets were sent successfully
@@ -151,30 +151,48 @@ impl Server {
 }
 
 impl Node for Server { 
-    fn run(&mut self) -> Result<(), &'static str>{
+    fn run(&mut self, io_model: IOModel) -> Result<(), &'static str>{
         info!("Current mode: server");
         self.socket.bind().expect("Error binding socket");
 
         info!("Start server loop...");
         self.socket.wait_for_data().expect("Error waiting for data");
 
-        loop {
-            match self.recv_messages() {
-                Ok(_) => {},
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    break;
-                },
-                Err(x) => {
-                    error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
-        //self.socket.wait_for_data().expect("Error waiting for data");
-        }
+        let result_loop = match io_model {
+            IOModel::BusyWaiting => self.loop_busy_waiting(),
+            IOModel::Select => self.loop_select(),
+            IOModel::Poll => self.loop_poll(),
+        };
         self.socket.close()?;
+
+        result_loop?;
+
         self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
         self.history.print();
         Ok(())
+    }
+
+    fn loop_busy_waiting(&mut self) -> Result<(), &'static str> {
+        loop {
+            match self.recv_messages() {
+                Ok(_) => {},
+                Err("LAST_MESSAGE_RECEIVED") => {
+                    return Ok(())
+                },
+                Err(x) => {
+                    error!("Error receiving message! Aborting measurement...");
+                    return Err(x)
+                }
+            }
+        }
+    }
+
+    fn loop_select(&mut self) -> Result<(), &'static str> {
+        todo!()
+    }
+
+    fn loop_poll(&mut self) -> Result<(), &'static str> {
+        todo!()
     }
 }
