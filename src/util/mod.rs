@@ -1,8 +1,6 @@
 pub mod history;
 pub mod packet_buffer;
 
-use std::os::raw::c_void;
-
 use log::debug;
 use history::History;
 
@@ -56,12 +54,7 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
     }
 }
 
-pub fn add_cmsg_buffer(msghdr: &mut libc::msghdr) {
-    let control = Box::new([0u8; 1000]);
-    let control_len = control.len();
-    msghdr.msg_control = Box::into_raw(control) as *mut c_void;
-    msghdr.msg_controllen = control_len as _;
-}
+
 
 pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
     let mut cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msghdr) };
