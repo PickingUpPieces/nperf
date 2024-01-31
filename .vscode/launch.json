@@ -22,7 +22,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["client", "--with-msg", "--with-gso"],
+            "args": ["client", "--with-mmsg", "--with-gso"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "delay"
         },
@@ -42,9 +42,9 @@
                 }
             },
             "env": {
-                "RUST_LOG": "INFO",
+                "RUST_LOG": "TRACE",
             },
-            "args": ["server", "--with-msg", "--with-gro"],
+            "args": ["server", "--with-mmsg", "--with-gro"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -79,14 +79,16 @@
             "configurations": [
                 "Debug server",
                 "Run client"
-            ]
+            ],
+            "stopAll": true
         },
         {
             "name": "Compound client",
             "configurations": [
                 "Run server",
                 "Debug client"
-            ]
+            ],
+            "stopAll": true
         }
     ]
 }

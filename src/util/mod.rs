@@ -1,8 +1,13 @@
 pub mod history;
 pub mod packet_buffer;
 
-use log::debug;
+use std::io::IoSlice;
+
+use libc::mmsghdr;
+use log::{debug, trace};
 use history::History;
+
+use self::packet_buffer::PacketBuffer;
 
 #[derive(PartialEq, Debug)]
 pub enum NPerfMode {
@@ -10,7 +15,7 @@ pub enum NPerfMode {
     Server,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum ExchangeFunction {
     Normal,
     Msg,
@@ -55,7 +60,6 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, history: &mut Hist
 }
 
 
-
 pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
     let mut cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msghdr) };
     while !cmsg.is_null() {
@@ -74,4 +78,70 @@ pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
         cmsg = unsafe { libc::CMSG_NXTHDR(msghdr, cmsg) };
     }
     None
+}
+
+pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: usize, next_packet_id: u64, history: &mut History) -> (u64, u64) {
+    let mut absolut_packets_received = 0;
+    let mut next_packet_id = next_packet_id;
+    let single_packet_size = match get_gso_size_from_cmsg(msghdr) {
+        Some(gso_size) => gso_size,
+        None => {
+            debug!("No GSO size received in cmsg. Assuming that only one packet was received with size {}", amount_received_bytes);
+            amount_received_bytes as u32
+        }
+    };
+
+    debug!("Process packet msghdr to extract the packets received. Received {} iov packets. Start iterating over them...", msghdr.msg_iovlen);
+    // Make sure that iovlen == 1, since we only support one packet per msghdr.
+    let iovec = if msghdr.msg_iovlen == 1 {
+        unsafe { *msghdr.msg_iov }
+    } else {
+        panic!("Received more than one packet in one msghdr. This is not supported yet!"); 
+    };
+
+    let datagrams: IoSlice = unsafe {
+        IoSlice::new(std::slice::from_raw_parts(iovec.iov_base as *const u8, amount_received_bytes))
+    };
+
+    for packet in datagrams.chunks(single_packet_size as usize) {
+        next_packet_id += process_packet(packet, next_packet_id, history);
+        absolut_packets_received += 1;
+        trace!("iovec buffer: {:?} with now absolut packets received {} and next packet id: {}", packet, next_packet_id, absolut_packets_received);
+    }
+
+    (next_packet_id, absolut_packets_received)
+} 
+
+pub fn create_mmsghdr_vec(packet_buffer_vec: &mut Vec<PacketBuffer>, with_cmsg: bool) -> Vec<libc::mmsghdr> {
+    let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
+    for packet_buffer in packet_buffer_vec.iter_mut() {
+        let mut msghdr = packet_buffer.create_msghdr();
+
+        if with_cmsg {
+            packet_buffer.add_cmsg_buffer(&mut msghdr);
+        }
+
+        let mmsghdr = create_mmsghdr(msghdr);
+        mmsghdr_vec.push(mmsghdr);
+    }
+    mmsghdr_vec
+}
+
+fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
+    mmsghdr { 
+        msg_hdr: msghdr, 
+        msg_len: 0 // Is set to transmitted bytes by sendmmsg 
+    }
+}
+
+pub fn get_total_bytes(mmsghdr_vec: &Vec<libc::mmsghdr>, amount_msghdr: usize) -> usize {
+    let mut amount_sent_bytes = 0;
+    for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
+        if index >= amount_msghdr {
+            break;
+        }
+        amount_sent_bytes += mmsghdr.msg_len;
+    }
+    debug!("Total amount of sent bytes: {}", amount_sent_bytes);
+    amount_sent_bytes as usize
 }

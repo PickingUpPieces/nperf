@@ -76,6 +76,18 @@ impl Socket {
         Ok(())
     }
 
+    pub fn close(&self) -> Result<(), &'static str> {
+        let close_result = unsafe {
+            libc::close(self.socket)
+        };
+    
+        if close_result == -1 {
+            return Err("Failed to close socket");
+        }
+    
+        Ok(())
+    }
+
     pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<usize, &'static str> {
         if buffer_len == 0 {
             error!("Buffer is empty");
@@ -147,14 +159,72 @@ impl Socket {
         Ok(send_result as usize)
     }
 
+    pub fn sendmmsg(&self, mmsgvec: &mut [libc::mmsghdr]) -> Result<usize, &'static str> {
+        let send_result: i32 = unsafe {
+            libc::sendmmsg(
+                self.socket,
+                mmsgvec.as_mut_ptr(),
+                mmsgvec.len() as u32,
+                0
+            )
+        };
+    
+        if send_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::ECONNREFUSED) => {
+                    error!("Connection refused while trying to send data!");
+                    return Err("ECONNREFUSED");
+                },
+                _ => {
+                    error!("Errno when trying to send data with sendmmsg(): {}", errno);
+                    return Err("Failed to send data");
+                }
+            }
+        }
+    
+        debug!("Sent {} mmsghdr(s)", send_result);
+        Ok(send_result as usize)
+    }
+
+    pub fn recvmmsg(&self, msgvec: &mut [libc::mmsghdr]) -> Result<usize, &'static str> {
+        let timeout = std::ptr::null::<libc::timespec>() as *mut libc::timespec;
+
+        let recv_result: i32 = unsafe {
+            libc::recvmmsg(
+                self.socket,
+                msgvec.as_mut_ptr(),
+                msgvec.len() as u32,
+                0,
+                timeout
+            )
+        };
+    
+        if recv_result <= -1 {
+            let errno = Error::last_os_error();
+            match errno.raw_os_error() {
+                Some(libc::EAGAIN) => {
+                    return Err("EAGAIN");
+                },
+                _ => {
+                    error!("Errno when trying to receive data with recvmmsg(): {}", errno);
+                    return Err("Failed to receive data!");
+                }
+            }
+        } 
+    
+        debug!("Received {} mmsghdr(s)", recv_result);
+        Ok(recv_result as usize)
+    }
+
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
-        //debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
-        //trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
+        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         let recv_result: isize = unsafe {
             libc::recvmsg(
                 self.socket,
-                msghdr as *const _ as _,
+                msghdr as *mut _ as _,
                 0
             )
         };
@@ -175,7 +245,6 @@ impl Socket {
         debug!("Received {} bytes", recv_result);
         Ok(recv_result as usize)
     }
-
     
     pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
