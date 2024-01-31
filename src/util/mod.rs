@@ -11,7 +11,7 @@ pub enum NPerfMode {
     Server,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum ExchangeFunction {
     Normal,
     Msg,

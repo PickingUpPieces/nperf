@@ -127,6 +127,7 @@ impl Node for Server {
             }
         //self.socket.wait_for_data().expect("Error waiting for data");
         }
+        self.socket.close()?;
         self.history.end_time = Instant::now();
         debug!("Finished receiving data from remote host");
         self.history.print();

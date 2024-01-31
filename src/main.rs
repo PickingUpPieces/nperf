@@ -42,7 +42,7 @@ struct Arguments{
     port: u16,
 
     /// Don't stop the node after the first measurement
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long, default_value_t = true)]
     run_infinite: bool,
 
     /// Set length of single datagram (Without IP and UDP headers)
@@ -125,18 +125,26 @@ fn main() {
     info!("MSS used: {}", mss);
     info!("Exchange function used: {:?}", exchange_function);
 
-    let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
 
-    let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
-        Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.time, exchange_function))
-    } else {
-        Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.run_infinite, exchange_function))
-    };
+    loop {
+        let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
+        let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
+            Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.time, exchange_function))
+        } else {
+            Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.run_infinite, exchange_function))
+        };
 
-    match node.run() {
-        Ok(_) => info!("Finished measurement!"),
-        Err(x) => {
-            error!("Error running app: {}", x);
+        match node.run() {
+            Ok(_) => { 
+                info!("Finished measurement!");
+                if !(args.run_infinite && mode == util::NPerfMode::Server) {
+                    break;
+                }
+            },
+            Err(x) => {
+                error!("Error running app: {}", x);
+                break;
+            }
         }
     }
 }

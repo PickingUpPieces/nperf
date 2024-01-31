@@ -76,6 +76,18 @@ impl Socket {
         Ok(())
     }
 
+    pub fn close(&self) -> Result<(), &'static str> {
+        let close_result = unsafe {
+            libc::close(self.socket)
+        };
+    
+        if close_result == -1 {
+            return Err("Failed to close socket");
+        }
+    
+        Ok(())
+    }
+
     pub fn send(&self, buffer: &[u8], buffer_len: usize) -> Result<usize, &'static str> {
         if buffer_len == 0 {
             error!("Buffer is empty");
