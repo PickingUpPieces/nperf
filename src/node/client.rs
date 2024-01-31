@@ -89,14 +89,14 @@ impl Client {
         // TODO: Add packet IDs to each packet_buffer
         let amount_datagrams = self.add_packet_ids()?;
 
-        let mut mmsghdr_vec = self.create_mmsghdr_vec();
+        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer, false);
 
         match self.socket.sendmmsg(&mut mmsghdr_vec) {
-            Ok(amount_send_mmsghdr) => { 
+            Ok(amount_sent_mmsghdr) => { 
                 // TODO: Check if all packets were sent successfully
                 self.history.amount_datagrams += amount_datagrams;
-                self.history.amount_data_bytes += Self::get_total_sent_bytes(&mmsghdr_vec);
-                trace!("Sent {} msg_hdr to remote host", amount_send_mmsghdr);
+                self.history.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
+                trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
@@ -118,29 +118,11 @@ impl Client {
         Ok(total_amount_used_packet_ids)
     }
 
-    fn create_mmsghdr_vec(&mut self) -> Vec<libc::mmsghdr> {
-        let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
-        for packet_buffer in self.packet_buffer.iter_mut() {
-            let msghdr = packet_buffer.create_msghdr();
-            let mmsghdr = util::create_mmsghdr(msghdr);
-            mmsghdr_vec.push(mmsghdr);
-        }
-        mmsghdr_vec
-    }
 
     fn fill_packet_buffers_with_repeating_pattern(&mut self) {
         for packet_buffer in self.packet_buffer.iter_mut() {
             packet_buffer.fill_with_repeating_pattern();
         }
-    }
-
-    fn get_total_sent_bytes(mmsghdr_vec: &Vec<libc::mmsghdr>) -> usize {
-        let mut amount_sent_bytes = 0;
-        for mmsghdr in mmsghdr_vec.iter() {
-            amount_sent_bytes += mmsghdr.msg_len;
-        }
-        debug!("Total amount of sent bytes: {}", amount_sent_bytes);
-        amount_sent_bytes as usize
     }
 }
 

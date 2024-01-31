@@ -1,12 +1,11 @@
-use std::io::IoSlice;
+use log::debug;
 
-use log::{debug, trace, info, warn};
-use super::history::History;
+const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
 
 pub struct PacketBuffer {
     buffer: Vec<u8>,
     iov: libc::iovec,
-    msg_control: [u8; 1000],
+    msg_control: [u8; LENGTH_CONTROL_MESSAGE_BUFFER],
     datagram_size: u32,
     _last_packet_size: u32,
     packets_amount: usize,
@@ -18,10 +17,10 @@ impl PacketBuffer {
 
         let rest_of_buffer = mss % datagram_size;
         let _last_packet_size = if rest_of_buffer == 0 {
-            info!("Buffer length is a multiple of packet size!");
+            debug!("Buffer length is a multiple of packet size!");
             datagram_size
         } else {
-            warn!("Buffer length is not a multiple of packet size! Last packet size is: {}", rest_of_buffer);
+            debug!("Buffer length is not a multiple of packet size! Last packet size is: {}", rest_of_buffer);
             rest_of_buffer
         };
 
@@ -36,7 +35,7 @@ impl PacketBuffer {
         Some(PacketBuffer {
             buffer,
             iov,
-            msg_control: [0; 1000],
+            msg_control: [0; LENGTH_CONTROL_MESSAGE_BUFFER],
             datagram_size,
             _last_packet_size,
             packets_amount,
@@ -57,6 +56,8 @@ impl PacketBuffer {
     }
 
     pub fn add_cmsg_buffer(&mut self, msghdr: &mut libc::msghdr) {
+        // TODO: Check if this is necessary
+        // self.msg_control = unsafe { std::mem::zeroed() };
         msghdr.msg_control = (&mut self.msg_control) as *mut _ as *mut libc::c_void;
         msghdr.msg_controllen = self.msg_control.len();
     }
@@ -93,38 +94,6 @@ impl PacketBuffer {
         // Return amount of used packet IDs
         Ok(amount_used_packet_ids)
     }
-
-    pub fn process_packet_msghdr(&self, msghdr: &mut libc::msghdr, amount_received_bytes: usize, next_packet_id: u64, history: &mut History) -> (u64, u64) {
-        let mut absolut_packets_received = 0;
-        let mut next_packet_id = next_packet_id;
-        let single_packet_size = match super::get_gso_size_from_cmsg(msghdr) {
-            Some(gso_size) => gso_size,
-            None => {
-                debug!("No GSO size received in cmsg. Assuming that only one packet was received with size {}", amount_received_bytes);
-                amount_received_bytes as u32
-            }
-        };
-    
-        debug!("Process packet msghdr to extract the packets received. Received {} iov packets. Start iterating over them...", msghdr.msg_iovlen);
-        // Make sure that iovlen == 1, since we only support one packet per msghdr.
-        let iovec = if msghdr.msg_iovlen == 1 {
-            unsafe { *msghdr.msg_iov }
-        } else {
-            panic!("Received more than one packet in one msghdr. This is not supported yet!"); 
-        };
-
-        let datagrams: IoSlice = unsafe {
-            IoSlice::new(std::slice::from_raw_parts(iovec.iov_base as *const u8, amount_received_bytes))
-        };
-
-        for packet in datagrams.chunks(single_packet_size as usize) {
-            next_packet_id += super::process_packet(packet, next_packet_id, history);
-            absolut_packets_received += 1;
-            trace!("iovec buffer: {:?} with now absolut packets received {} and next packet id: {}", packet, next_packet_id, absolut_packets_received);
-        }
-
-        (next_packet_id, absolut_packets_received)
-    } 
 
 
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {

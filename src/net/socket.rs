@@ -187,19 +187,16 @@ impl Socket {
         Ok(send_result as usize)
     }
 
-    pub fn recvmmsg(&self, msgvec: &mut [libc::mmsghdr], timeout: Option<libc::timespec>) -> Result<usize, &'static str> {
-        let timeout_ptr = match timeout {
-            Some(t) => &t as *const _,
-            None => std::ptr::null(),
-        };
-    
+    pub fn recvmmsg(&self, msgvec: &mut [libc::mmsghdr]) -> Result<usize, &'static str> {
+        let timeout = std::ptr::null::<libc::timespec>() as *mut libc::timespec;
+
         let recv_result: i32 = unsafe {
             libc::recvmmsg(
                 self.socket,
                 msgvec.as_mut_ptr(),
                 msgvec.len() as u32,
-                0,
-                timeout_ptr as *mut _
+                libc::MSG_DONTWAIT,
+                timeout
             )
         };
     
@@ -216,7 +213,7 @@ impl Socket {
             }
         } 
     
-        debug!("Received {} messages", recv_result);
+        debug!("Received {} mmsghdr(s)", recv_result);
         Ok(recv_result as usize)
     }
 

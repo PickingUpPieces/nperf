@@ -1,7 +1,7 @@
 
 use std::net::Ipv4Addr;
 use std::time::Instant;
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 
 use crate::net::socket_options::SocketOptions;
 use crate::util::{self, ExchangeFunction};
@@ -48,8 +48,8 @@ impl Server {
         match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
                 if !self.first_packet_received {
-                    self.first_packet_received = true;
                     info!("First packet received!");
+                    self.first_packet_received = true;
                     self.history.start_time = Instant::now();
                 }
 
@@ -75,8 +75,8 @@ impl Server {
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
                 if !self.first_packet_received {
-                    self.first_packet_received = true;
                     info!("First packet received!");
+                    self.first_packet_received = true;
                     self.history.start_time = Instant::now();
                 }
 
@@ -86,7 +86,7 @@ impl Server {
                 }
 
                 let absolut_packets_received;
-                (self.next_packet_id, absolut_packets_received) = self.packet_buffer[0].process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.history);
+                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.history);
                 self.history.amount_datagrams += absolut_packets_received;
                 self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
@@ -101,8 +101,52 @@ impl Server {
     }
 
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
-        error!("Not implemented yet!");
-        Ok(())
+        // TODO: Create vector once and reuse it
+        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer, true);
+
+        match self.socket.recvmmsg(&mut mmsghdr_vec) {
+            Ok(amount_received_mmsghdr) => { 
+                if amount_received_mmsghdr == 0 {
+                    debug!("No packets received during this recvmmsg call");
+                    return Ok(());
+                }
+
+                if !self.first_packet_received {
+                    info!("First packet received!");
+                    self.first_packet_received = true;
+                    self.history.start_time = Instant::now();
+                }
+
+                // This is not very precise, since if more than one packet is received, the amount of bytes is not correct
+                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr);
+                if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
+                    info!("Last packet received!");
+                    return Err("LAST_MESSAGE_RECEIVED");
+                }
+
+                let mut absolut_datagrams_received = 0;
+                for (index, mmsghdr) in mmsghdr_vec.iter_mut().enumerate() {
+                    if index >= amount_received_mmsghdr {
+                        break;
+                    }
+                    let mut msghdr = &mut mmsghdr.msg_hdr;
+                    let msghdr_bytes = mmsghdr.msg_len as usize;
+
+                    let datagrams_received;
+                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(&mut msghdr, msghdr_bytes, self.next_packet_id, &mut self.history);
+                    absolut_datagrams_received += datagrams_received;
+                }
+                // TODO: Check if all packets were sent successfully
+                self.history.amount_datagrams += absolut_datagrams_received;
+                self.history.amount_data_bytes += amount_received_bytes;
+                trace!("Sent {} msg_hdr to remote host", amount_received_mmsghdr);
+                Ok(())
+            },
+            Err("EAGAIN") => {
+                Ok(())
+            },
+            Err(x) => Err(x)
+        }
     }
 }
 
