@@ -47,11 +47,6 @@ impl Server {
     fn recv(&mut self) -> Result<(), &'static str> {
         match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
-                if !self.first_packet_received {
-                    info!("First packet received!");
-                    self.first_packet_received = true;
-                    self.statistic.start_time = Instant::now();
-                }
 
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
                     info!("Last packet received!");
@@ -73,11 +68,6 @@ impl Server {
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
-                if !self.first_packet_received {
-                    info!("First packet received!");
-                    self.first_packet_received = true;
-                    self.statistic.start_time = Instant::now();
-                }
 
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
                     info!("Last packet received!");
@@ -105,12 +95,6 @@ impl Server {
                 if amount_received_mmsghdr == 0 {
                     debug!("No packets received during this recvmmsg call");
                     return Ok(());
-                }
-
-                if !self.first_packet_received {
-                    info!("First packet received!");
-                    self.first_packet_received = true;
-                    self.statistic.start_time = Instant::now();
                 }
 
                 // This is not very precise, since if more than one packet is received, the amount of bytes is not correct
@@ -153,10 +137,17 @@ impl Node for Server {
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
         let mut counter = 0;
+        let mut test_start_time = Instant::now();
 
         loop {
             match self.recv_messages() {
-                Ok(_) => {},
+                Ok(_) => {
+                    if !self.first_packet_received {
+                        info!("First packet received!");
+                        self.first_packet_received = true;
+                        test_start_time = Instant::now();
+                    }
+                },
                 Err("EAGAIN") => {
                     counter += 1;
                     match io_model {
@@ -177,9 +168,10 @@ impl Node for Server {
 
         self.socket.close()?;
 
-        self.statistic.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+        let end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
         info!("io_model called {} times", counter);
+        self.statistic.set_test_duration(test_start_time, end_time);
         self.statistic.print();
         Ok(())
     }

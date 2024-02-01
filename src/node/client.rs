@@ -133,11 +133,11 @@ impl Node for Client {
             info!("On the current socket the MSS is {}", mss);
         }
         
-        self.statistic.start_time = Instant::now();
+        let start_time = Instant::now();
         info!("Start measurement...");
 
         let mut counter = 0;
-        while self.statistic.start_time.elapsed().as_secs() < self.run_time_length {
+        while start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
@@ -157,15 +157,17 @@ impl Node for Client {
         info!("io_model called {} times", counter);
         sleep(std::time::Duration::from_millis(200));
 
-        match self.send_last_message() {
+        let end_time = match self.send_last_message() {
             Ok(_) => { 
-                self.statistic.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep above as well
                 debug!("...finished measurement");
-                self.statistic.print();
-                Ok(())
+                Ok(Instant::now() - std::time::Duration::from_millis(200)) // REMOVE THIS, if you remove the sleep above as well
             },
             Err(_) => Err("Error sending last message"),
-        }
+        };
+
+        self.statistic.set_test_duration(start_time, end_time?);
+        self.statistic.print();
+        Ok(())
     }
 
 
