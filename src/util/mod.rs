@@ -22,6 +22,13 @@ pub enum ExchangeFunction {
     Mmsg
 }
 
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum IOModel {
+    BusyWaiting,
+    Select,
+    Poll,
+}
+
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),
@@ -112,7 +119,7 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
     (next_packet_id, absolut_packets_received)
 } 
 
-pub fn create_mmsghdr_vec(packet_buffer_vec: &mut Vec<PacketBuffer>, with_cmsg: bool) -> Vec<libc::mmsghdr> {
+pub fn create_mmsghdr_vec(packet_buffer_vec: &mut [PacketBuffer], with_cmsg: bool) -> Vec<libc::mmsghdr> {
     let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
     for packet_buffer in packet_buffer_vec.iter_mut() {
         let mut msghdr = packet_buffer.create_msghdr();
@@ -134,7 +141,7 @@ fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
     }
 }
 
-pub fn get_total_bytes(mmsghdr_vec: &Vec<libc::mmsghdr>, amount_msghdr: usize) -> usize {
+pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize) -> usize {
     let mut amount_sent_bytes = 0;
     for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
         if index >= amount_msghdr {

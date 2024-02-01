@@ -5,7 +5,7 @@ use log::trace;
 use log::{debug, error, info};
 
 use crate::net::socket_options::SocketOptions;
-use crate::util::ExchangeFunction;
+use crate::util::{ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
 use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
@@ -124,7 +124,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self) -> Result<(), &'static str> {
+    fn run(&mut self, io_model: IOModel) -> Result<(), &'static str> {
         info!("Current mode: client");
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.socket.connect().expect("Error connecting to remote host"); 
@@ -135,17 +135,26 @@ impl Node for Client {
         
         self.history.start_time = Instant::now();
         info!("Start measurement...");
-    
+
+        let mut counter = 0;
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
+                Err("EAGAIN") => {
+                    counter += 1;
+                    match io_model {
+                        IOModel::BusyWaiting => Ok(()),
+                        IOModel::Select => self.loop_select(),
+                        IOModel::Poll => self.loop_poll(),
+                    }?;
+                },
                 Err(x) => {
                     error!("Error sending message! Aborting measurement...");
-                    return Err(x);
+                    return Err(x)
                 }
             }
         }
-
+        info!("io_model called {} times", counter);
         sleep(std::time::Duration::from_millis(200));
 
         match self.send_last_message() {
@@ -157,5 +166,22 @@ impl Node for Client {
             },
             Err(_) => Err("Error sending last message"),
         }
+    }
+
+
+    fn loop_select(&mut self) -> Result<(), &'static str> {
+        let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+
+        // Normally we would need to iterate over FDs and check which socket is ready
+        // Since we only have one socket, we directly call recv_messages 
+        self.socket.select(None, Some(&mut write_fds))
+    }
+
+    fn loop_poll(&mut self) -> Result<(), &'static str> {
+        let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
+
+        // Normally we would need to iterate over FDs and check which socket is ready
+        // Since we only have one socket, we directly call recv_messages 
+        self.socket.poll(&mut pollfd)
     }
 }

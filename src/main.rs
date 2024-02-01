@@ -26,6 +26,8 @@ const LAST_MESSAGE_SIZE: usize = 100;
 
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
 
+const DEFAULT_IO_MODEL: &str = "select";
+
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
 struct Arguments{
@@ -88,6 +90,10 @@ struct Arguments{
     /// Enable non-blocking socket
     #[arg(long, default_value_t = true)]
     with_non_blocking: bool,
+
+    // Select the IO model to use: busy-waiting, select, poll
+    #[arg(long, default_value_t = DEFAULT_IO_MODEL.to_string())]
+    io_model: String,
 }
 
 fn main() {
@@ -129,6 +135,13 @@ fn main() {
     info!("MSS used: {}", mss);
     info!("Exchange function used: {:?}", exchange_function);
 
+    let io_model = match args.io_model.as_str() {
+        "busy-waiting" => util::IOModel::BusyWaiting,
+        "select" => util::IOModel::Select,
+        "poll" =>util::IOModel::Poll,
+        _ => { error!("Invalid IO model! Should be 'busy-waiting', 'select' or 'poll'"); panic!()},
+    };
+    info!("IO model used: {:?}", io_model);
 
     loop {
         let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
@@ -138,7 +151,7 @@ fn main() {
             Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.run_infinite, exchange_function))
         };
 
-        match node.run() {
+        match node.run(io_model) {
             Ok(_) => { 
                 info!("Finished measurement!");
                 if !(args.run_infinite && mode == util::NPerfMode::Server) {

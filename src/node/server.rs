@@ -4,7 +4,7 @@ use std::time::Instant;
 use log::{debug, error, info, trace};
 
 use crate::net::socket_options::SocketOptions;
-use crate::util::{self, ExchangeFunction};
+use crate::util::{self, ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
 use crate::util::history::History;
 use crate::util::packet_buffer::PacketBuffer;
@@ -63,7 +63,6 @@ impl Server {
                 self.history.amount_data_bytes += amount_received_bytes;
                 Ok(())
             },
-            Err("EAGAIN") => Ok(()),
             Err(x) => Err(x)
         }
     }
@@ -91,9 +90,6 @@ impl Server {
                 self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
-                Ok(())
-            },
-            Err("EAGAIN") => {
                 Ok(())
             },
             Err(x) => Err(x)
@@ -129,11 +125,11 @@ impl Server {
                     if index >= amount_received_mmsghdr {
                         break;
                     }
-                    let mut msghdr = &mut mmsghdr.msg_hdr;
+                    let msghdr = &mut mmsghdr.msg_hdr;
                     let msghdr_bytes = mmsghdr.msg_len as usize;
 
                     let datagrams_received;
-                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(&mut msghdr, msghdr_bytes, self.next_packet_id, &mut self.history);
+                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, &mut self.history);
                     absolut_datagrams_received += datagrams_received;
                 }
                 // TODO: Check if all packets were sent successfully
@@ -142,39 +138,66 @@ impl Server {
                 trace!("Sent {} msg_hdr to remote host", amount_received_mmsghdr);
                 Ok(())
             },
-            Err("EAGAIN") => {
-                Ok(())
-            },
             Err(x) => Err(x)
         }
     }
 }
 
 impl Node for Server { 
-    fn run(&mut self) -> Result<(), &'static str>{
+    fn run(&mut self, io_model: IOModel) -> Result<(), &'static str>{
         info!("Current mode: server");
         self.socket.bind().expect("Error binding socket");
 
         info!("Start server loop...");
-        self.socket.wait_for_data().expect("Error waiting for data");
+        let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+        self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
+
+        let mut counter = 0;
 
         loop {
             match self.recv_messages() {
                 Ok(_) => {},
+                Err("EAGAIN") => {
+                    counter += 1;
+                    match io_model {
+                        IOModel::BusyWaiting => Ok(()),
+                        IOModel::Select => self.loop_select(),
+                        IOModel::Poll => self.loop_poll(),
+                    }?;
+                },
                 Err("LAST_MESSAGE_RECEIVED") => {
                     break;
                 },
                 Err(x) => {
                     error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
+                    return Err(x)
                 }
             }
-        //self.socket.wait_for_data().expect("Error waiting for data");
         }
+
         self.socket.close()?;
+
         self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
+        info!("io_model called {} times", counter);
         self.history.print();
         Ok(())
+    }
+
+
+    fn loop_select(&mut self) -> Result<(), &'static str> {
+        let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+
+        // Normally we would need to iterate over FDs and check which socket is ready
+        // Since we only have one socket, we directly call recv_messages 
+        self.socket.select(Some(&mut read_fds), None)
+    }
+
+    fn loop_poll(&mut self) -> Result<(), &'static str> {
+        let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
+
+        // Normally we would need to iterate over FDs and check which socket is ready
+        // Since we only have one socket, we directly call recv_messages 
+        self.socket.poll(&mut pollfd)
     }
 }
