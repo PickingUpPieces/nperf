@@ -26,7 +26,7 @@ const LAST_MESSAGE_SIZE: usize = 100;
 
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
 
-const DEFAULT_IO_MODEL: &str = "busy-waiting";
+const DEFAULT_IO_MODEL: &str = "select";
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
