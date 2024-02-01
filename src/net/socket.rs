@@ -297,13 +297,40 @@ impl Socket {
         fd_set
     }
 
+    pub fn create_pollfd(&self, event: libc::c_short) -> Vec<libc::pollfd> {
+        let mut pollfd_vec: Vec<libc::pollfd> = Vec::new();
+        let mut pollfd: libc::pollfd = unsafe { std::mem::zeroed() };
+        pollfd.fd = self.socket;
+        pollfd.events = event;
+        pollfd_vec.push(pollfd);
+        pollfd_vec
+    }
+
+    pub fn poll(&self, pollfd: &mut [libc::pollfd]) -> Result<(), &'static str> {
+        let poll_result = unsafe {
+            libc::poll(
+                pollfd.as_mut_ptr(),
+                pollfd.len() as u64,
+                -1
+            )
+        };
+
+        if poll_result == -1 {
+            error!("Error calling poll: {}", Error::last_os_error());
+            Err("Error calling poll")
+        } else {
+            trace!("Poll returned with result: {}", poll_result);
+            Ok(())
+        }
+    }
+
     pub fn select(&self, read_fds: Option<*mut libc::fd_set>, write_fds: Option<*mut libc::fd_set>) -> Result<(), &'static str> {
         let nfds = self.socket + 1;
         let result = unsafe { libc::select(nfds, read_fds.unwrap_or(std::ptr::null_mut()), write_fds.unwrap_or(std::ptr::null_mut()), std::ptr::null_mut(), std::ptr::null_mut()) };
         
         if result == -1 {
             error!("Error calling select: {}", Error::last_os_error());
-            return Err("Error calling select")
+            Err("Error calling select")
         } else {
             debug!("Select returned with result: {}", result);
             Ok(())

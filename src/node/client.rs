@@ -177,14 +177,16 @@ impl Node for Client {
                 Ok(_) => {},
                 Err("EAGAIN") => {
                     select_counter += 1;
-                     let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
-                     match self.socket.select(None, Some(&mut write_fds)) {
-                         Ok(_) => {},
-                         Err(x) => {
-                             error!("Error waiting for data! Aborting measurement...");
-                             return Err(x)
-                         }
-                     }
+                    let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+                    // Normally we would need to iterate over FDs and check which socket is ready
+                    // Since we only have one socket, we directly call recv_messages 
+                    match self.socket.select(None, Some(&mut write_fds)) {
+                        Ok(_) => {},
+                        Err(x) => {
+                            error!("Error waiting for data! Aborting measurement...");
+                            return Err(x)
+                        }
+                    }
                 },
                 Err(x) => {
                     error!("Error sending message! Aborting measurement...");
