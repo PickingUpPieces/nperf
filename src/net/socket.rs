@@ -181,6 +181,9 @@ impl Socket {
                     return Err("Failed to send data");
                 }
             }
+        } else if send_result == 1 && mmsgvec.len() > 1 {
+            error!("sendmmsg() returned 1, but mmsgvec.len() > 1. This probably means that the first message was sent successfully, but the second one failed. We assume that the server is not running.");
+            return Err("ECONNREFUSED");
         }
     
         debug!("Sent {} mmsghdr(s)", send_result);
