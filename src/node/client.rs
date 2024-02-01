@@ -156,6 +156,7 @@ impl Node for Client {
     }
 
     fn loop_busy_waiting(&mut self) -> Result<(), &'static str> {
+        info!("Using IO model: busy-waiting");
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
@@ -169,10 +170,34 @@ impl Node for Client {
     }
 
     fn loop_select(&mut self) -> Result<(), &'static str> {
-        todo!()
+        info!("Using IO model: select");
+        let mut select_counter = 0;
+        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
+            match self.send_messages() {
+                Ok(_) => {},
+                Err("EAGAIN") => {
+                    select_counter += 1;
+                     let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+                     match self.socket.select(None, Some(&mut write_fds)) {
+                         Ok(_) => {},
+                         Err(x) => {
+                             error!("Error waiting for data! Aborting measurement...");
+                             return Err(x)
+                         }
+                     }
+                },
+                Err(x) => {
+                    error!("Error sending message! Aborting measurement...");
+                    return Err(x)
+                }
+            }
+        }
+        info!("Select called {} times", select_counter);
+        Ok(())
     }
 
     fn loop_poll(&mut self) -> Result<(), &'static str> {
+        info!("Using IO model: poll");
         todo!()
     }
 }
