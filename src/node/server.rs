@@ -205,7 +205,7 @@ impl Node for Server {
                     }
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
-                    info!("Select called {} times", counter);
+                    info!("select() called {} times", counter);
                     return Ok(())
                 },
                 Err(x) => {
@@ -237,7 +237,7 @@ impl Node for Server {
                     }
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
-                    info!("Select called {} times", counter);
+                    info!("poll() called {} times", counter);
                     return Ok(())
                 },
                 Err(x) => {

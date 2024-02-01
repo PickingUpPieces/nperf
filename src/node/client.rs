@@ -171,12 +171,12 @@ impl Node for Client {
 
     fn loop_select(&mut self) -> Result<(), &'static str> {
         info!("Using IO model: select");
-        let mut select_counter = 0;
+        let mut counter = 0;
         while self.history.start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
-                    select_counter += 1;
+                    counter += 1;
                     let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
                     // Normally we would need to iterate over FDs and check which socket is ready
                     // Since we only have one socket, we directly call recv_messages 
@@ -194,12 +194,37 @@ impl Node for Client {
                 }
             }
         }
-        info!("Select called {} times", select_counter);
+        info!("select() called {} times", counter);
         Ok(())
     }
 
     fn loop_poll(&mut self) -> Result<(), &'static str> {
         info!("Using IO model: poll");
-        todo!()
+        let mut counter = 0;
+        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
+            match self.send_messages() {
+                Ok(_) => {},
+                Err("EAGAIN") => {
+                    counter += 1;
+                    
+                    let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
+                    // Normally we would need to iterate over FDs and check which socket is ready
+                    // Since we only have one socket, we directly call recv_messages 
+                    match self.socket.poll(&mut pollfd) {
+                        Ok(_) => {},
+                        Err(x) => {
+                            error!("Error waiting for data! Aborting measurement...");
+                            return Err(x)
+                        }
+                    }
+                },
+                Err(x) => {
+                    error!("Error sending message! Aborting measurement...");
+                    return Err(x)
+                }
+            }
+        }
+    info!("poll() called {} times", counter);
+    Ok(())
     }
 }
