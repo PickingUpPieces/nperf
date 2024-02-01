@@ -1,7 +1,8 @@
 use log::{error, info, debug, warn};
+use serde::Serialize;
 use std::io::Error;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy, Serialize)]
 pub struct SocketOptions {
     nonblocking: bool,
     without_ip_frag: bool,
