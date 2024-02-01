@@ -63,7 +63,6 @@ impl Server {
                 self.history.amount_data_bytes += amount_received_bytes;
                 Ok(())
             },
-            Err("EAGAIN") => Ok(()),
             Err(x) => Err(x)
         }
     }
@@ -91,9 +90,6 @@ impl Server {
                 self.history.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
-                Ok(())
-            },
-            Err("EAGAIN") => {
                 Ok(())
             },
             Err(x) => Err(x)
@@ -142,9 +138,6 @@ impl Server {
                 trace!("Sent {} msg_hdr to remote host", amount_received_mmsghdr);
                 Ok(())
             },
-            Err("EAGAIN") => {
-                Ok(())
-            },
             Err(x) => Err(x)
         }
     }
@@ -156,15 +149,16 @@ impl Node for Server {
         self.socket.bind().expect("Error binding socket");
 
         info!("Start server loop...");
-        self.socket.wait_for_data().expect("Error waiting for data");
+        let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+        self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
         let result_loop = match io_model {
             IOModel::BusyWaiting => self.loop_busy_waiting(),
             IOModel::Select => self.loop_select(),
             IOModel::Poll => self.loop_poll(),
         };
-        self.socket.close()?;
 
+        self.socket.close()?;
         result_loop?;
 
         self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
@@ -174,10 +168,43 @@ impl Node for Server {
     }
 
     fn loop_busy_waiting(&mut self) -> Result<(), &'static str> {
+        info!("Using IO model: busy-waiting");
         loop {
             match self.recv_messages() {
                 Ok(_) => {},
                 Err("LAST_MESSAGE_RECEIVED") => {
+                    return Ok(())
+                },
+                Err("EAGAIN") => {},
+                Err(x) => {
+                    error!("Error receiving message! Aborting measurement...");
+                    return Err(x)
+                }
+            }
+        }
+    }
+
+    fn loop_select(&mut self) -> Result<(), &'static str> {
+        info!("Using IO model: select");
+        let mut select_counter = 0;
+        loop {
+             // Normally we would need to iterate over FDs and check which socket is ready
+             // Since we only have one socket, we directly call recv_messages 
+            match self.recv_messages() {
+                Ok(_) => {},
+                Err("EAGAIN") => {
+                    select_counter += 1;
+                     let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+                     match self.socket.select(Some(&mut read_fds), None) {
+                         Ok(_) => {},
+                         Err(x) => {
+                             error!("Error waiting for data! Aborting measurement...");
+                             return Err(x)
+                         }
+                     }
+                },
+                Err("LAST_MESSAGE_RECEIVED") => {
+                    info!("Select called {} times", select_counter);
                     return Ok(())
                 },
                 Err(x) => {
@@ -188,11 +215,8 @@ impl Node for Server {
         }
     }
 
-    fn loop_select(&mut self) -> Result<(), &'static str> {
-        todo!()
-    }
-
     fn loop_poll(&mut self) -> Result<(), &'static str> {
+        info!("Using IO model: poll");
         todo!()
     }
 }

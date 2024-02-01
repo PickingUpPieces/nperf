@@ -274,26 +274,6 @@ impl Socket {
         Ok(recv_result as usize)
     }
 
-    pub fn wait_for_data(&self) -> Result<(), &'static str> {
-        debug!("Waiting for data on socket {}...", self.socket);
-        // Prepare the file descriptor set for select
-        let mut read_fds = unsafe {
-            let mut fds: libc::fd_set = std::mem::zeroed();
-            libc::FD_SET(self.socket, &mut fds);
-            fds
-        };
-        
-        // Call select
-        let nfds = self.socket + 1;
-        let result = unsafe { libc::select(nfds, &mut read_fds, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
-        
-        if result == -1 {
-            error!("Error calling select: {}", Error::last_os_error());
-            return Err("Error calling select");
-        }
-        Ok(())
-    }
-
     pub fn get_mss(&self) -> Result<u32, &'static str> {
         self.socket_options.get_mss(self.socket)
     }
@@ -307,6 +287,26 @@ impl Socket {
             sin_port: port.to_be(), // Convert to big endian
             sin_addr: libc::in_addr { s_addr: addr_u32 },
             sin_zero: [0; 8]
+        }
+    }
+
+    pub unsafe fn create_fdset(&self) -> libc::fd_set {
+        let mut fd_set: libc::fd_set =std::mem::zeroed();
+        libc::FD_ZERO(&mut fd_set); 
+        libc::FD_SET(self.socket, &mut fd_set);
+        fd_set
+    }
+
+    pub fn select(&self, read_fds: Option<*mut libc::fd_set>, write_fds: Option<*mut libc::fd_set>) -> Result<(), &'static str> {
+        let nfds = self.socket + 1;
+        let result = unsafe { libc::select(nfds, read_fds.unwrap_or(std::ptr::null_mut()), write_fds.unwrap_or(std::ptr::null_mut()), std::ptr::null_mut(), std::ptr::null_mut()) };
+        
+        if result == -1 {
+            error!("Error calling select: {}", Error::last_os_error());
+            return Err("Error calling select")
+        } else {
+            debug!("Select returned with result: {}", result);
+            Ok(())
         }
     }
 }
