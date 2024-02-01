@@ -7,7 +7,7 @@ use log::{debug, error, info};
 use crate::net::socket_options::SocketOptions;
 use crate::util::{ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
-use crate::util::history::History;
+use crate::util::statistic::Statistic;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::util;
 
@@ -16,7 +16,7 @@ use super::Node;
 pub struct Client {
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
-    history: History,
+    statistic: Statistic,
     run_time_length: u64,
     next_packet_id: u64,
     exchange_function: ExchangeFunction,
@@ -30,7 +30,7 @@ impl Client {
         Client {
             packet_buffer,
             socket,
-            history: History::new(),
+            statistic: Statistic::new(),
             run_time_length,
             next_packet_id: 0,
             exchange_function
@@ -56,8 +56,8 @@ impl Client {
 
         match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
             Ok(amount_send_bytes) => {
-                self.history.amount_datagrams += 1;
-                self.history.amount_data_bytes += amount_send_bytes;
+                self.statistic.amount_datagrams += 1;
+                self.statistic.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
@@ -73,8 +73,8 @@ impl Client {
         match self.socket.sendmsg(&msghdr) {
             Ok(amount_sent_bytes) => {
                 // FIXME: Check if all packets were sent
-                self.history.amount_datagrams += amount_datagrams;
-                self.history.amount_data_bytes += amount_sent_bytes;
+                self.statistic.amount_datagrams += amount_datagrams;
+                self.statistic.amount_data_bytes += amount_sent_bytes;
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
@@ -90,8 +90,8 @@ impl Client {
         match self.socket.sendmmsg(&mut mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
                 // FIXME: Check if all packets were sent
-                self.history.amount_datagrams += amount_datagrams;
-                self.history.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
+                self.statistic.amount_datagrams += amount_datagrams;
+                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
@@ -133,11 +133,11 @@ impl Node for Client {
             info!("On the current socket the MSS is {}", mss);
         }
         
-        self.history.start_time = Instant::now();
+        self.statistic.start_time = Instant::now();
         info!("Start measurement...");
 
         let mut counter = 0;
-        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
+        while self.statistic.start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
@@ -159,9 +159,9 @@ impl Node for Client {
 
         match self.send_last_message() {
             Ok(_) => { 
-                self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep above as well
+                self.statistic.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep above as well
                 debug!("...finished measurement");
-                self.history.print();
+                self.statistic.print();
                 Ok(())
             },
             Err(_) => Err("Error sending last message"),

@@ -6,7 +6,7 @@ use log::{debug, error, info, trace};
 use crate::net::socket_options::SocketOptions;
 use crate::util::{self, ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
-use crate::util::history::History;
+use crate::util::statistic::Statistic;
 use crate::util::packet_buffer::PacketBuffer;
 use super::Node;
 
@@ -16,7 +16,7 @@ pub struct Server {
     _run_infinite: bool,
     first_packet_received: bool,
     next_packet_id: u64,
-    history: History,
+    statistic: Statistic,
     exchange_function: ExchangeFunction
 }
 
@@ -31,7 +31,7 @@ impl Server {
             _run_infinite: run_infinite,
             first_packet_received: false,
             next_packet_id: 0,
-            history: History::new(),
+            statistic: Statistic::new(),
             exchange_function
         }
     }
@@ -50,7 +50,7 @@ impl Server {
                 if !self.first_packet_received {
                     info!("First packet received!");
                     self.first_packet_received = true;
-                    self.history.start_time = Instant::now();
+                    self.statistic.start_time = Instant::now();
                 }
 
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
@@ -58,9 +58,9 @@ impl Server {
                     return Err("LAST_MESSAGE_RECEIVED");
                 }
 
-                self.next_packet_id += util::process_packet(self.packet_buffer[0].get_buffer_pointer(), self.next_packet_id, &mut self.history);
-                self.history.amount_datagrams += 1;
-                self.history.amount_data_bytes += amount_received_bytes;
+                self.next_packet_id += util::process_packet(self.packet_buffer[0].get_buffer_pointer(), self.next_packet_id, &mut self.statistic);
+                self.statistic.amount_datagrams += 1;
+                self.statistic.amount_data_bytes += amount_received_bytes;
                 Ok(())
             },
             Err(x) => Err(x)
@@ -76,7 +76,7 @@ impl Server {
                 if !self.first_packet_received {
                     info!("First packet received!");
                     self.first_packet_received = true;
-                    self.history.start_time = Instant::now();
+                    self.statistic.start_time = Instant::now();
                 }
 
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
@@ -85,9 +85,9 @@ impl Server {
                 }
 
                 let absolut_packets_received;
-                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.history);
-                self.history.amount_datagrams += absolut_packets_received;
-                self.history.amount_data_bytes += amount_received_bytes;
+                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.statistic);
+                self.statistic.amount_datagrams += absolut_packets_received;
+                self.statistic.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
                 Ok(())
@@ -110,7 +110,7 @@ impl Server {
                 if !self.first_packet_received {
                     info!("First packet received!");
                     self.first_packet_received = true;
-                    self.history.start_time = Instant::now();
+                    self.statistic.start_time = Instant::now();
                 }
 
                 // This is not very precise, since if more than one packet is received, the amount of bytes is not correct
@@ -129,12 +129,12 @@ impl Server {
                     let msghdr_bytes = mmsghdr.msg_len as usize;
 
                     let datagrams_received;
-                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, &mut self.history);
+                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, &mut self.statistic);
                     absolut_datagrams_received += datagrams_received;
                 }
                 // TODO: Check if all packets were sent successfully
-                self.history.amount_datagrams += absolut_datagrams_received;
-                self.history.amount_data_bytes += amount_received_bytes;
+                self.statistic.amount_datagrams += absolut_datagrams_received;
+                self.statistic.amount_data_bytes += amount_received_bytes;
                 trace!("Sent {} msg_hdr to remote host", amount_received_mmsghdr);
                 Ok(())
             },
@@ -177,10 +177,10 @@ impl Node for Server {
 
         self.socket.close()?;
 
-        self.history.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+        self.statistic.end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
         info!("io_model called {} times", counter);
-        self.history.print();
+        self.statistic.print();
         Ok(())
     }
 

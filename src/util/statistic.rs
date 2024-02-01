@@ -1,8 +1,10 @@
 use std::time::Duration;
 use log::debug;
+use serde::{Serialize, Deserialize};
+use serde_json;
 
 #[derive(Debug)]
-pub struct History {
+pub struct Statistic {
     pub start_time: std::time::Instant,
     pub end_time: std::time::Instant,
     total_time: std::time::Duration,
@@ -16,9 +18,9 @@ pub struct History {
     packet_loss: f64,
 }
 
-impl History {
-    pub fn new() -> History {
-        History {
+impl Statistic {
+    pub fn new() -> Statistic {
+        Statistic {
             start_time: std::time::Instant::now(),
             end_time: std::time::Instant::now(),
             total_time: Duration::new(0, 0),
@@ -34,12 +36,12 @@ impl History {
     }
 
     fn update(&mut self) {
-        debug!("Updating history...");
+        debug!("Updating statistic...");
         self.total_data = self.calculate_total_data();
         self.total_time = self.calculate_total_time();
         self.data_rate = self.calculate_data_rate();
         self.packet_loss = self.calculate_packet_loss();
-        debug!("History updated: {:?}", self);
+        debug!("Statistic updated: {:?}", self);
     }
 
     pub fn print(&mut self) {
