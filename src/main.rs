@@ -91,9 +91,13 @@ struct Arguments{
     #[arg(long, default_value_t = true)]
     with_non_blocking: bool,
 
-    // Select the IO model to use: busy-waiting, select, poll
+    /// Select the IO model to use: busy-waiting, select, poll
     #[arg(long, default_value_t = DEFAULT_IO_MODEL.to_string())]
     io_model: String,
+
+    /// Enable json output of statistics
+    #[arg(long, default_value_t = false)]
+    json: bool,
 }
 
 fn main() {
@@ -125,6 +129,7 @@ fn main() {
     } else {
         (ExchangeFunction::Normal, 1)
     };
+    info!("Exchange function used: {:?}", exchange_function);
     
     let mss = if args.with_gso || args.with_gro {
         info!("GSO/GRO enabled with buffer size {}", args.with_gso_buffer);
@@ -133,7 +138,6 @@ fn main() {
         args.with_mss
     };
     info!("MSS used: {}", mss);
-    info!("Exchange function used: {:?}", exchange_function);
 
     let io_model = match args.io_model.as_str() {
         "busy-waiting" => util::IOModel::BusyWaiting,
@@ -142,13 +146,34 @@ fn main() {
         _ => { error!("Invalid IO model! Should be 'busy-waiting', 'select' or 'poll'"); panic!()},
     };
     info!("IO model used: {:?}", io_model);
+    
+    let socket_options = SocketOptions::new(
+        args.with_non_blocking, 
+        args.without_ip_frag, 
+        (args.with_gso, args.datagram_size), 
+        args.with_gro, 
+        crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, 
+        crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE
+    );
+
+    let parameter = util::statistic::Parameter {
+        mode,
+        enable_json_output: args.json,
+        io_model,
+        test_runtime_length: args.time,
+        mss,
+        datagram_size: args.datagram_size,
+        packet_buffer_size,
+        socket_options,
+        exchange_function
+    };
+
 
     loop {
-        let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
         let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
-            Box::new(Client::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.time, exchange_function))
+            Box::new(Client::new(ipv4, args.port, parameter))
         } else {
-            Box::new(Server::new(ipv4, args.port, mss, args.datagram_size, packet_buffer_size, socket_options, args.run_infinite, exchange_function))
+            Box::new(Server::new(ipv4, args.port, parameter))
         };
 
         match node.run(io_model) {

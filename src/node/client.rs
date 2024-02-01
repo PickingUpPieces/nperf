@@ -4,10 +4,9 @@ use std::time::Instant;
 use log::trace;
 use log::{debug, error, info};
 
-use crate::net::socket_options::SocketOptions;
 use crate::util::{ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
-use crate::util::statistic::Statistic;
+use crate::util::statistic::{Parameter, Statistic};
 use crate::util::packet_buffer::PacketBuffer;
 use crate::util;
 
@@ -23,17 +22,17 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, run_time_length: u64, exchange_function: ExchangeFunction) -> Self {
-        let socket = Socket::new(ip, remote_port, socket_options).expect("Error creating socket");
-        let packet_buffer = Vec::from_iter((0..packet_buffer_size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
+    pub fn new(ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+        let socket = Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket");
+        let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
             packet_buffer,
             socket,
-            statistic: Statistic::new(),
-            run_time_length,
+            statistic: Statistic::new(parameter),
+            run_time_length: parameter.test_runtime_length,
             next_packet_id: 0,
-            exchange_function
+            exchange_function: parameter.exchange_function
         }
     }
 

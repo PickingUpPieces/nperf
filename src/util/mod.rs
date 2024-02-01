@@ -5,24 +5,25 @@ use std::io::IoSlice;
 
 use libc::mmsghdr;
 use log::{debug, trace};
+use serde::Serialize;
 use statistic::Statistic;
 
 use self::packet_buffer::PacketBuffer;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum NPerfMode {
     Client,
     Server,
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum ExchangeFunction {
     Normal,
     Msg,
     Mmsg
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum IOModel {
     BusyWaiting,
     Select,
@@ -65,7 +66,6 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, statistic: &mut St
         return 0
     }
 }
-
 
 pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
     let mut cmsg: *mut libc::cmsghdr = unsafe { libc::CMSG_FIRSTHDR(msghdr) };

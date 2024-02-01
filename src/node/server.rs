@@ -3,17 +3,15 @@ use std::net::Ipv4Addr;
 use std::time::Instant;
 use log::{debug, error, info, trace};
 
-use crate::net::socket_options::SocketOptions;
 use crate::util::{self, ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
-use crate::util::statistic::Statistic;
+use crate::util::statistic::{Parameter, Statistic};
 use crate::util::packet_buffer::PacketBuffer;
 use super::Node;
 
 pub struct Server {
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
-    _run_infinite: bool,
     first_packet_received: bool,
     next_packet_id: u64,
     statistic: Statistic,
@@ -21,18 +19,17 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, run_infinite: bool, exchange_function: ExchangeFunction) -> Server {
-        let socket = Socket::new(ip, local_port, socket_options).expect("Error creating socket");
-        let packet_buffer = Vec::from_iter((0..packet_buffer_size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
+    pub fn new(ip: Ipv4Addr, local_port: u16, parameter: Parameter) -> Server {
+        let socket = Socket::new(ip, local_port, parameter.socket_options).expect("Error creating socket");
+        let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Server {
             packet_buffer,
             socket,
-            _run_infinite: run_infinite,
             first_packet_received: false,
             next_packet_id: 0,
-            statistic: Statistic::new(),
-            exchange_function
+            statistic: Statistic::new(parameter),
+            exchange_function: parameter.exchange_function
         }
     }
 
