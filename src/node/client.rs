@@ -136,12 +136,25 @@ impl Node for Client {
         self.history.start_time = Instant::now();
         info!("Start measurement...");
 
-        match io_model {
-            IOModel::BusyWaiting => self.loop_busy_waiting(),
-            IOModel::Select => self.loop_select(),
-            IOModel::Poll => self.loop_poll(),
-        }?;
-
+        let mut counter = 0;
+        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
+            match self.send_messages() {
+                Ok(_) => {},
+                Err("EAGAIN") => {
+                    counter += 1;
+                    match io_model {
+                        IOModel::BusyWaiting => Ok(()),
+                        IOModel::Select => self.loop_select(),
+                        IOModel::Poll => self.loop_poll(),
+                    }?;
+                },
+                Err(x) => {
+                    error!("Error sending message! Aborting measurement...");
+                    return Err(x)
+                }
+            }
+        }
+        info!("io_model called {} times", counter);
         sleep(std::time::Duration::from_millis(200));
 
         match self.send_last_message() {
@@ -155,76 +168,20 @@ impl Node for Client {
         }
     }
 
-    fn loop_busy_waiting(&mut self) -> Result<(), &'static str> {
-        info!("Using IO model: busy-waiting");
-        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages() {
-                Ok(_) => {},
-                Err(x) => {
-                    error!("Error sending message! Aborting measurement...");
-                    return Err(x)
-                }
-            }
-        }
-        Ok(())
-    }
 
     fn loop_select(&mut self) -> Result<(), &'static str> {
-        info!("Using IO model: select");
-        let mut counter = 0;
-        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages() {
-                Ok(_) => {},
-                Err("EAGAIN") => {
-                    counter += 1;
-                    let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
-                    // Normally we would need to iterate over FDs and check which socket is ready
-                    // Since we only have one socket, we directly call recv_messages 
-                    match self.socket.select(None, Some(&mut write_fds)) {
-                        Ok(_) => {},
-                        Err(x) => {
-                            error!("Error waiting for data! Aborting measurement...");
-                            return Err(x)
-                        }
-                    }
-                },
-                Err(x) => {
-                    error!("Error sending message! Aborting measurement...");
-                    return Err(x)
-                }
-            }
-        }
-        info!("select() called {} times", counter);
-        Ok(())
+        let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+
+        // Normally we would need to iterate over FDs and check which socket is ready
+        // Since we only have one socket, we directly call recv_messages 
+        self.socket.select(None, Some(&mut write_fds))
     }
 
     fn loop_poll(&mut self) -> Result<(), &'static str> {
-        info!("Using IO model: poll");
-        let mut counter = 0;
-        while self.history.start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages() {
-                Ok(_) => {},
-                Err("EAGAIN") => {
-                    counter += 1;
-                    
-                    let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
-                    // Normally we would need to iterate over FDs and check which socket is ready
-                    // Since we only have one socket, we directly call recv_messages 
-                    match self.socket.poll(&mut pollfd) {
-                        Ok(_) => {},
-                        Err(x) => {
-                            error!("Error waiting for data! Aborting measurement...");
-                            return Err(x)
-                        }
-                    }
-                },
-                Err(x) => {
-                    error!("Error sending message! Aborting measurement...");
-                    return Err(x)
-                }
-            }
-        }
-    info!("poll() called {} times", counter);
-    Ok(())
+        let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
+
+        // Normally we would need to iterate over FDs and check which socket is ready
+        // Since we only have one socket, we directly call recv_messages 
+        self.socket.poll(&mut pollfd)
     }
 }

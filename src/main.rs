@@ -141,7 +141,7 @@ fn main() {
         "poll" =>util::IOModel::Poll,
         _ => { error!("Invalid IO model! Should be 'busy-waiting', 'select' or 'poll'"); panic!()},
     };
-
+    info!("IO model used: {:?}", io_model);
 
     loop {
         let socket_options = SocketOptions::new(args.with_non_blocking, args.without_ip_frag, (args.with_gso, args.datagram_size), args.with_gro, crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
