@@ -8,7 +8,7 @@ import json
 import time
 import logging
 
-logging.basicConfig(level=logging.INFO , format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_NPERF_BIN = '/opt/nperf/target/release/nperf'
 
 
@@ -27,9 +27,10 @@ def parse_config_file(json_file_path):
             'runs': [],
         }
 
-        for run_number, run_config in test_runs.items():
-            logging.debug('Processing run number %s with config: %s', run_number, run_config)
+        for run_name, run_config in test_runs.items():
+            logging.debug('Processing run "%s" with config: %s', run_name, run_config)
             run = {
+                'run_name': run_name,
                 'repetitions': run_config['repetitions'],
                 'client': run_config['client'],
                 'server': run_config['server']
@@ -100,11 +101,15 @@ def run_test(run_config):
     client_results = json.loads(client_output)
     server_results = json.loads(server_output)
     
+    # Add run_name to server_results
+    server_results['run_name'] = run_config['run_name']
+
+    logging.info('Returning results: %s', server_results)
     return server_results
     
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
-    header = ['test_name', 'run_number', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'without_ip_frag', 'gso', 'gro']
+    header = ['test_name', 'run_number', 'run_name', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -117,6 +122,7 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
             row = {
                 'test_name': test_name,
                 'run_number': index,
+                'run_name': result['run_name'],
                 'test_runtime_length': result['parameter']['test_runtime_length'],
                 'datagram_size': result['parameter']['datagram_size'],
                 'packet_buffer_size': result['parameter']['packet_buffer_size'],
@@ -131,7 +137,7 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'data_rate_gbit': result['data_rate_gbit'],
                 'packet_loss': result['packet_loss'],
                 'nonblocking': result['parameter']['socket_options']['nonblocking'],
-                'without_ip_frag': result['parameter']['socket_options']['without_ip_frag'],
+                'ip_fragmentation': result['parameter']['socket_options']['ip_fragmentation'],
                 'gso': result['parameter']['socket_options']['gso'][0],
                 'gro': result['parameter']['socket_options']['gro']
             }

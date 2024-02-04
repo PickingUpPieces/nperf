@@ -72,8 +72,8 @@ struct Arguments{
     with_gro: bool,
 
     /// Disable fragmentation on sending socket
-    #[arg(long, default_value_t = true)]
-    without_ip_frag: bool,
+    #[arg(long, default_value_t = false)]
+    with_ip_frag: bool,
 
     /// Use sendmsg/recvmsg method for sending data
     #[arg(long, default_value_t = false)]
@@ -88,8 +88,8 @@ struct Arguments{
     with_mmsg_amount: usize,
 
     /// Enable non-blocking socket
-    #[arg(long, default_value_t = true)]
-    with_non_blocking: bool,
+    #[arg(long, default_value_t = false)]
+    without_non_blocking: bool,
 
     /// Select the IO model to use: busy-waiting, select, poll
     #[arg(long, default_value_t = DEFAULT_IO_MODEL.to_string())]
@@ -149,8 +149,8 @@ fn main() {
     info!("Output format: {}", if args.json {"json"} else {"text"});
     
     let socket_options = SocketOptions::new(
-        args.with_non_blocking, 
-        args.without_ip_frag, 
+        !args.without_non_blocking, 
+        args.with_ip_frag, 
         (args.with_gso, args.datagram_size), 
         args.with_gro, 
         crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, 
