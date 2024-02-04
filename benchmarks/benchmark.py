@@ -171,8 +171,11 @@ def main():
         
         for run in config["runs"]:
             logging.info('Run config: %s', run)
-            result = run_test(run)
-            test_results.append(result)
+            for _ in range(0,3):
+                result = run_test(run)
+                if result is not None: 
+                    test_results.append(result)
+                    break
 
         logging.info('Writing results to CSV file: %s', csv_file_name)
         write_results_to_csv(test_results, test_name, csv_file_name)
