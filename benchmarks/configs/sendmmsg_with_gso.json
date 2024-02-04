@@ -154,7 +154,7 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
-                "with-mmsg-amount": 10,
+                "with-mmsg-amount": 12,
                 "without-non-blocking": false,
                 "io-model": "select"
             },
@@ -170,7 +170,7 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
-                "with-mmsg-amount": 10,
+                "with-mmsg-amount": 12,
                 "without-non-blocking": false,
                 "io-model": "select"
             }
@@ -224,7 +224,7 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
-                "with-mmsg-amount": 32,
+                "with-mmsg-amount": 24,
                 "without-non-blocking": false,
                 "io-model": "select"
             },
@@ -240,7 +240,7 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
-                "with-mmsg-amount": 32,
+                "with-mmsg-amount": 24,
                 "without-non-blocking": false,
                 "io-model": "select"
             }
@@ -259,7 +259,7 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
-                "with-mmsg-amount": 64,
+                "with-mmsg-amount": 32,
                 "without-non-blocking": false,
                 "io-model": "select"
             },
@@ -275,7 +275,7 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
-                "with-mmsg-amount": 64,
+                "with-mmsg-amount": 32,
                 "without-non-blocking": false,
                 "io-model": "select"
             }
@@ -294,6 +294,146 @@
                 "with-ip-frag": false,
                 "with-msg": false,
                 "with-mmsg": true,
+                "with-mmsg-amount": 38,
+                "without-non-blocking": false,
+                "io-model": "select"
+            },
+            "server": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": false,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": true,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 38,
+                "without-non-blocking": false,
+                "io-model": "select"
+            }
+        },
+        "9": {
+            "repetitions": 1,
+            "client": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": true,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": false,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 44,
+                "without-non-blocking": false,
+                "io-model": "select"
+            },
+            "server": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": false,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": true,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 44,
+                "without-non-blocking": false,
+                "io-model": "select"
+            }
+        },
+        "10": {
+            "repetitions": 1,
+            "client": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": true,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": false,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 54,
+                "without-non-blocking": false,
+                "io-model": "select"
+            },
+            "server": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": false,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": true,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 54,
+                "without-non-blocking": false,
+                "io-model": "select"
+            }
+        },
+        "11": {
+            "repetitions": 1,
+            "client": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": true,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": false,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 64,
+                "without-non-blocking": false,
+                "io-model": "select"
+            },
+            "server": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": false,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": true,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 64,
+                "without-non-blocking": false,
+                "io-model": "select"
+            }
+        },
+        "12": {
+            "repetitions": 1,
+            "client": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": true,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": false,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
                 "with-mmsg-amount": 128,
                 "without-non-blocking": false,
                 "io-model": "select"
@@ -315,7 +455,42 @@
                 "io-model": "select"
             }
         },
-        "9": {
+        "13": {
+            "repetitions": 1,
+            "client": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": true,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": false,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 256,
+                "without-non-blocking": false,
+                "io-model": "select"
+            },
+            "server": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": false,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": true,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 256,
+                "without-non-blocking": false,
+                "io-model": "select"
+            }
+        },
+        "14": {
             "repetitions": 1,
             "client": {
                 "ip": "0.0.0.0",
@@ -350,7 +525,42 @@
                 "io-model": "select"
             }
         },
-        "10": {
+        "15": {
+            "repetitions": 1,
+            "client": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": true,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": false,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 768,
+                "without-non-blocking": false,
+                "io-model": "select"
+            },
+            "server": {
+                "ip": "0.0.0.0",
+                "port": 45001,
+                "datagram-size": 1472,
+                "time": 30,
+                "with-gso": false,
+                "with-gso-buffer": 65507,
+                "with-mss": 1472,
+                "with-gro": true,
+                "with-ip-frag": false,
+                "with-msg": false,
+                "with-mmsg": true,
+                "with-mmsg-amount": 768,
+                "without-non-blocking": false,
+                "io-model": "select"
+            }
+        },
+        "16": {
             "repetitions": 1,
             "client": {
                 "ip": "0.0.0.0",
