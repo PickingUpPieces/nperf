@@ -5,7 +5,7 @@ use std::io::Error;
 #[derive(PartialEq, Debug, Clone, Copy, Serialize)]
 pub struct SocketOptions {
     nonblocking: bool,
-    without_ip_frag: bool,
+    ip_fragmentation: bool,
     gso: (bool, u32),
     gro: bool,
     recv_buffer_size: u32,
@@ -13,10 +13,10 @@ pub struct SocketOptions {
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, without_ip_frag: bool, gso: (bool, u32), gro: bool, recv_buffer_size: u32, send_buffer_size: u32) -> Self {
+    pub fn new(nonblocking: bool, ip_fragmentation: bool, gso: (bool, u32), gro: bool, recv_buffer_size: u32, send_buffer_size: u32) -> Self {
         SocketOptions {
             nonblocking,
-            without_ip_frag,
+            ip_fragmentation,
             gso,
             gro,
             recv_buffer_size,
@@ -29,8 +29,8 @@ impl SocketOptions {
         if self.nonblocking {
             self.set_nonblocking(socket)?;
         } 
-        if self.without_ip_frag {
-            self.set_without_ip_frag(socket)?;
+        if !self.ip_fragmentation {
+            self.set_ip_fragmentation_off(socket)?;
         } 
         if self.gso.0 {
             self.set_gso(socket, self.gso.1)?;
@@ -140,17 +140,17 @@ impl SocketOptions {
 
     pub fn set_gso(&mut self, socket: i32, gso_size: u32) -> Result<(), &'static str> {
         // gso_size should be equal to MSS = ETH_MSS - header(ipv4) - header(udp)
-        info!("Trying to set socket option GSO to {}", gso_size);
+        info!("Set socket option GSO to {}", gso_size);
         Self::set_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT, gso_size)
     }
 
     pub fn set_gro(&mut self, socket: i32) -> Result<(), &'static str> {
         let value = 1;
-        info!("Trying to set socket option GRO to {}", value);
+        info!("Set socket option GRO to {}", value);
         Self::set_socket_option(socket, libc::SOL_UDP, libc::UDP_GRO, value)
     }
 
-    pub fn set_without_ip_frag(&mut self, socket: i32) -> Result<(), &'static str> {
+    pub fn set_ip_fragmentation_off(&mut self, socket: i32) -> Result<(), &'static str> {
         info!("Set socket to no IP fragmentation");
         Self::set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
     }

@@ -36,23 +36,23 @@ struct Arguments{
     mode: String,
 
     /// IP address to measure against/listen on
-    #[arg(short = 'a', default_value_t = String::from("0.0.0.0"))]
+    #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
     //() Port number to measure against/listen on 
-    #[arg(short, default_value_t = DEFAULT_PORT)]
+    #[arg(short, long, default_value_t = DEFAULT_PORT)]
     port: u16,
 
     /// Don't stop the node after the first measurement
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long, default_value_t = false)]
     run_infinite: bool,
 
     /// Set length of single datagram (Without IP and UDP headers)
-    #[arg(short = 'l', default_value_t = DEFAULT_UDP_DATAGRAM_SIZE)]
+    #[arg(short = 'l', long, default_value_t = DEFAULT_UDP_DATAGRAM_SIZE)]
     datagram_size: u32,
 
     /// Time to run the test
-    #[arg(short = 't', default_value_t = DEFAULT_DURATION)]
+    #[arg(short = 't', long, default_value_t = DEFAULT_DURATION)]
     time: u64,
 
     /// Enable GSO on sending socket
@@ -72,8 +72,8 @@ struct Arguments{
     with_gro: bool,
 
     /// Disable fragmentation on sending socket
-    #[arg(long, default_value_t = true)]
-    without_ip_frag: bool,
+    #[arg(long, default_value_t = false)]
+    with_ip_frag: bool,
 
     /// Use sendmsg/recvmsg method for sending data
     #[arg(long, default_value_t = false)]
@@ -88,8 +88,8 @@ struct Arguments{
     with_mmsg_amount: usize,
 
     /// Enable non-blocking socket
-    #[arg(long, default_value_t = true)]
-    with_non_blocking: bool,
+    #[arg(long, default_value_t = false)]
+    without_non_blocking: bool,
 
     /// Select the IO model to use: busy-waiting, select, poll
     #[arg(long, default_value_t = DEFAULT_IO_MODEL.to_string())]
@@ -146,10 +146,11 @@ fn main() {
         _ => { error!("Invalid IO model! Should be 'busy-waiting', 'select' or 'poll'"); panic!()},
     };
     info!("IO model used: {:?}", io_model);
+    info!("Output format: {}", if args.json {"json"} else {"text"});
     
     let socket_options = SocketOptions::new(
-        args.with_non_blocking, 
-        args.without_ip_frag, 
+        !args.without_non_blocking, 
+        args.with_ip_frag, 
         (args.with_gso, args.datagram_size), 
         args.with_gro, 
         crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, 
