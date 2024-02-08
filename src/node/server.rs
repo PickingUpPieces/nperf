@@ -50,8 +50,10 @@ impl Server {
                     return Err("LAST_MESSAGE_RECEIVED");
                 }
 
-                self.next_packet_id += util::process_packet(self.packet_buffer[0].get_buffer_pointer(), self.next_packet_id, &mut self.statistic);
-                self.statistic.amount_datagrams += 1;
+                let datagram_size = self.packet_buffer[0].get_datagram_size() as usize;
+                let amount_received_packets = util::process_packet(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, &mut self.statistic);
+                self.next_packet_id += amount_received_packets;
+                self.statistic.amount_datagrams += amount_received_packets;
                 self.statistic.amount_data_bytes += amount_received_bytes;
                 Ok(())
             },
@@ -94,8 +96,7 @@ impl Server {
                     return Ok(());
                 }
 
-                // This is not very precise, since if more than one packet is received, the amount of bytes is not correct
-                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr);
+                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr, self.packet_buffer[0].get_buffer_length());
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
                     info!("Last packet received!");
                     return Err("LAST_MESSAGE_RECEIVED");
@@ -133,7 +134,6 @@ impl Node for Server {
         let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
-        let mut counter = 0;
         let mut test_start_time = Instant::now();
 
         loop {
@@ -146,7 +146,7 @@ impl Node for Server {
                     }
                 },
                 Err("EAGAIN") => {
-                    counter += 1;
+                    self.statistic.amount_io_model_syscalls += 1;
                     match io_model {
                         IOModel::BusyWaiting => Ok(()),
                         IOModel::Select => self.loop_select(),
@@ -161,13 +161,13 @@ impl Node for Server {
                     return Err(x)
                 }
             }
+            self.statistic.amount_syscalls += 1;
         }
 
         self.socket.close()?;
 
         let end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
-        info!("io_model called {} times", counter);
         self.statistic.set_test_duration(test_start_time, end_time);
         self.statistic.print();
         Ok(())

@@ -109,7 +109,8 @@ def run_test(run_config):
     
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
-    header = ['test_name', 'run_number', 'run_name', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro']
+    # FIXME: If new measurement parameters are added, the header should be updated
+    header = ['test_name', 'run_number', 'run_name', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -118,6 +119,7 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
         if not file_exists:
             writer.writeheader()
 
+        # FIXME: Add new measurement parameter as a new column here
         for index, result in enumerate(test_results):
             row = {
                 'test_name': test_name,
@@ -135,6 +137,8 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'amount_duplicated_datagrams': result['amount_duplicated_datagrams'],
                 'amount_omitted_datagrams': result['amount_omitted_datagrams'],
                 'data_rate_gbit': result['data_rate_gbit'],
+                'amount_syscalls': result['amount_syscalls'],
+                'amount_io_model_syscalls': result['amount_io_model_syscalls'],
                 'packet_loss': result['packet_loss'],
                 'nonblocking': result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': result['parameter']['socket_options']['ip_fragmentation'],

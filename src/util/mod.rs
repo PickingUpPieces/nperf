@@ -4,7 +4,7 @@ pub mod packet_buffer;
 use std::io::IoSlice;
 
 use libc::mmsghdr;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use serde::Serialize;
 use statistic::Statistic;
 
@@ -38,10 +38,16 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     }
 }
 
-pub fn process_packet(buffer: &[u8], next_packet_id: u64, statistic: &mut Statistic) -> u64 {
-    let packet_id = u64::from_be_bytes(buffer[0..8].try_into().unwrap());
-    debug!("Received packet number: {}", packet_id);
-    process_packet_number(packet_id, next_packet_id, statistic)
+pub fn process_packet(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
+    // FIXME: buffer can contain more than one packet
+    // Slice the buffer into datagram_size slices, Iterate over the buffer and process each packet
+    let mut amount_received_packets = 0;
+    for packet in buffer.chunks(datagram_size) {
+        let packet_id = u64::from_be_bytes(packet[0..8].try_into().unwrap());
+        debug!("Received packet number: {}", packet_id);
+        amount_received_packets += process_packet_number(packet_id, next_packet_id, statistic);
+    }
+    amount_received_packets
 }
 
 // Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
@@ -111,7 +117,7 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
     };
 
     for packet in datagrams.chunks(single_packet_size as usize) {
-        next_packet_id += process_packet(packet, next_packet_id, statistic);
+        next_packet_id += process_packet(packet, single_packet_size as usize, next_packet_id, statistic);
         absolut_packets_received += 1;
         trace!("iovec buffer: {:?} with now absolut packets received {} and next packet id: {}", packet, next_packet_id, absolut_packets_received);
     }
@@ -141,11 +147,14 @@ fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
     }
 }
 
-pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize) -> usize {
+pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize, amount_bytes_per_msghdr: usize) -> usize {
     let mut amount_sent_bytes = 0;
     for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
         if index >= amount_msghdr {
             break;
+        }
+        if amount_bytes_per_msghdr != mmsghdr.msg_len as usize {
+            warn!("The amount of sent/received bytes in mmsghdr is not equal to the buffer length: {} != {}", mmsghdr.msg_len, amount_bytes_per_msghdr);
         }
         amount_sent_bytes += mmsghdr.msg_len;
     }

@@ -6,8 +6,8 @@ use std::io::Error;
 pub struct SocketOptions {
     nonblocking: bool,
     ip_fragmentation: bool,
-    gso: (bool, u32),
-    gro: bool,
+    pub gso: (bool, u32),
+    pub gro: bool,
     recv_buffer_size: u32,
     send_buffer_size: u32,
 }

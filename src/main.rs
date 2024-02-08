@@ -115,13 +115,6 @@ fn main() {
         Err(_) => { error!("Invalid IPv4 address!"); panic!()},
     };
 
-    if args.datagram_size > MAX_UDP_DATAGRAM_SIZE {
-        error!("UDP datagram size is too big! Maximum is {}", MAX_UDP_DATAGRAM_SIZE);
-        panic!();
-    } else {
-        info!("UDP datagram size used: {}", args.datagram_size);
-    }
-
     let (exchange_function, packet_buffer_size) = if args.with_msg {
         (ExchangeFunction::Msg, 1)
     } else if args.with_mmsg {
@@ -147,6 +140,8 @@ fn main() {
     };
     info!("IO model used: {:?}", io_model);
     info!("Output format: {}", if args.json {"json"} else {"text"});
+    info!("UDP datagram size used: {}", args.datagram_size);
+
     
     let socket_options = SocketOptions::new(
         !args.without_non_blocking, 
@@ -169,6 +164,10 @@ fn main() {
         exchange_function
     };
 
+    match parameter_check(&parameter, &socket_options) {
+        false => { error!("Invalid parameter! Exiting..."); return; },
+        true => {}
+    }
 
     loop {
         let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
@@ -190,4 +189,21 @@ fn main() {
             }
         }
     }
+}
+
+fn parameter_check(parameter: &util::statistic::Parameter, socket_options: &SocketOptions)-> bool {
+    if parameter.datagram_size > MAX_UDP_DATAGRAM_SIZE {
+        error!("UDP datagram size is too big! Maximum is {}", MAX_UDP_DATAGRAM_SIZE);
+        return false;
+    }
+
+    if parameter.mode == util::NPerfMode::Client && socket_options.gro {
+        error!("GRO is not supported on sending socket!");
+        return false;
+    }
+    if parameter.mode == util::NPerfMode::Server && socket_options.gso.0 {
+        error!("GSO is not supported on receiving socket!");
+        return false;
+    }
+    true
 }

@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::thread::sleep;
 use std::time::Instant;
-use log::trace;
+use log::{trace, warn};
 use log::{debug, error, info};
 
 use crate::util::{ExchangeFunction, IOModel};
@@ -50,12 +50,13 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        self.add_packet_ids()?;
+        let amount_datagrams = self.add_packet_ids()?;
         let buffer_length = self.packet_buffer[0].get_buffer_length();
 
         match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
             Ok(amount_send_bytes) => {
-                self.statistic.amount_datagrams += 1;
+                // For UDP, either the whole datagram is sent or nothing (due to an error e.g. full buffer). So we can assume that the whole datagram was sent.
+                self.statistic.amount_datagrams += amount_datagrams;
                 self.statistic.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
                 Ok(())
@@ -71,7 +72,7 @@ impl Client {
 
         match self.socket.sendmsg(&msghdr) {
             Ok(amount_sent_bytes) => {
-                // FIXME: Check if all packets were sent
+                // Since we are using UDP, we can assume that the whole datagram was sent like in send().
                 self.statistic.amount_datagrams += amount_datagrams;
                 self.statistic.amount_data_bytes += amount_sent_bytes;
                 trace!("Sent datagram to remote host");
@@ -88,9 +89,16 @@ impl Client {
 
         match self.socket.sendmmsg(&mut mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
-                // FIXME: Check if all packets were sent
-                self.statistic.amount_datagrams += amount_datagrams;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
+                if amount_sent_mmsghdr != self.packet_buffer.len() {
+                    // Check until which index the packets were sent. Either all packets in a msghdr are sent or none.
+                    // Reset self.next_packet_id to the last packet_id that was sent
+                    warn!("Not all packets were sent! Sent: {}, Expected: {}", amount_sent_mmsghdr, amount_datagrams);
+                    let packet_amount_per_msghdr = self.packet_buffer[0].get_packet_amount();
+                    let amount_not_sent_packets = (self.packet_buffer.len() - amount_sent_mmsghdr) * packet_amount_per_msghdr;
+                    self.next_packet_id -= amount_not_sent_packets as u64;
+                }
+                self.statistic.amount_datagrams += (amount_sent_mmsghdr * self.packet_buffer[0].get_packet_amount()) as u64;
+                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr, self.packet_buffer[0].get_buffer_length());
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
@@ -135,12 +143,11 @@ impl Node for Client {
         let start_time = Instant::now();
         info!("Start measurement...");
 
-        let mut counter = 0;
         while start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
-                    counter += 1;
+                    self.statistic.amount_io_model_syscalls += 1;
                     match io_model {
                         IOModel::BusyWaiting => Ok(()),
                         IOModel::Select => self.loop_select(),
@@ -152,8 +159,8 @@ impl Node for Client {
                     return Err(x)
                 }
             }
+            self.statistic.amount_syscalls += 1;
         }
-        info!("io_model called {} times", counter);
         sleep(std::time::Duration::from_millis(200));
 
         let end_time = match self.send_last_message() {
