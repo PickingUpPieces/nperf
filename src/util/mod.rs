@@ -4,7 +4,7 @@ pub mod packet_buffer;
 use std::io::IoSlice;
 
 use libc::mmsghdr;
-use log::{debug, trace};
+use log::{debug, trace, warn};
 use serde::Serialize;
 use statistic::Statistic;
 
@@ -141,11 +141,14 @@ fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
     }
 }
 
-pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize) -> usize {
+pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize, amount_bytes_per_msghdr: usize) -> usize {
     let mut amount_sent_bytes = 0;
     for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
         if index >= amount_msghdr {
             break;
+        }
+        if amount_bytes_per_msghdr != mmsghdr.msg_len as usize {
+            warn!("The amount of sent/received bytes in mmsghdr is not equal to the buffer length: {} != {}", mmsghdr.msg_len, amount_bytes_per_msghdr);
         }
         amount_sent_bytes += mmsghdr.msg_len;
     }

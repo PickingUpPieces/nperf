@@ -103,4 +103,8 @@ impl PacketBuffer {
     pub fn get_buffer_length(&self) -> usize {
         self.buffer.len()
     }
+
+    pub fn get_packet_amount(&self) -> usize {
+        self.packets_amount
+    }
 }

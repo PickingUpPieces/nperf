@@ -94,8 +94,7 @@ impl Server {
                     return Ok(());
                 }
 
-                // This is not very precise, since if more than one packet is received, the amount of bytes is not correct
-                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr);
+                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr, self.packet_buffer[0].get_buffer_length());
                 if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
                     info!("Last packet received!");
                     return Err("LAST_MESSAGE_RECEIVED");

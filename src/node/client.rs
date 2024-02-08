@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 use std::thread::sleep;
 use std::time::Instant;
-use log::trace;
+use log::{trace, warn};
 use log::{debug, error, info};
 
 use crate::util::{ExchangeFunction, IOModel};
@@ -55,6 +55,7 @@ impl Client {
 
         match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
             Ok(amount_send_bytes) => {
+                // For UDP, either the whole datagram is sent or nothing (due to an error e.g. full buffer). So we can assume that the whole datagram was sent.
                 self.statistic.amount_datagrams += 1;
                 self.statistic.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
@@ -71,7 +72,7 @@ impl Client {
 
         match self.socket.sendmsg(&msghdr) {
             Ok(amount_sent_bytes) => {
-                // FIXME: Check if all packets were sent
+                // Since we are using UDP, we can assume that the whole datagram was sent like in send().
                 self.statistic.amount_datagrams += amount_datagrams;
                 self.statistic.amount_data_bytes += amount_sent_bytes;
                 trace!("Sent datagram to remote host");
@@ -88,9 +89,16 @@ impl Client {
 
         match self.socket.sendmmsg(&mut mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
-                // FIXME: Check if all packets were sent
-                self.statistic.amount_datagrams += amount_datagrams;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
+                if amount_sent_mmsghdr != self.packet_buffer.len() {
+                    // Check until which index the packets were sent. Either all packets in a msghdr are sent or none.
+                    // Reset self.next_packet_id to the last packet_id that was sent
+                    warn!("Not all packets were sent! Sent: {}, Expected: {}", amount_sent_mmsghdr, amount_datagrams);
+                    let packet_amount_per_msghdr = self.packet_buffer[0].get_packet_amount();
+                    let amount_not_sent_packets = (self.packet_buffer.len() - amount_sent_mmsghdr) * packet_amount_per_msghdr;
+                    self.next_packet_id -= amount_not_sent_packets as u64;
+                }
+                self.statistic.amount_datagrams += (amount_sent_mmsghdr * self.packet_buffer[0].get_packet_amount()) as u64;
+                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr, self.packet_buffer[0].get_buffer_length() as usize);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
