@@ -1,3 +1,5 @@
+use std::thread;
+
 use clap::Parser;
 use log::{info, error, debug};
 
@@ -45,7 +47,7 @@ struct Arguments{
 
     /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
     #[arg(long, default_value_t = 1)]
-    parallel: u32,
+    parallel: u16,
 
     /// Don't stop the node after the first measurement
     #[arg(short, long, default_value_t = false)]
@@ -174,24 +176,38 @@ fn main() {
     }
 
     loop {
-        let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
-            Box::new(Client::new(ipv4, args.port, parameter))
-        } else {
-            Box::new(Server::new(ipv4, args.port, parameter))
-        };
+        let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
 
-        match node.run(io_model) {
-            Ok(mut statistic) => { 
-                info!("Finished measurement!");
-                statistic.print();
-                if !(args.run_infinite && mode == util::NPerfMode::Server) {
-                    break;
+        for i in 0..args.parallel {
+            fetch_handle.push(thread::spawn(move || {
+                // TODO: Change port on every thread
+                let port = args.port + i;
+                let mut node:Box<dyn Node> = if mode == util::NPerfMode::Client {
+                    Box::new(Client::new(ipv4, port, parameter))
+                } else {
+                    Box::new(Server::new(ipv4, port, parameter))
+                };
+
+                match node.run(io_model) {
+                    Ok(mut statistic) => { 
+                        info!("Finished measurement!");
+                        statistic.print();
+
+                    },
+                    Err(x) => {
+                        error!("Error running app: {}", x);
+                        return;
+                    }
                 }
-            },
-            Err(x) => {
-                error!("Error running app: {}", x);
-                break;
-            }
+            }));
+        }
+
+        for handle in fetch_handle.into_iter() {
+            handle.join().unwrap();
+        }
+
+        if !(args.run_infinite && mode == util::NPerfMode::Server) {
+            return;
         }
     }
 }
