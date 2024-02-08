@@ -98,7 +98,7 @@ impl Client {
                     self.next_packet_id -= amount_not_sent_packets as u64;
                 }
                 self.statistic.amount_datagrams += (amount_sent_mmsghdr * self.packet_buffer[0].get_packet_amount()) as u64;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr, self.packet_buffer[0].get_buffer_length() as usize);
+                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr, self.packet_buffer[0].get_buffer_length());
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
