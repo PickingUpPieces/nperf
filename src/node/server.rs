@@ -51,7 +51,7 @@ impl Server {
                 }
 
                 let datagram_size = self.packet_buffer[0].get_datagram_size() as usize;
-                let amount_received_packets = util::process_packet(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, &mut self.statistic);
+                let amount_received_packets = util::process_packet_buffer(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, &mut self.statistic);
                 self.next_packet_id += amount_received_packets;
                 self.statistic.amount_datagrams += amount_received_packets;
                 self.statistic.amount_data_bytes += amount_received_bytes;
