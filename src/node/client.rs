@@ -50,13 +50,13 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        self.add_packet_ids()?;
+        let amount_datagrams = self.add_packet_ids()?;
         let buffer_length = self.packet_buffer[0].get_buffer_length();
 
         match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
             Ok(amount_send_bytes) => {
                 // For UDP, either the whole datagram is sent or nothing (due to an error e.g. full buffer). So we can assume that the whole datagram was sent.
-                self.statistic.amount_datagrams += 1;
+                self.statistic.amount_datagrams += amount_datagrams;
                 self.statistic.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
                 Ok(())

@@ -107,4 +107,8 @@ impl PacketBuffer {
     pub fn get_packet_amount(&self) -> usize {
         self.packets_amount
     }
+
+    pub fn get_datagram_size(&self) -> u32 {
+        self.datagram_size
+    }
 }
