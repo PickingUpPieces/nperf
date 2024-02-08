@@ -143,12 +143,11 @@ impl Node for Client {
         let start_time = Instant::now();
         info!("Start measurement...");
 
-        let mut counter = 0;
         while start_time.elapsed().as_secs() < self.run_time_length {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
-                    counter += 1;
+                    self.statistic.amount_io_model_syscalls += 1;
                     match io_model {
                         IOModel::BusyWaiting => Ok(()),
                         IOModel::Select => self.loop_select(),
@@ -160,8 +159,8 @@ impl Node for Client {
                     return Err(x)
                 }
             }
+            self.statistic.amount_syscalls += 1;
         }
-        info!("io_model called {} times", counter);
         sleep(std::time::Duration::from_millis(200));
 
         let end_time = match self.send_last_message() {

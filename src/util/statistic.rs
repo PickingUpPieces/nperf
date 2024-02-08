@@ -15,6 +15,8 @@ pub struct Statistic {
     pub amount_reordered_datagrams: u64,
     pub amount_duplicated_datagrams: u64,
     pub amount_omitted_datagrams: i64,
+    pub amount_syscalls: u64,
+    pub amount_io_model_syscalls: u64,
     data_rate_gbit: f64,
     packet_loss: f64,
 }
@@ -43,6 +45,8 @@ impl Statistic {
             amount_reordered_datagrams: 0,
             amount_duplicated_datagrams: 0,
             amount_omitted_datagrams: 0,
+            amount_syscalls: 0,
+            amount_io_model_syscalls: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
         }
@@ -70,6 +74,8 @@ impl Statistic {
         println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
         println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
         println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
+        println!("Amount of syscalls: {}", self.amount_syscalls);
+        println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
         println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
         println!("Packet loss: {:.2}%", self.packet_loss);
     }

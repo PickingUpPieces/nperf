@@ -132,7 +132,6 @@ impl Node for Server {
         let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
-        let mut counter = 0;
         let mut test_start_time = Instant::now();
 
         loop {
@@ -145,7 +144,7 @@ impl Node for Server {
                     }
                 },
                 Err("EAGAIN") => {
-                    counter += 1;
+                    self.statistic.amount_io_model_syscalls += 1;
                     match io_model {
                         IOModel::BusyWaiting => Ok(()),
                         IOModel::Select => self.loop_select(),
@@ -160,13 +159,13 @@ impl Node for Server {
                     return Err(x)
                 }
             }
+            self.statistic.amount_syscalls += 1;
         }
 
         self.socket.close()?;
 
         let end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
-        info!("io_model called {} times", counter);
         self.statistic.set_test_duration(test_start_time, end_time);
         self.statistic.print();
         Ok(())
