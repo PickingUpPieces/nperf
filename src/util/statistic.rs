@@ -5,7 +5,7 @@ use serde_json;
 
 use crate::net::socket_options::SocketOptions;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Copy, Clone)]
 pub struct Statistic {
     parameter: Parameter,
     test_duration: std::time::Duration,
@@ -68,6 +68,9 @@ impl Statistic {
             return;
         }
 
+        println!("------------------------");
+        println!("Statistics");
+        println!("------------------------");
         println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
         println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
         println!("Amount of datagrams: {}", self.amount_datagrams);
@@ -78,6 +81,7 @@ impl Statistic {
         println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
         println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
         println!("Packet loss: {:.2}%", self.packet_loss);
+        println!("------------------------");
     }
 
     fn calculate_total_data(&self) -> f64 {

@@ -131,7 +131,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self, io_model: IOModel) -> Result<(), &'static str> {
+    fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         info!("Current mode: client");
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.socket.connect().expect("Error connecting to remote host"); 
@@ -172,8 +172,7 @@ impl Node for Client {
         };
 
         self.statistic.set_test_duration(start_time, end_time?);
-        self.statistic.print();
-        Ok(())
+        Ok(self.statistic)
     }
 
 

@@ -39,9 +39,13 @@ struct Arguments{
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
-    //() Port number to measure against/listen on 
+    /// Port number to measure against/listen on. If port is defined with parallel mode, all client threads will measure against the same port. 
     #[arg(short, long, default_value_t = DEFAULT_PORT)]
     port: u16,
+
+    /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
+    #[arg(long, default_value_t = 1)]
+    parallel: u32,
 
     /// Don't stop the node after the first measurement
     #[arg(short, long, default_value_t = false)]
@@ -177,8 +181,9 @@ fn main() {
         };
 
         match node.run(io_model) {
-            Ok(_) => { 
+            Ok(mut statistic) => { 
                 info!("Finished measurement!");
+                statistic.print();
                 if !(args.run_infinite && mode == util::NPerfMode::Server) {
                     break;
                 }
