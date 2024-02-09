@@ -8,6 +8,7 @@ use crate::node::client::Client;
 use crate::node::server::Server;
 use crate::node::Node;
 use crate::net::socket_options::SocketOptions;
+use crate::util::statistic::Statistic;
 use crate::util::ExchangeFunction;
 
 mod node;
@@ -22,9 +23,11 @@ const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer si
 const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const DEFAULT_DURATION: u64 = 10; // /* seconds */
 const DEFAULT_PORT: u16 = 45001;
+const SLEEP_BEFORE_LAST_MESSAGE: u64 = 200; // /* milliseconds */
 
 // /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
+const FIRST_MESSAGE_SIZE: usize = 99;
 const LAST_MESSAGE_SIZE: usize = 100;
 
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
@@ -182,6 +185,7 @@ fn main() {
 
         for i in 0..args.parallel {
             let tx: Sender<_> = tx.clone();
+            
             fetch_handle.push(thread::spawn(move || {
                 let port = if args.port != 45001 {
                     info!("Port is set to different port than 45001. Incrementing port number is disabled.");
@@ -191,7 +195,7 @@ fn main() {
                 };
 
                 let mut node:Box<dyn Node> = if mode == util::NPerfMode::Client {
-                    Box::new(Client::new(ipv4, port, parameter))
+                    Box::new(Client::new(i, ipv4, port, parameter))
                 } else {
                     Box::new(Server::new(ipv4, port, parameter))
                 };
@@ -199,30 +203,31 @@ fn main() {
                 match node.run(io_model) {
                     Ok(statistic) => { 
                         info!("Finished measurement!");
-                        //statistic.print();
-                        tx.send(statistic).unwrap();
+                        tx.send(Some(statistic)).unwrap();
                     },
                     Err(x) => {
                         error!("Error running app: {}", x);
-                        return;
+                        tx.send(None).unwrap();
                     }
                 }
             }));
         }
 
-        // Init with first statistic element, since otherwise test_duration is 0 and we get infinite send_rate. This can be done smarter.
-        let mut statistic = rx.recv().unwrap();
-        let len_fetch_handle = fetch_handle.len();
-        for (index, handle ) in fetch_handle.into_iter().enumerate() {
-            if len_fetch_handle - index > 1 {
-                statistic += rx.recv().unwrap();
-            }
-            handle.join().unwrap();
+        info!("Waiting for all threads to finish...");
+        let mut statistic = fetch_handle.into_iter().fold(Statistic::new(parameter), |acc: Statistic, handle| { 
+            let stat = acc + match rx.recv().unwrap() {
+                Some(x) => x,
+                None => Statistic::new(parameter)
+            };
+            handle.join().unwrap(); 
+            stat 
+        });
+        info!("All threads finished!");
+
+        if statistic.amount_datagrams != 0 {
+            statistic.calculate_statistics();
+            statistic.print();
         }
-
-        statistic.calculate_statistics();
-        statistic.print();
-
         if !(args.run_infinite && mode == util::NPerfMode::Server) {
             return;
         }

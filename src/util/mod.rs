@@ -38,6 +38,10 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     }
 }
 
+pub fn get_packet_test_id(packet: &[u8]) -> u16 {
+    u16::from_be_bytes(packet[0..2].try_into().unwrap())
+}
+
 pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
     let mut amount_received_packets = 0;
     for packet in buffer.chunks(datagram_size) {
@@ -49,7 +53,7 @@ pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id
 pub fn process_packet(buffer: &[u8], next_packet_id: u64, statistic: &mut Statistic) -> u64 {
     // FIXME: buffer can contain more than one packet
     // Slice the buffer into datagram_size slices, Iterate over the buffer and process each packet
-    let packet_id = u64::from_be_bytes(buffer[0..8].try_into().unwrap());
+    let packet_id = u64::from_be_bytes(buffer[2..10].try_into().unwrap());
     debug!("Received packet number: {}", packet_id);
     process_packet_number(packet_id, next_packet_id, statistic)
 }
@@ -152,7 +156,7 @@ fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
 }
 
 pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize, amount_bytes_per_msghdr: usize) -> usize {
-    let mut amount_sent_bytes = 0;
+    let mut amount_bytes = 0;
     for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
         if index >= amount_msghdr {
             break;
@@ -160,8 +164,8 @@ pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize, amou
         if amount_bytes_per_msghdr != mmsghdr.msg_len as usize {
             warn!("The amount of sent/received bytes in mmsghdr is not equal to the buffer length: {} != {}", mmsghdr.msg_len, amount_bytes_per_msghdr);
         }
-        amount_sent_bytes += mmsghdr.msg_len;
+        amount_bytes += mmsghdr.msg_len;
     }
-    debug!("Total amount of sent bytes: {}", amount_sent_bytes);
-    amount_sent_bytes as usize
+    debug!("Total amount of sent/received bytes: {}", amount_bytes);
+    amount_bytes as usize
 }

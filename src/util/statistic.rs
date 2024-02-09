@@ -1,9 +1,10 @@
-use std::{ops::AddAssign, time::Duration};
+use std::{ops::Add, time::{Duration, Instant}};
 use log::debug;
 use serde::Serialize;
 use serde_json;
 
 use crate::net::socket_options::SocketOptions;
+
 
 #[derive(Debug, Serialize, Copy, Clone)]
 pub struct Statistic {
@@ -32,6 +33,14 @@ pub struct Parameter {
     pub packet_buffer_size: usize,
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
+}
+
+// Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
+#[derive(Debug, Copy, Clone)]
+pub struct Measurement {
+    pub start_time: std::time::Instant,
+    pub end_time: std::time::Instant,
+    pub statistic: Statistic
 }
 
 impl Statistic {
@@ -102,11 +111,41 @@ impl Statistic {
     }
 }
 
-impl AddAssign for Statistic {
-    fn add_assign(&mut self, other: Self) {
-        *self = Statistic {
+
+impl Add for Statistic {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        // Check if one is zero, to avoid division by zero
+        let data_rate_gbit = if self.data_rate_gbit == 0.0 {
+            other.data_rate_gbit
+        } else if other.data_rate_gbit == 0.0 {
+            self.data_rate_gbit
+        } else {
+            ( self.data_rate_gbit + other.data_rate_gbit ) / 2.0 // Data rate is the average of both
+        };
+
+        // Check if one is zero, to avoid division by zero
+        let packet_loss = if self.packet_loss == 0.0 {
+            other.packet_loss
+        } else if other.packet_loss == 0.0 {
+            self.packet_loss
+        } else {
+            ( self.packet_loss + other.packet_loss ) / 2.0 // Average of packet loss
+        };
+
+        // Assumption is that both statistics have the same test duration. 
+        // Check if one is zero, to avoid division by zero.
+        // Alternativly, could be added to a list of test_durations, but then we would need to change the type in the struct.
+        let test_duration = if self.test_duration.as_secs() == 0 {
+            other.test_duration
+        } else {
+            self.test_duration
+        };
+
+        Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
-            test_duration: self.test_duration, // Assumption is that both statistics have the same test duration. Alternativly, could be added to a list of test_durations, but then we would need to change the type in the struct.
+            test_duration, 
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -115,8 +154,18 @@ impl AddAssign for Statistic {
             amount_omitted_datagrams: self.amount_omitted_datagrams + other.amount_omitted_datagrams,
             amount_syscalls: self.amount_syscalls + other.amount_syscalls,
             amount_io_model_syscalls: self.amount_io_model_syscalls + other.amount_io_model_syscalls,
-            data_rate_gbit: ( self.data_rate_gbit + other.data_rate_gbit ) / 2.0, // Data rate is the average of both
-            packet_loss: ( self.packet_loss + other.packet_loss ) / 2.0, // Average of packet loss
+            data_rate_gbit, 
+            packet_loss,
+        }
+    }
+}
+
+impl Measurement {
+    pub fn new(parameter: Parameter) -> Measurement {
+        Measurement {
+            start_time: Instant::now(),
+            end_time: Instant::now(),
+            statistic: Statistic::new(parameter)
         }
     }
 }

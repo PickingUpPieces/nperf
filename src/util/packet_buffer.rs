@@ -78,15 +78,23 @@ impl PacketBuffer {
         debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
     }
 
+    pub fn add_test_id(&mut self, test_id: u16) {
+        for i in 0..self.packets_amount {
+            let start_of_packet = i * self.datagram_size as usize;
+            let buffer = &mut self.buffer[start_of_packet..(start_of_packet+2)];
+            buffer[0..2].copy_from_slice(&test_id.to_be_bytes());
+        }
+    }
+
     // Iterate over all packets and add the packet ID starting from next_packet_id
     pub fn add_packet_ids(&mut self, next_packet_id: u64) -> Result<u64, &'static str> {
         let mut amount_used_packet_ids: u64 = 0;
 
         for i in 0..self.packets_amount {
             let start_of_packet = i * self.datagram_size as usize;
-            let buffer = &mut self.buffer[start_of_packet..(start_of_packet+8)];
-            buffer[0..8].copy_from_slice(&(next_packet_id + amount_used_packet_ids).to_be_bytes());
-            debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[0..8].try_into().unwrap()));
+            let buffer = &mut self.buffer[start_of_packet..(start_of_packet+10)];
+            buffer[2..10].copy_from_slice(&(next_packet_id + amount_used_packet_ids).to_be_bytes());
+            debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[2..10].try_into().unwrap()));
             amount_used_packet_ids += 1;
         }
 

@@ -13,6 +13,7 @@ use crate::util;
 use super::Node;
 
 pub struct Client {
+    test_id: u16,
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
     statistic: Statistic,
@@ -22,11 +23,13 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+    pub fn new(test_id: u16, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+        info!("Current mode 'client' sending to remote host {}:{} with test ID {}", ip, remote_port, test_id);
         let socket = Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket");
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
+            test_id,
             packet_buffer,
             socket,
             statistic: Statistic::new(parameter),
@@ -37,8 +40,17 @@ impl Client {
     }
 
     fn send_last_message(&mut self) -> Result<usize, &'static str> {
-        let last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE] = [0; crate::LAST_MESSAGE_SIZE];
-        self.socket.send(&last_message_buffer, crate::LAST_MESSAGE_SIZE)
+        let mut message_buffer: [u8; crate::LAST_MESSAGE_SIZE] = [0; crate::LAST_MESSAGE_SIZE];
+        message_buffer[0..2].copy_from_slice(&self.test_id.to_be_bytes());
+        debug!("Last message buffer: {:?}", message_buffer);
+        self.socket.send(&message_buffer, crate::LAST_MESSAGE_SIZE)
+    }
+
+    fn send_first_message(&mut self) -> Result<usize, &'static str> {
+        let mut message_buffer: [u8; crate::FIRST_MESSAGE_SIZE] = [0; crate::FIRST_MESSAGE_SIZE];
+        message_buffer[0..2].copy_from_slice(&self.test_id.to_be_bytes());
+        debug!("First message buffer: {:?}", message_buffer);
+        self.socket.send(&message_buffer, crate::FIRST_MESSAGE_SIZE)
     }
 
     fn send_messages(&mut self) -> Result<(), &'static str> {
@@ -107,6 +119,13 @@ impl Client {
         }
     }
 
+    fn add_test_id(&mut self) {
+        for packet_buffer in self.packet_buffer.iter_mut() {
+            packet_buffer.add_test_id(self.test_id);
+        }
+        debug!("Added test ID {} to buffer!", self.test_id);
+    }
+
     fn add_packet_ids(&mut self) -> Result<u64, &'static str> {
         let mut total_amount_used_packet_ids: u64 = 0;
 
@@ -132,14 +151,19 @@ impl Client {
 
 impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
-        info!("Current mode: client");
         self.fill_packet_buffers_with_repeating_pattern(); 
+        self.add_test_id();
         self.socket.connect().expect("Error connecting to remote host"); 
 
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);
         }
         
+        match self.send_first_message() {
+            Ok(_) => { info!("First message sent!");},
+            Err(x) => return Err(x)
+        }
+
         let start_time = Instant::now();
         info!("Start measurement...");
 

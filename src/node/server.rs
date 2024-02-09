@@ -1,34 +1,36 @@
 
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::time::Instant;
 use log::{debug, error, info, trace};
 
-use crate::util::{self, ExchangeFunction, IOModel};
+use crate::util::{self, get_packet_test_id, ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
-use crate::util::statistic::{Parameter, Statistic};
+use crate::util::statistic::{Measurement, Parameter, Statistic};
 use crate::util::packet_buffer::PacketBuffer;
 use super::Node;
 
 pub struct Server {
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
-    first_packet_received: bool,
     next_packet_id: u64,
-    statistic: Statistic,
+    parameter: Parameter,
+    measurements: HashMap<u16, Measurement>,
     exchange_function: ExchangeFunction
 }
 
 impl Server {
     pub fn new(ip: Ipv4Addr, local_port: u16, parameter: Parameter) -> Server {
+        info!("Current mode 'server' listening on {}:{}", ip, local_port);
         let socket = Socket::new(ip, local_port, parameter.socket_options).expect("Error creating socket");
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Server {
             packet_buffer,
             socket,
-            first_packet_received: false,
             next_packet_id: 0,
-            statistic: Statistic::new(parameter),
+            parameter,
+            measurements: HashMap::new(),
             exchange_function: parameter.exchange_function
         }
     }
@@ -44,17 +46,32 @@ impl Server {
     fn recv(&mut self) -> Result<(), &'static str> {
         match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
+                let test_id = get_packet_test_id(self.packet_buffer[0].get_buffer_pointer());
+                debug!("Received packet with test id: {}", test_id);
 
-                if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
-                    info!("Last packet received!");
-                    return Err("LAST_MESSAGE_RECEIVED");
-                }
+                match amount_received_bytes {
+                    crate::FIRST_MESSAGE_SIZE => {
+                        info!("First packet received from test {}!", test_id);
+                        self.measurements.insert(test_id, Measurement::new(self.parameter));
+                        return Err("FIRST_MESSAGE_RECEIVED");
+                    },
+                    crate::LAST_MESSAGE_SIZE => {
+                        info!("Last packet received!");
+                        let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic in last message: test id not found");
+                        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                        measurement.statistic.set_test_duration(measurement.start_time, end_time);
+                        measurement.statistic.calculate_statistics();
+                        return Err("LAST_MESSAGE_RECEIVED");
+                    },
+                    _ => {}
+                };
 
+                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let datagram_size = self.packet_buffer[0].get_datagram_size() as usize;
-                let amount_received_packets = util::process_packet_buffer(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, &mut self.statistic);
+                let amount_received_packets = util::process_packet_buffer(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, statistic);
                 self.next_packet_id += amount_received_packets;
-                self.statistic.amount_datagrams += amount_received_packets;
-                self.statistic.amount_data_bytes += amount_received_bytes;
+                statistic.amount_datagrams += amount_received_packets;
+                statistic.amount_data_bytes += amount_received_bytes;
                 Ok(())
             },
             Err(x) => Err(x)
@@ -67,16 +84,30 @@ impl Server {
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
+                let test_id = get_packet_test_id(self.packet_buffer[0].get_buffer_pointer());
 
-                if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
-                    info!("Last packet received!");
-                    return Err("LAST_MESSAGE_RECEIVED");
-                }
+                match amount_received_bytes {
+                    crate::FIRST_MESSAGE_SIZE => {
+                        info!("First packet received from test {}!", test_id);
+                        self.measurements.insert(test_id, Measurement::new(self.parameter));
+                        return Err("FIRST_MESSAGE_RECEIVED");
+                    },
+                    crate::LAST_MESSAGE_SIZE => {
+                        info!("Last packet received!");
+                        let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found");
+                        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                        measurement.statistic.set_test_duration(measurement.start_time, end_time);
+                        measurement.statistic.calculate_statistics();
+                        return Err("LAST_MESSAGE_RECEIVED");
+                    },
+                    _ => {}
+                };
 
+                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let absolut_packets_received;
-                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, &mut self.statistic);
-                self.statistic.amount_datagrams += absolut_packets_received;
-                self.statistic.amount_data_bytes += amount_received_bytes;
+                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, statistic);
+                statistic.amount_datagrams += absolut_packets_received;
+                statistic.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
                 Ok(())
@@ -96,12 +127,27 @@ impl Server {
                     return Ok(());
                 }
 
+                let test_id = get_packet_test_id(self.packet_buffer[0].get_buffer_pointer());
                 let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr, self.packet_buffer[0].get_buffer_length());
-                if amount_received_bytes == crate::LAST_MESSAGE_SIZE {
-                    info!("Last packet received!");
-                    return Err("LAST_MESSAGE_RECEIVED");
-                }
 
+                match amount_received_bytes {
+                    crate::FIRST_MESSAGE_SIZE => {
+                        info!("First packet received from test {}!", test_id);
+                        self.measurements.insert(test_id, Measurement::new(self.parameter));
+                        return Err("FIRST_MESSAGE_RECEIVED");
+                    },
+                    crate::LAST_MESSAGE_SIZE => {
+                        info!("Last packet received!");
+                        let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found");
+                        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                        measurement.statistic.set_test_duration(measurement.start_time, end_time);
+                        measurement.statistic.calculate_statistics();
+                        return Err("LAST_MESSAGE_RECEIVED");
+                    },
+                    _ => {}
+                };
+
+                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
                 for (index, mmsghdr) in mmsghdr_vec.iter_mut().enumerate() {
                     if index >= amount_received_mmsghdr {
@@ -111,12 +157,12 @@ impl Server {
                     let msghdr_bytes = mmsghdr.msg_len as usize;
 
                     let datagrams_received;
-                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, &mut self.statistic);
+                    (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, statistic);
                     absolut_datagrams_received += datagrams_received;
                 }
                 // TODO: Check if all packets were sent successfully
-                self.statistic.amount_datagrams += absolut_datagrams_received;
-                self.statistic.amount_data_bytes += amount_received_bytes;
+                statistic.amount_datagrams += absolut_datagrams_received;
+                statistic.amount_data_bytes += amount_received_bytes;
                 trace!("Sent {} msg_hdr to remote host", amount_received_mmsghdr);
                 Ok(())
             },
@@ -134,19 +180,13 @@ impl Node for Server {
         let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
-        let mut test_start_time = Instant::now();
+        let mut statistic = Statistic::new(self.parameter);
 
         loop {
             match self.recv_messages() {
-                Ok(_) => {
-                    if !self.first_packet_received {
-                        info!("First packet received!");
-                        self.first_packet_received = true;
-                        test_start_time = Instant::now();
-                    }
-                },
+                Ok(_) => {},
                 Err("EAGAIN") => {
-                    self.statistic.amount_io_model_syscalls += 1;
+                    statistic.amount_io_model_syscalls += 1;
                     match io_model {
                         IOModel::BusyWaiting => Ok(()),
                         IOModel::Select => self.loop_select(),
@@ -154,23 +194,26 @@ impl Node for Server {
                     }?;
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
+                    // TODO: Add counter to check if measurements.len() == amount of last messages received
                     break;
+                },
+                Err("FIRST_MESSAGE_RECEIVED") => {
+                    continue;
                 },
                 Err(x) => {
                     error!("Error receiving message! Aborting measurement...");
                     return Err(x)
                 }
             }
-            self.statistic.amount_syscalls += 1;
+            statistic.amount_syscalls += 1;
         }
 
         self.socket.close()?;
 
-        let end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
-        self.statistic.set_test_duration(test_start_time, end_time);
-        self.statistic.calculate_statistics();
-        Ok(self.statistic)
+        // Fold over all statistics, and calculate the final statistic
+        let statistic = self.measurements.iter().fold(statistic, |acc: Statistic, (_, measurement)| acc + measurement.statistic);
+        Ok(statistic)
     }
 
 
