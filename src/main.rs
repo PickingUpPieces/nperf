@@ -1,3 +1,4 @@
+use std::sync::mpsc::{self, Sender};
 use std::thread;
 
 use clap::Parser;
@@ -177,11 +178,18 @@ fn main() {
 
     loop {
         let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
+        let (tx, rx) = mpsc::channel();
 
         for i in 0..args.parallel {
+            let tx: Sender<_> = tx.clone();
             fetch_handle.push(thread::spawn(move || {
-                // TODO: Change port on every thread
-                let port = args.port + i;
+                let port = if args.port != 45001 {
+                    info!("Port is set to different port than 45001. Incrementing port number is disabled.");
+                    args.port
+                } else {
+                    args.port + i
+                };
+
                 let mut node:Box<dyn Node> = if mode == util::NPerfMode::Client {
                     Box::new(Client::new(ipv4, port, parameter))
                 } else {
@@ -189,10 +197,10 @@ fn main() {
                 };
 
                 match node.run(io_model) {
-                    Ok(mut statistic) => { 
+                    Ok(statistic) => { 
                         info!("Finished measurement!");
-                        statistic.print();
-
+                        //statistic.print();
+                        tx.send(statistic).unwrap();
                     },
                     Err(x) => {
                         error!("Error running app: {}", x);
@@ -202,9 +210,18 @@ fn main() {
             }));
         }
 
-        for handle in fetch_handle.into_iter() {
+        // Init with first statistic element, since otherwise test_duration is 0 and we get infinite send_rate. This can be done smarter.
+        let mut statistic = rx.recv().unwrap();
+        let len_fetch_handle = fetch_handle.len();
+        for (index, handle ) in fetch_handle.into_iter().enumerate() {
+            if len_fetch_handle - index > 1 {
+                statistic += rx.recv().unwrap();
+            }
             handle.join().unwrap();
         }
+
+        statistic.calculate_statistics();
+        statistic.print();
 
         if !(args.run_infinite && mode == util::NPerfMode::Server) {
             return;

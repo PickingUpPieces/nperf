@@ -161,6 +161,7 @@ impl Node for Client {
             }
             self.statistic.amount_syscalls += 1;
         }
+        // Ensures that the buffers are empty again, so that the last message actually arrives at the server
         sleep(std::time::Duration::from_millis(200));
 
         let end_time = match self.send_last_message() {
@@ -172,6 +173,7 @@ impl Node for Client {
         };
 
         self.statistic.set_test_duration(start_time, end_time?);
+        self.statistic.calculate_statistics();
         Ok(self.statistic)
     }
 

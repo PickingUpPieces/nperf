@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{ops::AddAssign, time::Duration};
 use log::debug;
 use serde::Serialize;
 use serde_json;
@@ -52,7 +52,7 @@ impl Statistic {
         }
     }
 
-    fn update(&mut self) {
+    pub fn calculate_statistics(&mut self) {
         debug!("Updating statistic...");
         self.total_data_gbyte = self.calculate_total_data();
         self.data_rate_gbit = self.calculate_data_rate();
@@ -61,7 +61,7 @@ impl Statistic {
     }
 
     pub fn print(&mut self) {
-        self.update();
+        self.calculate_statistics();
 
         if self.parameter.enable_json_output {
             println!("{}", serde_json::to_string(&self).unwrap());
@@ -99,5 +99,24 @@ impl Statistic {
     
     pub fn set_test_duration(&mut self, start_time: std::time::Instant, end_time: std::time::Instant) {
         self.test_duration = end_time - start_time
+    }
+}
+
+impl AddAssign for Statistic {
+    fn add_assign(&mut self, other: Self) {
+        *self = Statistic {
+            parameter: self.parameter, // Assumption is that both statistics have the same test parameters
+            test_duration: self.test_duration, // Assumption is that both statistics have the same test duration. Alternativly, could be added to a list of test_durations, but then we would need to change the type in the struct.
+            total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
+            amount_datagrams: self.amount_datagrams + other.amount_datagrams,
+            amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
+            amount_reordered_datagrams: self.amount_reordered_datagrams + other.amount_reordered_datagrams,
+            amount_duplicated_datagrams: self.amount_duplicated_datagrams + other.amount_duplicated_datagrams,
+            amount_omitted_datagrams: self.amount_omitted_datagrams + other.amount_omitted_datagrams,
+            amount_syscalls: self.amount_syscalls + other.amount_syscalls,
+            amount_io_model_syscalls: self.amount_io_model_syscalls + other.amount_io_model_syscalls,
+            data_rate_gbit: ( self.data_rate_gbit + other.data_rate_gbit ) / 2.0, // Data rate is the average of both
+            packet_loss: ( self.packet_loss + other.packet_loss ) / 2.0, // Average of packet loss
+        }
     }
 }

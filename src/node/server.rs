@@ -169,6 +169,7 @@ impl Node for Server {
         let end_time = Instant::now() - std::time::Duration::from_millis(200); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
         debug!("Finished receiving data from remote host");
         self.statistic.set_test_duration(test_start_time, end_time);
+        self.statistic.calculate_statistics();
         Ok(self.statistic)
     }
 
