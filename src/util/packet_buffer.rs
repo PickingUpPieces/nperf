@@ -1,4 +1,6 @@
 use log::debug;
+use crate::net::MessageHeader;
+use crate::net::MessageType;
 
 const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
 
@@ -78,27 +80,18 @@ impl PacketBuffer {
         debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
     }
 
-    pub fn add_test_id(&mut self, test_id: u16) {
-        for i in 0..self.packets_amount {
-            let start_of_packet = i * self.datagram_size as usize;
-            let buffer = &mut self.buffer[start_of_packet..(start_of_packet+2)];
-            buffer[0..2].copy_from_slice(&test_id.to_be_bytes());
-        }
-    }
-
-    // Iterate over all packets and add the packet ID starting from next_packet_id
-    pub fn add_packet_ids(&mut self, next_packet_id: u64) -> Result<u64, &'static str> {
+    pub fn add_message_header(&mut self, test_id: u16, packet_id: u64) -> Result<u64, &'static str>{
         let mut amount_used_packet_ids: u64 = 0;
+        let mut header = MessageHeader{ mtype: MessageType::MEASUREMENT, test_id, packet_id };
 
         for i in 0..self.packets_amount {
             let start_of_packet = i * self.datagram_size as usize;
-            let buffer = &mut self.buffer[start_of_packet..(start_of_packet+10)];
-            buffer[2..10].copy_from_slice(&(next_packet_id + amount_used_packet_ids).to_be_bytes());
-            debug!("Prepared packet number: {}", u64::from_be_bytes(buffer[2..10].try_into().unwrap()));
+            header.packet_id = packet_id + amount_used_packet_ids;
+            let serialized_header = header.serialize();
+            self.buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(&serialized_header);
             amount_used_packet_ids += 1;
         }
-
-        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, next_packet_id + amount_used_packet_ids);
+        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
         // Return amount of used packet IDs
         Ok(amount_used_packet_ids)
     }

@@ -8,6 +8,8 @@ use log::{debug, trace, warn};
 use serde::Serialize;
 use statistic::Statistic;
 
+use crate::net::MessageHeader;
+
 use self::packet_buffer::PacketBuffer;
 
 #[derive(PartialEq, Debug, Copy, Clone, Serialize)]
@@ -30,6 +32,7 @@ pub enum IOModel {
     Poll,
 }
 
+
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),
@@ -39,7 +42,7 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
 }
 
 pub fn get_packet_test_id(packet: &[u8]) -> u16 {
-    u16::from_be_bytes(packet[0..2].try_into().unwrap())
+    MessageHeader::deserialize(packet).test_id
 }
 
 pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
@@ -51,9 +54,7 @@ pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id
 }
 
 pub fn process_packet(buffer: &[u8], next_packet_id: u64, statistic: &mut Statistic) -> u64 {
-    // FIXME: buffer can contain more than one packet
-    // Slice the buffer into datagram_size slices, Iterate over the buffer and process each packet
-    let packet_id = u64::from_be_bytes(buffer[2..10].try_into().unwrap());
+    let packet_id = MessageHeader::deserialize(buffer).packet_id;
     debug!("Received packet number: {}", packet_id);
     process_packet_number(packet_id, next_packet_id, statistic)
 }

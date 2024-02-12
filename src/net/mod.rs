@@ -1,8 +1,36 @@
 use std::net::Ipv4Addr;
 use std::str::FromStr;
+use bincode::{deserialize, serialize};
+use serde::{Deserialize, Serialize};
 
 pub mod socket;
 pub mod socket_options;
+
+#[repr(u8)]
+#[derive(Serialize, Deserialize, Debug)]
+pub enum MessageType {
+    INIT = 0,
+    MEASUREMENT = 1,
+    LAST = 2
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageHeader {
+    pub mtype: MessageType,
+    pub test_id: u16,
+    pub packet_id: u64
+}
+
+impl MessageHeader {
+    pub fn serialize(&self) -> Vec<u8> {
+        serialize(&self).unwrap()
+    }
+
+    pub fn deserialize(buffer: &[u8]) -> MessageHeader {
+        // TODO: Currently static serde buffer size
+        deserialize::<MessageHeader>(&buffer[0..14]).unwrap()
+    }
+}
 
 pub fn parse_ipv4(adress: String) -> Result<Ipv4Addr, &'static str> {
     match Ipv4Addr::from_str(adress.as_str()) {
