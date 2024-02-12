@@ -22,6 +22,13 @@ pub struct MessageHeader {
 }
 
 impl MessageHeader {
+    pub fn new(mtype: MessageType, test_id: u16, packet_id: u64) -> MessageHeader {
+        MessageHeader {
+            mtype,
+            test_id,
+            packet_id
+        }
+    }
     pub fn serialize(&self) -> Vec<u8> {
         serialize(&self).unwrap()
     }

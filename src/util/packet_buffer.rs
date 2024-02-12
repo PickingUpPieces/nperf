@@ -82,7 +82,7 @@ impl PacketBuffer {
 
     pub fn add_message_header(&mut self, test_id: u16, packet_id: u64) -> Result<u64, &'static str>{
         let mut amount_used_packet_ids: u64 = 0;
-        let mut header = MessageHeader{ mtype: MessageType::MEASUREMENT, test_id, packet_id };
+        let mut header = MessageHeader::new(MessageType::MEASUREMENT, test_id, packet_id);
 
         for i in 0..self.packets_amount {
             let start_of_packet = i * self.datagram_size as usize;

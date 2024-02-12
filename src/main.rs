@@ -27,8 +27,6 @@ const SLEEP_BEFORE_LAST_MESSAGE: u64 = 200; // /* milliseconds */
 
 // /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
-const FIRST_MESSAGE_SIZE: usize = 99;
-const LAST_MESSAGE_SIZE: usize = 100;
 
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
 

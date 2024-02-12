@@ -41,10 +41,6 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     }
 }
 
-pub fn get_packet_test_id(packet: &[u8]) -> u16 {
-    MessageHeader::deserialize(packet).test_id
-}
-
 pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
     let mut amount_received_packets = 0;
     for packet in buffer.chunks(datagram_size) {

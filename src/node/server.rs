@@ -4,7 +4,8 @@ use std::net::Ipv4Addr;
 use std::time::Instant;
 use log::{debug, error, info, trace};
 
-use crate::util::{self, get_packet_test_id, ExchangeFunction, IOModel};
+use crate::net::{MessageHeader, MessageType};
+use crate::util::{self, ExchangeFunction, IOModel};
 use crate::net::socket::Socket;
 use crate::util::statistic::{Measurement, Parameter, Statistic};
 use crate::util::packet_buffer::PacketBuffer;
@@ -46,27 +47,12 @@ impl Server {
     fn recv(&mut self) -> Result<(), &'static str> {
         match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
-                let test_id = get_packet_test_id(self.packet_buffer[0].get_buffer_pointer());
-                debug!("Received packet with test id: {}", test_id);
+                let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
+                debug!("Received packet with test id: {}", header.test_id);
 
-                match amount_received_bytes {
-                    crate::FIRST_MESSAGE_SIZE => {
-                        info!("First packet received from test {}!", test_id);
-                        self.measurements.insert(test_id, Measurement::new(self.parameter));
-                        return Err("FIRST_MESSAGE_RECEIVED");
-                    },
-                    crate::LAST_MESSAGE_SIZE => {
-                        info!("Last packet received!");
-                        let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic in last message: test id not found");
-                        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
-                        measurement.statistic.set_test_duration(measurement.start_time, end_time);
-                        measurement.statistic.calculate_statistics();
-                        return Err("LAST_MESSAGE_RECEIVED");
-                    },
-                    _ => {}
-                };
+                self.parse_message_type(&header)?;
 
-                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
+                let statistic = &mut self.measurements.get_mut(&header.test_id).expect("Error getting statistic: test id not found").statistic;
                 let datagram_size = self.packet_buffer[0].get_datagram_size() as usize;
                 let amount_received_packets = util::process_packet_buffer(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, statistic);
                 self.next_packet_id += amount_received_packets;
@@ -84,26 +70,11 @@ impl Server {
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
-                let test_id = get_packet_test_id(self.packet_buffer[0].get_buffer_pointer());
+                let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
 
-                match amount_received_bytes {
-                    crate::FIRST_MESSAGE_SIZE => {
-                        info!("First packet received from test {}!", test_id);
-                        self.measurements.insert(test_id, Measurement::new(self.parameter));
-                        return Err("FIRST_MESSAGE_RECEIVED");
-                    },
-                    crate::LAST_MESSAGE_SIZE => {
-                        info!("Last packet received!");
-                        let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found");
-                        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
-                        measurement.statistic.set_test_duration(measurement.start_time, end_time);
-                        measurement.statistic.calculate_statistics();
-                        return Err("LAST_MESSAGE_RECEIVED");
-                    },
-                    _ => {}
-                };
+                self.parse_message_type(&header)?;
 
-                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
+                let statistic = &mut self.measurements.get_mut(&header.test_id).expect("Error getting statistic: test id not found").statistic;
                 let absolut_packets_received;
                 (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, statistic);
                 statistic.amount_datagrams += absolut_packets_received;
@@ -127,28 +98,14 @@ impl Server {
                     return Ok(());
                 }
 
-                let test_id = get_packet_test_id(self.packet_buffer[0].get_buffer_pointer());
+                let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
                 let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr, self.packet_buffer[0].get_buffer_length());
 
-                match amount_received_bytes {
-                    crate::FIRST_MESSAGE_SIZE => {
-                        info!("First packet received from test {}!", test_id);
-                        self.measurements.insert(test_id, Measurement::new(self.parameter));
-                        return Err("FIRST_MESSAGE_RECEIVED");
-                    },
-                    crate::LAST_MESSAGE_SIZE => {
-                        info!("Last packet received!");
-                        let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found");
-                        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
-                        measurement.statistic.set_test_duration(measurement.start_time, end_time);
-                        measurement.statistic.calculate_statistics();
-                        return Err("LAST_MESSAGE_RECEIVED");
-                    },
-                    _ => {}
-                };
+                self.parse_message_type(&header)?;
 
-                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
+                let statistic = &mut self.measurements.get_mut(&header.test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
+
                 for (index, mmsghdr) in mmsghdr_vec.iter_mut().enumerate() {
                     if index >= amount_received_mmsghdr {
                         break;
@@ -160,13 +117,41 @@ impl Server {
                     (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, statistic);
                     absolut_datagrams_received += datagrams_received;
                 }
-                // TODO: Check if all packets were sent successfully
+
                 statistic.amount_datagrams += absolut_datagrams_received;
                 statistic.amount_data_bytes += amount_received_bytes;
                 trace!("Sent {} msg_hdr to remote host", amount_received_mmsghdr);
                 Ok(())
             },
             Err(x) => Err(x)
+        }
+    }
+
+    fn parse_message_type(&mut self, header: &MessageHeader) -> Result<(), &'static str> {
+        match header.mtype {
+            MessageType::INIT => {
+                info!("INIT packet received from test {}!", header.test_id);
+                self.measurements.insert(header.test_id, Measurement::new(self.parameter));
+                Err("INIT_MESSAGE_RECEIVED")
+            },
+            MessageType::MEASUREMENT => { 
+                let measurement = self.measurements.get_mut(&header.test_id).expect("Error getting statistic in last message: test id not found");
+                if !measurement.first_packet_received {
+                    info!("First packet received from test {}!", header.test_id);
+                    measurement.start_time = Instant::now();
+                    measurement.first_packet_received = true;
+                }
+                Ok(())
+            },
+            MessageType::LAST => {
+                info!("LAST packet received from test {}!", header.test_id);
+                let measurement = self.measurements.get_mut(&header.test_id).expect("Error getting statistic in last message: test id not found");
+                let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                measurement.last_packet_received = true;
+                measurement.statistic.set_test_duration(measurement.start_time, end_time);
+                measurement.statistic.calculate_statistics();
+                Err("LAST_MESSAGE_RECEIVED")
+            }
         }
     }
 }
@@ -181,9 +166,8 @@ impl Node for Server {
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
         let mut statistic = Statistic::new(self.parameter);
-        let mut last_messages_amount = 0;
 
-        loop {
+        'outer: loop {
             match self.recv_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
@@ -195,14 +179,16 @@ impl Node for Server {
                     }?;
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
-                    last_messages_amount += 1;
-                    // Theoretically a race condition, but we assume that no new measurements start after anoterh has finished 
-                    // TODO: Iterate over all measurements and check if all are finished
-                    if last_messages_amount == self.measurements.len() {
-                        break;
-                    }
+                    for (_, measurement) in self.measurements.iter() {
+                        if !measurement.last_packet_received {
+                            info!("Last message received, but not all measurements are finished!");
+                            continue 'outer;
+                        } 
+                    };
+                    info!("Last message received and all measurements are finished!");
+                    break 'outer;
                 },
-                Err("FIRST_MESSAGE_RECEIVED") => {
+                Err("INIT_MESSAGE_RECEIVED") => {
                     continue;
                 },
                 Err(x) => {
