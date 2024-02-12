@@ -251,7 +251,6 @@ impl Socket {
     
     pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
-            // FIXME: Use read() like in iPerf
             libc::recv(
                 self.socket,
                 buffer.as_mut_ptr() as *mut _,
