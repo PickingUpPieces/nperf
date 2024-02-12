@@ -181,6 +181,7 @@ impl Node for Server {
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
 
         let mut statistic = Statistic::new(self.parameter);
+        let mut last_messages_amount = 0;
 
         loop {
             match self.recv_messages() {
@@ -194,8 +195,12 @@ impl Node for Server {
                     }?;
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
-                    // TODO: Add counter to check if measurements.len() == amount of last messages received
-                    break;
+                    last_messages_amount += 1;
+                    // Theoretically a race condition, but we assume that no new measurements start after anoterh has finished 
+                    // TODO: Iterate over all measurements and check if all are finished
+                    if last_messages_amount == self.measurements.len() {
+                        break;
+                    }
                 },
                 Err("FIRST_MESSAGE_RECEIVED") => {
                     continue;
