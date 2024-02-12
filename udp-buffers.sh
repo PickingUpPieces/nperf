@@ -1,6 +1,9 @@
 #!/bin/bash
 # This script is used to get/set the max UDP buffer sizes
 
+default_wmem_max=212992
+default_rmem_max=212992
+
 # Set the new values for kernel parameters
 new_wmem_max=26214400 # 25MB
 new_rmem_max=26214400 # 25MB
@@ -31,4 +34,16 @@ if [[ $choice == "y" ]]; then
     echo "New values set successfully!"
 else
     echo "Values will be left as they currently are."
+fi
+
+# Check if current values differ from default
+if [ "$current_wmem_max" != "$default_wmem_max" ] || [ "$current_rmem_max" != "$default_rmem_max" ]; then
+  # Ask the user if they want to reset to default
+  read -p "Current buffer values differ from default. Do you want to reset to default? (y/n): " choice 
+
+  if [ "$choice" = "y" ]; then
+    # Reset buffer values to default
+    sysctl -w net.core.wmem_max=$default_wmem_max
+    sysctl -w net.core.rmem_max=$default_rmem_max
+  fi
 fi
