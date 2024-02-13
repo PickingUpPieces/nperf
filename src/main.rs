@@ -101,12 +101,20 @@ struct Arguments{
     /// Enable json output of statistics
     #[arg(long, default_value_t = false)]
     json: bool,
+
+    #[arg(long, hide = true)]
+    markdown_help: bool,
 }
 
 fn main() {
     env_logger::init();
     let args = Arguments::parse();
     debug!("{:?}", args);
+
+    if args.markdown_help {
+        clap_markdown::print_help_markdown::<Arguments>();
+        return;
+    }
 
     let mode: util::NPerfMode = match util::parse_mode(args.mode) {
         Some(x) => x,
