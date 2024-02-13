@@ -1,6 +1,3 @@
-use std::process::Command;
-use assert_cmd::prelude::*; // Add methods on commands
-
 mod common;
 
 // TODO: Test client send 
@@ -11,10 +8,10 @@ mod common;
 fn test_client_send() -> Result<(), Box<dyn std::error::Error>>{
     common::start_server();
 
-    let mut cmd = Command::cargo_bin("nperf").unwrap();
-    cmd.arg("client").arg("--json");
+    let args = vec!["client", "--with-msg"];
+    if let Some(x) = nperf::nPerf::new().set_args(args).exec() {
+        assert!(x.amount_datagrams > 10000);
+    };
 
-    println!("{:?}", cmd.output().unwrap().stdout);
-    // Parse json output
     Ok(())
 }

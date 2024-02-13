@@ -9,6 +9,7 @@ use crate::util::{statistic::Statistic, ExchangeFunction};
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
+#[allow(non_camel_case_types)]
 pub struct nPerf {
     /// Mode of operation: client or server
     #[arg(default_value_t = String::from("server"))]
@@ -88,20 +89,20 @@ pub struct nPerf {
 
 impl nPerf {
     pub fn new() -> Self {
+        env_logger::init();
         nPerf::parse()
     }
 
-    pub fn exec(self) {
+    pub fn exec(self) -> Option<Statistic> {
         info!("Starting nPerf...");
-        env_logger::init();
 
         let parameter = match self.parse_args() {
             Some(x) => x,
-            None => { error!("Error running app"); return; },
+            None => { error!("Error running app"); return None; },
         };
 
         match Self::parameter_check(&parameter, &parameter.socket_options) {
-            false => { error!("Invalid parameter!"); return; },
+            false => { error!("Invalid parameter!"); return None; },
             true => {}
         }
 
@@ -154,9 +155,16 @@ impl nPerf {
                 statistic.print();
             }
             if !(self.run_infinite && parameter.mode == util::NPerfMode::Server) {
-                return;
+                return Some(statistic);
             }
         }
+    }
+
+    pub fn set_args(self, args: Vec<&str>) -> Self {
+        let mut args = args;
+        args.insert(0, "nPerf");
+        let args: Vec<String> = args.iter().map(|x| x.to_string()).collect();
+        nPerf::parse_from(args)
     }
 
     fn parse_args(&self) -> Option<util::statistic::Parameter> {
@@ -243,5 +251,4 @@ impl nPerf {
         }
         true
     }
-
 }

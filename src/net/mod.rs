@@ -7,6 +7,7 @@ pub mod socket_options;
 
 #[repr(u8)]
 #[derive(Serialize, Deserialize, Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum MessageType {
     INIT = 0,
     MEASUREMENT = 1,
@@ -38,8 +39,8 @@ impl MessageHeader {
     }
 }
 
-pub fn parse_ipv4(adress: &String) -> Result<Ipv4Addr, &'static str> {
-    match Ipv4Addr::from_str(adress.as_str()) {
+pub fn parse_ipv4(adress: &str) -> Result<Ipv4Addr, &'static str> {
+    match Ipv4Addr::from_str(adress) {
         Ok(x) => Ok(x),
         Err(_) => Err("Invalid IPv4 address!"),
     }

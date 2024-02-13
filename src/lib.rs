@@ -3,6 +3,8 @@ mod net;
 mod util;
 mod command;
 
+pub use util::statistic::Statistic;
+
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_MSS: u32= 1472;
 const DEFAULT_UDP_DATAGRAM_SIZE: u32 = 1472;
