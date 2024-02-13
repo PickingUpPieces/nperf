@@ -1,4 +1,4 @@
-use nperf::command::nPerf;
+use nperf::nPerf;
 
 fn main() {
     nPerf::new().exec();
