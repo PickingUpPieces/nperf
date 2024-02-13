@@ -94,7 +94,7 @@ impl Server {
                 }
 
                 let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
-                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr, self.packet_buffer[0].get_buffer_length());
+                let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr);
 
                 self.parse_message_type(&header)?;
 
