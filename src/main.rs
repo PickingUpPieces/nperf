@@ -1,11 +1,10 @@
+use std::{sync::mpsc::{self, Sender}, thread};
 use clap::Parser;
 use log::{info, error, debug};
 
-use crate::node::client::Client;
-use crate::node::server::Server;
-use crate::node::Node;
+use crate::node::{client::Client, server::Server, Node};
 use crate::net::socket_options::SocketOptions;
-use crate::util::ExchangeFunction;
+use crate::util::{statistic::Statistic, ExchangeFunction};
 
 mod node;
 mod net;
@@ -19,10 +18,10 @@ const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer si
 const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const DEFAULT_DURATION: u64 = 10; // /* seconds */
 const DEFAULT_PORT: u16 = 45001;
+const WAIT_CONTROL_MESSAGE: u64 = 200; // /* milliseconds */
 
 // /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
-const LAST_MESSAGE_SIZE: usize = 100;
 
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
 
@@ -39,9 +38,13 @@ struct Arguments{
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
-    //() Port number to measure against/listen on 
+    /// Port number to measure against/listen on. If port is defined with parallel mode, all client threads will measure against the same port. 
     #[arg(short, long, default_value_t = DEFAULT_PORT)]
     port: u16,
+
+    /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
+    #[arg(long, default_value_t = 1)]
+    parallel: u16,
 
     /// Don't stop the node after the first measurement
     #[arg(short, long, default_value_t = false)]
@@ -170,23 +173,56 @@ fn main() {
     }
 
     loop {
-        let mut node: Box<dyn Node> = if mode == util::NPerfMode::Client {
-            Box::new(Client::new(ipv4, args.port, parameter))
-        } else {
-            Box::new(Server::new(ipv4, args.port, parameter))
-        };
+        let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
+        let (tx, rx) = mpsc::channel();
 
-        match node.run(io_model) {
-            Ok(_) => { 
-                info!("Finished measurement!");
-                if !(args.run_infinite && mode == util::NPerfMode::Server) {
-                    break;
+        for i in 0..args.parallel {
+            let tx: Sender<_> = tx.clone();
+            
+            fetch_handle.push(thread::spawn(move || {
+                let port = if args.port != 45001 {
+                    info!("Port is set to different port than 45001. Incrementing port number is disabled.");
+                    args.port
+                } else {
+                    args.port + i
+                };
+
+                let mut node:Box<dyn Node> = if mode == util::NPerfMode::Client {
+                    Box::new(Client::new(i, ipv4, port, parameter))
+                } else {
+                    Box::new(Server::new(ipv4, port, parameter))
+                };
+
+                match node.run(io_model) {
+                    Ok(statistic) => { 
+                        info!("Finished measurement!");
+                        tx.send(Some(statistic)).unwrap();
+                    },
+                    Err(x) => {
+                        error!("Error running app: {}", x);
+                        tx.send(None).unwrap();
+                    }
                 }
-            },
-            Err(x) => {
-                error!("Error running app: {}", x);
-                break;
-            }
+            }));
+        }
+
+        info!("Waiting for all threads to finish...");
+        let mut statistic = fetch_handle.into_iter().fold(Statistic::new(parameter), |acc: Statistic, handle| { 
+            let stat = acc + match rx.recv().unwrap() {
+                Some(x) => x,
+                None => Statistic::new(parameter)
+            };
+            handle.join().unwrap(); 
+            stat 
+        });
+        info!("All threads finished!");
+
+        if statistic.amount_datagrams != 0 {
+            statistic.calculate_statistics();
+            statistic.print();
+        }
+        if !(args.run_infinite && mode == util::NPerfMode::Server) {
+            return;
         }
     }
 }

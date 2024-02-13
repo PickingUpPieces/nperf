@@ -1,11 +1,12 @@
-use std::time::Duration;
+use std::{ops::Add, time::{Duration, Instant}};
 use log::debug;
 use serde::Serialize;
 use serde_json;
 
 use crate::net::socket_options::SocketOptions;
 
-#[derive(Debug, Serialize)]
+
+#[derive(Debug, Serialize, Copy, Clone)]
 pub struct Statistic {
     parameter: Parameter,
     test_duration: std::time::Duration,
@@ -34,6 +35,16 @@ pub struct Parameter {
     pub exchange_function: super::ExchangeFunction,
 }
 
+// Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
+#[derive(Debug, Copy, Clone)]
+pub struct Measurement {
+    pub start_time: std::time::Instant,
+    pub end_time: std::time::Instant,
+    pub statistic: Statistic,
+    pub first_packet_received: bool,
+    pub last_packet_received: bool,
+}
+
 impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
         Statistic {
@@ -52,7 +63,7 @@ impl Statistic {
         }
     }
 
-    fn update(&mut self) {
+    pub fn calculate_statistics(&mut self) {
         debug!("Updating statistic...");
         self.total_data_gbyte = self.calculate_total_data();
         self.data_rate_gbit = self.calculate_data_rate();
@@ -61,13 +72,16 @@ impl Statistic {
     }
 
     pub fn print(&mut self) {
-        self.update();
+        self.calculate_statistics();
 
         if self.parameter.enable_json_output {
             println!("{}", serde_json::to_string(&self).unwrap());
             return;
         }
 
+        println!("------------------------");
+        println!("Statistics");
+        println!("------------------------");
         println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
         println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
         println!("Amount of datagrams: {}", self.amount_datagrams);
@@ -78,6 +92,7 @@ impl Statistic {
         println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
         println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
         println!("Packet loss: {:.2}%", self.packet_loss);
+        println!("------------------------");
     }
 
     fn calculate_total_data(&self) -> f64 {
@@ -95,5 +110,66 @@ impl Statistic {
     
     pub fn set_test_duration(&mut self, start_time: std::time::Instant, end_time: std::time::Instant) {
         self.test_duration = end_time - start_time
+    }
+}
+
+
+impl Add for Statistic {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        // Check if one is zero, to avoid division by zero
+        let data_rate_gbit = if self.data_rate_gbit == 0.0 {
+            other.data_rate_gbit
+        } else if other.data_rate_gbit == 0.0 {
+            self.data_rate_gbit
+        } else {
+            ( self.data_rate_gbit + other.data_rate_gbit ) / 2.0 // Data rate is the average of both
+        };
+
+        // Check if one is zero, to avoid division by zero
+        let packet_loss = if self.packet_loss == 0.0 {
+            other.packet_loss
+        } else if other.packet_loss == 0.0 {
+            self.packet_loss
+        } else {
+            ( self.packet_loss + other.packet_loss ) / 2.0 // Average of packet loss
+        };
+
+        // Assumption is that both statistics have the same test duration. 
+        // Check if one is zero, to avoid division by zero.
+        // Alternativly, could be added to a list of test_durations, but then we would need to change the type in the struct.
+        let test_duration = if self.test_duration.as_secs() == 0 {
+            other.test_duration
+        } else {
+            self.test_duration
+        };
+
+        Statistic {
+            parameter: self.parameter, // Assumption is that both statistics have the same test parameters
+            test_duration, 
+            total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
+            amount_datagrams: self.amount_datagrams + other.amount_datagrams,
+            amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
+            amount_reordered_datagrams: self.amount_reordered_datagrams + other.amount_reordered_datagrams,
+            amount_duplicated_datagrams: self.amount_duplicated_datagrams + other.amount_duplicated_datagrams,
+            amount_omitted_datagrams: self.amount_omitted_datagrams + other.amount_omitted_datagrams,
+            amount_syscalls: self.amount_syscalls + other.amount_syscalls,
+            amount_io_model_syscalls: self.amount_io_model_syscalls + other.amount_io_model_syscalls,
+            data_rate_gbit, 
+            packet_loss,
+        }
+    }
+}
+
+impl Measurement {
+    pub fn new(parameter: Parameter) -> Measurement {
+        Measurement {
+            start_time: Instant::now(),
+            end_time: Instant::now(),
+            statistic: Statistic::new(parameter),
+            first_packet_received: false,
+            last_packet_received: false,
+        }
     }
 }

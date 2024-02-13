@@ -108,7 +108,7 @@ impl SocketOptions {
 
     pub fn set_send_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
         let current_size = Self::get_send_buffer_size(socket)?;
-        debug!("Trying to set send buffer size from {} to {}", current_size, size * 2);
+        info!("Trying to set send buffer size from {} to {}", current_size, size * 2);
     
         if current_size >= size * 2 {
             warn!("New buffer size {}*2 is smaller than current buffer size {}. Abort setting it...", size, current_size);
@@ -124,7 +124,7 @@ impl SocketOptions {
     
     pub fn set_receive_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
         let current_size = Self::get_receive_buffer_size(socket)?; 
-        debug!("Trying to set receive buffer size from {} to {}", current_size, size * 2);
+        info!("Trying to set receive buffer size from {} to {}", current_size, size * 2);
     
         if current_size >= size * 2 {
             warn!("New buffer size {}*2 is smaller than current buffer size {}. Abort setting it...", size, current_size);

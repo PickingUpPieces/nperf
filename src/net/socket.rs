@@ -1,7 +1,6 @@
 
 use log::{info, trace, debug, error};
-use std::{self, net::Ipv4Addr};
-use std::io::Error;
+use std::{self, net::Ipv4Addr, io::Error};
 
 use super::socket_options::SocketOptions;
 
@@ -251,7 +250,6 @@ impl Socket {
     
     pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
-            // FIXME: Use read() like in iPerf
             libc::recv(
                 self.socket,
                 buffer.as_mut_ptr() as *mut _,

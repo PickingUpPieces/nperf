@@ -1,18 +1,12 @@
-use std::net::Ipv4Addr;
-use std::thread::sleep;
-use std::time::Instant;
-use log::{trace, warn};
-use log::{debug, error, info};
+use std::{net::Ipv4Addr, thread::sleep, time::Instant};
+use log::{debug, trace, info, warn, error};
 
-use crate::util::{ExchangeFunction, IOModel};
-use crate::net::socket::Socket;
-use crate::util::statistic::{Parameter, Statistic};
-use crate::util::packet_buffer::PacketBuffer;
-use crate::util;
-
+use crate::net::{MessageHeader, MessageType, socket::Socket};
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
 use super::Node;
 
 pub struct Client {
+    test_id: u16,
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
     statistic: Statistic,
@@ -22,11 +16,13 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+    pub fn new(test_id: u16, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+        info!("Current mode 'client' sending to remote host {}:{} with test ID {}", ip, remote_port, test_id);
         let socket = Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket");
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
+            test_id,
             packet_buffer,
             socket,
             statistic: Statistic::new(parameter),
@@ -36,9 +32,14 @@ impl Client {
         }
     }
 
-    fn send_last_message(&mut self) -> Result<usize, &'static str> {
-        let last_message_buffer: [u8; crate::LAST_MESSAGE_SIZE] = [0; crate::LAST_MESSAGE_SIZE];
-        self.socket.send(&last_message_buffer, crate::LAST_MESSAGE_SIZE)
+    fn send_control_message(&mut self, mtype: MessageType) -> Result<(), &'static str> {
+        let header = MessageHeader::new(mtype, self.test_id, 0);
+        debug!("Coordination message send: {:?}", header);
+        match self.socket.send(MessageHeader::serialize(&header).as_slice(), MessageHeader::serialize(&header).len()) {
+            Ok(_) => { Ok(()) },
+            Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
+            Err(x) => Err(x)
+        }
     }
 
     fn send_messages(&mut self) -> Result<(), &'static str> {
@@ -98,7 +99,7 @@ impl Client {
                     self.next_packet_id -= amount_not_sent_packets as u64;
                 }
                 self.statistic.amount_datagrams += (amount_sent_mmsghdr * self.packet_buffer[0].get_packet_amount()) as u64;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr, self.packet_buffer[0].get_buffer_length());
+                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
@@ -107,11 +108,12 @@ impl Client {
         }
     }
 
+
     fn add_packet_ids(&mut self) -> Result<u64, &'static str> {
         let mut total_amount_used_packet_ids: u64 = 0;
 
         for packet_buffer in self.packet_buffer.iter_mut() {
-            let amount_used_packet_ids = packet_buffer.add_packet_ids(self.next_packet_id)?;
+            let amount_used_packet_ids = packet_buffer.add_message_header(self.test_id, self.next_packet_id)?;
             self.next_packet_id += amount_used_packet_ids;
             total_amount_used_packet_ids += amount_used_packet_ids;
         }
@@ -131,8 +133,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self, io_model: IOModel) -> Result<(), &'static str> {
-        info!("Current mode: client");
+    fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.socket.connect().expect("Error connecting to remote host"); 
 
@@ -140,6 +141,11 @@ impl Node for Client {
             info!("On the current socket the MSS is {}", mss);
         }
         
+        self.send_control_message(MessageType::INIT)?;
+
+        // Ensures that the server is ready to receive messages
+        sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
+
         let start_time = Instant::now();
         info!("Start measurement...");
 
@@ -161,19 +167,15 @@ impl Node for Client {
             }
             self.statistic.amount_syscalls += 1;
         }
-        sleep(std::time::Duration::from_millis(200));
+        // Ensures that the buffers are empty again, so that the last message actually arrives at the server
+        sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
-        let end_time = match self.send_last_message() {
-            Ok(_) => { 
-                debug!("...finished measurement");
-                Ok(Instant::now() - std::time::Duration::from_millis(200)) // REMOVE THIS, if you remove the sleep above as well
-            },
-            Err(_) => Err("Error sending last message"),
-        };
+        self.send_control_message(MessageType::LAST)?;
+        let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
-        self.statistic.set_test_duration(start_time, end_time?);
-        self.statistic.print();
-        Ok(())
+        self.statistic.set_test_duration(start_time, end_time);
+        self.statistic.calculate_statistics();
+        Ok(self.statistic)
     }
 
 

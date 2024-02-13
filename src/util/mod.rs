@@ -2,13 +2,12 @@ pub mod statistic;
 pub mod packet_buffer;
 
 use std::io::IoSlice;
-
 use libc::mmsghdr;
 use log::{debug, trace, warn};
 use serde::Serialize;
-use statistic::Statistic;
 
-use self::packet_buffer::PacketBuffer;
+use {packet_buffer::PacketBuffer, statistic::Statistic};
+use crate::net::MessageHeader;
 
 #[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum NPerfMode {
@@ -30,6 +29,7 @@ pub enum IOModel {
     Poll,
 }
 
+
 pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),
@@ -38,38 +38,44 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     }
 }
 
-pub fn process_packet(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
-    // FIXME: buffer can contain more than one packet
-    // Slice the buffer into datagram_size slices, Iterate over the buffer and process each packet
+pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
     let mut amount_received_packets = 0;
     for packet in buffer.chunks(datagram_size) {
-        let packet_id = u64::from_be_bytes(packet[0..8].try_into().unwrap());
-        debug!("Received packet number: {}", packet_id);
-        amount_received_packets += process_packet_number(packet_id, next_packet_id, statistic);
+        amount_received_packets += process_packet(packet, next_packet_id, statistic);
     }
     amount_received_packets
+}
+
+pub fn process_packet(buffer: &[u8], next_packet_id: u64, statistic: &mut Statistic) -> u64 {
+    let packet_id = MessageHeader::deserialize(buffer).packet_id;
+    debug!("Received packet number: {}", packet_id);
+    process_packet_number(packet_id, next_packet_id, statistic)
 }
 
 // Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
 // https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225 
 fn process_packet_number(packet_id: u64, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
-    if packet_id == next_packet_id {
-        return 1
-    } else if packet_id > next_packet_id {
-        let lost_packet_count = packet_id - next_packet_id;
-        statistic.amount_omitted_datagrams += lost_packet_count as i64;
-        debug!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
-        return lost_packet_count + 1; // This is the next packet id that we expect, since we assume that the missing packets are lost
-    } else { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
-        if statistic.amount_omitted_datagrams > 0 { 
-            statistic.amount_omitted_datagrams -= 1;
-            statistic.amount_reordered_datagrams  += 1;
-            debug!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
-        } else { 
-            statistic.amount_duplicated_datagrams += 1;
-            debug!("Received duplicated packet");
+    match packet_id {
+        _ if packet_id == next_packet_id => {
+            1
+        },
+        _ if packet_id > next_packet_id => {
+            let lost_packet_count = packet_id - next_packet_id;
+            statistic.amount_omitted_datagrams += lost_packet_count as i64;
+            debug!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
+            lost_packet_count + 1 // This is the next packet id that we expect, since we assume that the missing packets are lost
+        },
+        _ => { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
+            if statistic.amount_omitted_datagrams > 0 { 
+                statistic.amount_omitted_datagrams -= 1;
+                statistic.amount_reordered_datagrams  += 1;
+                debug!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
+            } else { 
+                statistic.amount_duplicated_datagrams += 1;
+                debug!("Received duplicated packet");
+            }
+            0
         }
-        return 0
     }
 }
 
@@ -117,7 +123,7 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
     };
 
     for packet in datagrams.chunks(single_packet_size as usize) {
-        next_packet_id += process_packet(packet, single_packet_size as usize, next_packet_id, statistic);
+        next_packet_id += process_packet(packet, next_packet_id, statistic);
         absolut_packets_received += 1;
         trace!("iovec buffer: {:?} with now absolut packets received {} and next packet id: {}", packet, next_packet_id, absolut_packets_received);
     }
@@ -147,17 +153,14 @@ fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
     }
 }
 
-pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize, amount_bytes_per_msghdr: usize) -> usize {
-    let mut amount_sent_bytes = 0;
+pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize) -> usize {
+    let mut amount_bytes = 0;
     for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
         if index >= amount_msghdr {
             break;
         }
-        if amount_bytes_per_msghdr != mmsghdr.msg_len as usize {
-            warn!("The amount of sent/received bytes in mmsghdr is not equal to the buffer length: {} != {}", mmsghdr.msg_len, amount_bytes_per_msghdr);
-        }
-        amount_sent_bytes += mmsghdr.msg_len;
+        amount_bytes += mmsghdr.msg_len;
     }
-    debug!("Total amount of sent bytes: {}", amount_sent_bytes);
-    amount_sent_bytes as usize
+    debug!("Total amount of sent/received bytes: {}", amount_bytes);
+    amount_bytes as usize
 }
