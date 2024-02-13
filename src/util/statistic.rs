@@ -25,6 +25,7 @@ pub struct Statistic {
 #[derive(Debug, Serialize, Copy, Clone)]
 pub struct Parameter {
     pub mode: super::NPerfMode,
+    pub ip: std::net::Ipv4Addr,
     pub enable_json_output: bool,
     pub io_model: super::IOModel,
     pub test_runtime_length: u64,
