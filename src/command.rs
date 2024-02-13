@@ -95,7 +95,6 @@ impl nPerf {
         info!("Starting nPerf...");
         env_logger::init();
 
-
         let parameter = match self.parse_args() {
             Some(x) => x,
             None => { error!("Error running app"); return; },

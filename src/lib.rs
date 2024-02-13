@@ -1,7 +1,7 @@
 mod node;
 mod net;
 mod util;
-pub mod command;
+mod command;
 
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_MSS: u32= 1472;
@@ -18,5 +18,4 @@ const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1024;
 const DEFAULT_IO_MODEL: &str = "select";
 
-#[doc(hidden)]
 pub use command::nPerf;
