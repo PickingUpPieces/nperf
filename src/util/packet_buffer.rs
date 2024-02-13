@@ -1,6 +1,5 @@
 use log::debug;
-use crate::net::MessageHeader;
-use crate::net::MessageType;
+use crate::net::{MessageHeader, MessageType};
 
 const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
 

@@ -1,5 +1,4 @@
-use std::net::Ipv4Addr;
-use std::str::FromStr;
+use std::{net::Ipv4Addr, str::FromStr};
 use bincode::{deserialize, serialize};
 use serde::{Deserialize, Serialize};
 

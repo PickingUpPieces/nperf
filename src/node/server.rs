@@ -1,14 +1,9 @@
 
-use std::collections::HashMap;
-use std::net::Ipv4Addr;
-use std::time::Instant;
+use std::{net::Ipv4Addr, time::Instant, collections::HashMap};
 use log::{debug, error, info, trace};
 
-use crate::net::{MessageHeader, MessageType};
-use crate::util::{self, ExchangeFunction, IOModel};
-use crate::net::socket::Socket;
-use crate::util::statistic::{Measurement, Parameter, Statistic};
-use crate::util::packet_buffer::PacketBuffer;
+use crate::net::{socket::Socket, MessageHeader, MessageType};
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
 use super::Node;
 
 pub struct Server {
@@ -146,7 +141,7 @@ impl Server {
             MessageType::LAST => {
                 info!("LAST packet received from test {}!", header.test_id);
                 let measurement = self.measurements.get_mut(&header.test_id).expect("Error getting statistic in last message: test id not found");
-                let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
                 measurement.last_packet_received = true;
                 measurement.statistic.set_test_duration(measurement.start_time, end_time);
                 measurement.statistic.calculate_statistics();

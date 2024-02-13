@@ -1,7 +1,6 @@
 
 use log::{info, trace, debug, error};
-use std::{self, net::Ipv4Addr};
-use std::io::Error;
+use std::{self, net::Ipv4Addr, io::Error};
 
 use super::socket_options::SocketOptions;
 

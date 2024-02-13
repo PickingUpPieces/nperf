@@ -1,16 +1,8 @@
-use std::net::Ipv4Addr;
-use std::thread::sleep;
-use std::time::Instant;
-use log::{trace, warn};
-use log::{debug, error, info};
+use std::{net::Ipv4Addr, thread::sleep, time::Instant};
+use log::{debug, trace, info, warn, error};
 
-use crate::net::{MessageHeader, MessageType};
-use crate::util::{ExchangeFunction, IOModel};
-use crate::net::socket::Socket;
-use crate::util::statistic::{Parameter, Statistic};
-use crate::util::packet_buffer::PacketBuffer;
-use crate::util;
-
+use crate::net::{MessageHeader, MessageType, socket::Socket};
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
 use super::Node;
 
 pub struct Client {
@@ -44,9 +36,7 @@ impl Client {
         let header = MessageHeader::new(mtype, self.test_id, 0);
         debug!("Coordination message send: {:?}", header);
         match self.socket.send(MessageHeader::serialize(&header).as_slice(), MessageHeader::serialize(&header).len()) {
-            Ok(_) => {
-                Ok(())
-            },
+            Ok(_) => { Ok(()) },
             Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
             Err(x) => Err(x)
         }
@@ -154,7 +144,7 @@ impl Node for Client {
         self.send_control_message(MessageType::INIT)?;
 
         // Ensures that the server is ready to receive messages
-        sleep(std::time::Duration::from_millis(100));
+        sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
         info!("Start measurement...");
@@ -178,10 +168,10 @@ impl Node for Client {
             self.statistic.amount_syscalls += 1;
         }
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
-        sleep(std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE));
+        sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         self.send_control_message(MessageType::LAST)?;
-        let end_time = Instant::now() - std::time::Duration::from_millis(crate::SLEEP_BEFORE_LAST_MESSAGE);
+        let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
         self.statistic.set_test_duration(start_time, end_time);
         self.statistic.calculate_statistics();

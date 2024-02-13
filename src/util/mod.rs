@@ -2,15 +2,12 @@ pub mod statistic;
 pub mod packet_buffer;
 
 use std::io::IoSlice;
-
 use libc::mmsghdr;
 use log::{debug, trace, warn};
 use serde::Serialize;
-use statistic::Statistic;
 
+use {packet_buffer::PacketBuffer, statistic::Statistic};
 use crate::net::MessageHeader;
-
-use self::packet_buffer::PacketBuffer;
 
 #[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum NPerfMode {
