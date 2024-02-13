@@ -30,7 +30,7 @@ pub enum IOModel {
 }
 
 
-pub fn parse_mode(mode: String) -> Option<NPerfMode> {
+pub fn parse_mode(mode: &String) -> Option<NPerfMode> {
     match mode.as_str() {
         "client" => Some(NPerfMode::Client),
         "server" => Some(NPerfMode::Server),
