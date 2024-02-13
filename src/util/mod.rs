@@ -3,7 +3,7 @@ pub mod packet_buffer;
 
 use std::io::IoSlice;
 use libc::mmsghdr;
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use serde::Serialize;
 
 use {packet_buffer::PacketBuffer, statistic::Statistic};

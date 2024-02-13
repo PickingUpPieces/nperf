@@ -2,6 +2,7 @@ use log::{error, info, debug, warn};
 use serde::Serialize;
 use std::io::Error;
 
+
 #[derive(PartialEq, Debug, Clone, Copy, Serialize)]
 pub struct SocketOptions {
     nonblocking: bool,
@@ -39,8 +40,8 @@ impl SocketOptions {
             self.set_gro(socket)?;
         }
 
-        Self::set_receive_buffer_size(self, socket, self.recv_buffer_size)?;
-        Self::set_send_buffer_size(self, socket, self.send_buffer_size)?;
+        Self::set_buffer_size(self, socket, self.recv_buffer_size, libc::SO_SNDBUF)?;
+        Self::set_buffer_size(self, socket, self.recv_buffer_size, libc::SO_RCVBUF)?;
         Ok(())
     }
 
@@ -106,36 +107,30 @@ impl SocketOptions {
         Ok(())
     }
 
-    pub fn set_send_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
-        let current_size = Self::get_send_buffer_size(socket)?;
-        info!("Trying to set send buffer size from {} to {}", current_size, size * 2);
-    
+    pub fn set_buffer_size(&mut self, socket: i32, size: u32, buffer_type: libc::c_int) -> Result<(), &'static str> {
+        let mut current_size = Self::get_socket_option(socket, libc::SOL_SOCKET, buffer_type)?; 
+        match buffer_type {
+            libc::SO_SNDBUF => info!("Set send buffer size from {} to {}", current_size, size),
+            libc::SO_RCVBUF => info!("Set receive buffer size from {} to {}", current_size, size),
+            _ => return Err("Invalid buffer type")
+        }
+
         if current_size >= size * 2 {
-            warn!("New buffer size {}*2 is smaller than current buffer size {}. Abort setting it...", size, current_size);
+            warn!("New buffer size {} is smaller than current buffer size {}. Abort setting it...", size * 2, current_size);
             return Ok(());
         }
 
-        Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF, size)
-    }
-    
-    fn get_send_buffer_size(socket: i32) -> Result<u32, &'static str> {
-        Self::get_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF)
-    }
-    
-    pub fn set_receive_buffer_size(&mut self, socket: i32, size: u32) -> Result<(), &'static str> {
-        let current_size = Self::get_receive_buffer_size(socket)?; 
-        info!("Trying to set receive buffer size from {} to {}", current_size, size * 2);
-    
-        if current_size >= size * 2 {
-            warn!("New buffer size {}*2 is smaller than current buffer size {}. Abort setting it...", size, current_size);
-            return Ok(());
+        match Self::set_socket_option(socket, libc::SOL_SOCKET, buffer_type, size) {
+            Ok(_) => {
+                current_size = Self::get_socket_option(socket, libc::SOL_SOCKET, buffer_type)?; 
+                if current_size < size * 2 {
+                    Err(format!("Planned buffer size {} is smaller than current buffer size {}. Setting buffer size failed...", size * 2, current_size).leak())
+                } else {
+                    Ok(())
+                }
+            },
+            Err(e) => Err(e)
         }
-
-        Self::set_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF, size)
-    }
-    
-    fn get_receive_buffer_size(socket: i32) -> Result<u32, &'static str> {
-        Self::get_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF)
     }
 
     pub fn set_gso(&mut self, socket: i32, gso_size: u32) -> Result<(), &'static str> {
