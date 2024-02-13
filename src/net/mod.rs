@@ -1,5 +1,4 @@
-use std::net::Ipv4Addr;
-use std::str::FromStr;
+use std::{net::Ipv4Addr, str::FromStr};
 use bincode::{deserialize, serialize};
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +21,13 @@ pub struct MessageHeader {
 }
 
 impl MessageHeader {
+    pub fn new(mtype: MessageType, test_id: u16, packet_id: u64) -> MessageHeader {
+        MessageHeader {
+            mtype,
+            test_id,
+            packet_id
+        }
+    }
     pub fn serialize(&self) -> Vec<u8> {
         serialize(&self).unwrap()
     }

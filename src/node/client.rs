@@ -1,15 +1,8 @@
-use std::net::Ipv4Addr;
-use std::thread::sleep;
-use std::time::Instant;
-use log::{trace, warn};
-use log::{debug, error, info};
+use std::{net::Ipv4Addr, thread::sleep, time::Instant};
+use log::{debug, trace, info, warn, error};
 
-use crate::util::{ExchangeFunction, IOModel};
-use crate::net::socket::Socket;
-use crate::util::statistic::{Parameter, Statistic};
-use crate::util::packet_buffer::PacketBuffer;
-use crate::util;
-
+use crate::net::{MessageHeader, MessageType, socket::Socket};
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
 use super::Node;
 
 pub struct Client {
@@ -39,18 +32,14 @@ impl Client {
         }
     }
 
-    fn send_last_message(&mut self) -> Result<usize, &'static str> {
-        let mut message_buffer: [u8; crate::LAST_MESSAGE_SIZE] = [0; crate::LAST_MESSAGE_SIZE];
-        message_buffer[0..2].copy_from_slice(&self.test_id.to_be_bytes());
-        debug!("Last message buffer: {:?}", message_buffer);
-        self.socket.send(&message_buffer, crate::LAST_MESSAGE_SIZE)
-    }
-
-    fn send_first_message(&mut self) -> Result<usize, &'static str> {
-        let mut message_buffer: [u8; crate::FIRST_MESSAGE_SIZE] = [0; crate::FIRST_MESSAGE_SIZE];
-        message_buffer[0..2].copy_from_slice(&self.test_id.to_be_bytes());
-        debug!("First message buffer: {:?}", message_buffer);
-        self.socket.send(&message_buffer, crate::FIRST_MESSAGE_SIZE)
+    fn send_control_message(&mut self, mtype: MessageType) -> Result<(), &'static str> {
+        let header = MessageHeader::new(mtype, self.test_id, 0);
+        debug!("Coordination message send: {:?}", header);
+        match self.socket.send(MessageHeader::serialize(&header).as_slice(), MessageHeader::serialize(&header).len()) {
+            Ok(_) => { Ok(()) },
+            Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
+            Err(x) => Err(x)
+        }
     }
 
     fn send_messages(&mut self) -> Result<(), &'static str> {
@@ -110,7 +99,7 @@ impl Client {
                     self.next_packet_id -= amount_not_sent_packets as u64;
                 }
                 self.statistic.amount_datagrams += (amount_sent_mmsghdr * self.packet_buffer[0].get_packet_amount()) as u64;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr, self.packet_buffer[0].get_buffer_length());
+                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
@@ -152,10 +141,10 @@ impl Node for Client {
             info!("On the current socket the MSS is {}", mss);
         }
         
-        match self.send_first_message() {
-            Ok(_) => { info!("First message sent!");},
-            Err(x) => return Err(x)
-        }
+        self.send_control_message(MessageType::INIT)?;
+
+        // Ensures that the server is ready to receive messages
+        sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
         info!("Start measurement...");
@@ -179,17 +168,12 @@ impl Node for Client {
             self.statistic.amount_syscalls += 1;
         }
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
-        sleep(std::time::Duration::from_millis(200));
+        sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
-        let end_time = match self.send_last_message() {
-            Ok(_) => { 
-                debug!("...finished measurement");
-                Ok(Instant::now() - std::time::Duration::from_millis(200)) // REMOVE THIS, if you remove the sleep above as well
-            },
-            Err(_) => Err("Error sending last message"),
-        };
+        self.send_control_message(MessageType::LAST)?;
+        let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
-        self.statistic.set_test_duration(start_time, end_time?);
+        self.statistic.set_test_duration(start_time, end_time);
         self.statistic.calculate_statistics();
         Ok(self.statistic)
     }

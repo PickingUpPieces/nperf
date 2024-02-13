@@ -40,7 +40,9 @@ pub struct Parameter {
 pub struct Measurement {
     pub start_time: std::time::Instant,
     pub end_time: std::time::Instant,
-    pub statistic: Statistic
+    pub statistic: Statistic,
+    pub first_packet_received: bool,
+    pub last_packet_received: bool,
 }
 
 impl Statistic {
@@ -165,7 +167,9 @@ impl Measurement {
         Measurement {
             start_time: Instant::now(),
             end_time: Instant::now(),
-            statistic: Statistic::new(parameter)
+            statistic: Statistic::new(parameter),
+            first_packet_received: false,
+            last_packet_received: false,
         }
     }
 }

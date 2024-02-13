@@ -2,15 +2,12 @@ pub mod statistic;
 pub mod packet_buffer;
 
 use std::io::IoSlice;
-
 use libc::mmsghdr;
 use log::{debug, trace, warn};
 use serde::Serialize;
-use statistic::Statistic;
 
+use {packet_buffer::PacketBuffer, statistic::Statistic};
 use crate::net::MessageHeader;
-
-use self::packet_buffer::PacketBuffer;
 
 #[derive(PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum NPerfMode {
@@ -41,10 +38,6 @@ pub fn parse_mode(mode: String) -> Option<NPerfMode> {
     }
 }
 
-pub fn get_packet_test_id(packet: &[u8]) -> u16 {
-    MessageHeader::deserialize(packet).test_id
-}
-
 pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
     let mut amount_received_packets = 0;
     for packet in buffer.chunks(datagram_size) {
@@ -62,23 +55,27 @@ pub fn process_packet(buffer: &[u8], next_packet_id: u64, statistic: &mut Statis
 // Packet reordering taken from iperf3 and rperf https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225
 // https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/stream/udp.rs#L225 
 fn process_packet_number(packet_id: u64, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
-    if packet_id == next_packet_id {
-        return 1
-    } else if packet_id > next_packet_id {
-        let lost_packet_count = packet_id - next_packet_id;
-        statistic.amount_omitted_datagrams += lost_packet_count as i64;
-        debug!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
-        return lost_packet_count + 1; // This is the next packet id that we expect, since we assume that the missing packets are lost
-    } else { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
-        if statistic.amount_omitted_datagrams > 0 { 
-            statistic.amount_omitted_datagrams -= 1;
-            statistic.amount_reordered_datagrams  += 1;
-            debug!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
-        } else { 
-            statistic.amount_duplicated_datagrams += 1;
-            debug!("Received duplicated packet");
+    match packet_id {
+        _ if packet_id == next_packet_id => {
+            1
+        },
+        _ if packet_id > next_packet_id => {
+            let lost_packet_count = packet_id - next_packet_id;
+            statistic.amount_omitted_datagrams += lost_packet_count as i64;
+            debug!("Reordered or lost packet received! Expected number {}, but received {}. {} packets are currently missing", next_packet_id, packet_id, lost_packet_count);
+            lost_packet_count + 1 // This is the next packet id that we expect, since we assume that the missing packets are lost
+        },
+        _ => { // If the received packet_id is smaller than the expected, it means that we received a reordered (or duplicated) packet.
+            if statistic.amount_omitted_datagrams > 0 { 
+                statistic.amount_omitted_datagrams -= 1;
+                statistic.amount_reordered_datagrams  += 1;
+                debug!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
+            } else { 
+                statistic.amount_duplicated_datagrams += 1;
+                debug!("Received duplicated packet");
+            }
+            0
         }
-        return 0
     }
 }
 
@@ -156,14 +153,11 @@ fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
     }
 }
 
-pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize, amount_bytes_per_msghdr: usize) -> usize {
+pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize) -> usize {
     let mut amount_bytes = 0;
     for (index, mmsghdr) in mmsghdr_vec.iter().enumerate() {
         if index >= amount_msghdr {
             break;
-        }
-        if amount_bytes_per_msghdr != mmsghdr.msg_len as usize {
-            warn!("The amount of sent/received bytes in mmsghdr is not equal to the buffer length: {} != {}", mmsghdr.msg_len, amount_bytes_per_msghdr);
         }
         amount_bytes += mmsghdr.msg_len;
     }
