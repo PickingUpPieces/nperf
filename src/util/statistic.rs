@@ -8,9 +8,9 @@ use crate::net::socket_options::SocketOptions;
 
 #[derive(Debug, Serialize, Copy, Clone)]
 pub struct Statistic {
-    parameter: Parameter,
-    test_duration: std::time::Duration,
-    total_data_gbyte: f64,
+    pub parameter: Parameter,
+    pub test_duration: std::time::Duration,
+    pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
     pub amount_reordered_datagrams: u64,
@@ -18,8 +18,8 @@ pub struct Statistic {
     pub amount_omitted_datagrams: i64,
     pub amount_syscalls: u64,
     pub amount_io_model_syscalls: u64,
-    data_rate_gbit: f64,
-    packet_loss: f64,
+    pub data_rate_gbit: f64,
+    pub packet_loss: f64,
 }
 
 #[derive(Debug, Serialize, Copy, Clone)]

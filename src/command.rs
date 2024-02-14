@@ -89,7 +89,7 @@ pub struct nPerf {
 
 impl nPerf {
     pub fn new() -> Self {
-        env_logger::init();
+        let _ = env_logger::try_init();
         nPerf::parse()
     }
 
