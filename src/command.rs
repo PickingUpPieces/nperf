@@ -141,7 +141,7 @@ impl nPerf {
     
             info!("Waiting for all threads to finish...");
             let mut statistic = fetch_handle.into_iter().fold(Statistic::new(parameter), |acc: Statistic, handle| { 
-                let stat = acc + match rx.recv().unwrap() {
+                let stat = acc + match rx.recv_timeout(std::time::Duration::from_secs(parameter.test_runtime_length + 5)).unwrap() {
                     Some(x) => x,
                     None => Statistic::new(parameter)
                 };

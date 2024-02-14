@@ -7,7 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_LOG: error
+  #RUST_LOG: error
 
 jobs:
   build_and_test:
