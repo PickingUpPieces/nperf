@@ -2,27 +2,25 @@
 use log::{info, trace, debug, error};
 use std::{self, net::Ipv4Addr, io::Error};
 
-use super::socket_options::SocketOptions;
+use super::socket_options::{self, SocketOptions};
 
 #[derive(Debug)]
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
-    socket: i32,
-    socket_options: SocketOptions,
+    socket: i32
 } 
 
 impl Socket {
     pub fn new(ip: Ipv4Addr, port: u16, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
-        socket_options.update(socket).expect("Error updating socket options");
+        socket_options.set_socket_options(socket).expect("Error updating socket options");
 
         Some(Socket {
             ip,
             port,
-            socket,
-            socket_options, 
+            socket
         })
     }
 
@@ -276,7 +274,7 @@ impl Socket {
     }
 
     pub fn get_mss(&self) -> Result<u32, &'static str> {
-        self.socket_options.get_mss(self.socket)
+        socket_options::get_mss(self.socket)
     }
 
     fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {

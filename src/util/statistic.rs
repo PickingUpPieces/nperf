@@ -5,6 +5,11 @@ use serde_json;
 
 use crate::net::socket_options::SocketOptions;
 
+#[derive(PartialEq, Debug, Clone, Copy, Serialize)]
+pub enum OutputFormat {
+    Json,
+    Text,
+}
 
 #[derive(Debug, Serialize, Copy, Clone)]
 pub struct Statistic {
@@ -20,20 +25,6 @@ pub struct Statistic {
     pub amount_io_model_syscalls: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
-}
-
-#[derive(Debug, Serialize, Copy, Clone)]
-pub struct Parameter {
-    pub mode: super::NPerfMode,
-    pub ip: std::net::Ipv4Addr,
-    pub enable_json_output: bool,
-    pub io_model: super::IOModel,
-    pub test_runtime_length: u64,
-    pub mss: u32,
-    pub datagram_size: u32,
-    pub packet_buffer_size: usize,
-    pub socket_options: SocketOptions,
-    pub exchange_function: super::ExchangeFunction,
 }
 
 // Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
@@ -72,28 +63,30 @@ impl Statistic {
         debug!("Statistic updated: {:?}", self);
     }
 
-    pub fn print(&mut self) {
+    pub fn print(&mut self, output_format: OutputFormat) {
         self.calculate_statistics();
 
-        if self.parameter.enable_json_output {
-            println!("{}", serde_json::to_string(&self).unwrap());
-            return;
+        match output_format {
+            OutputFormat::Json => {
+                println!("{}", serde_json::to_string(&self).unwrap());
+            },
+            OutputFormat::Text => {
+                println!("------------------------");
+                println!("Statistics");
+                println!("------------------------");
+                println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
+                println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
+                println!("Amount of datagrams: {}", self.amount_datagrams);
+                println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
+                println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
+                println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
+                println!("Amount of syscalls: {}", self.amount_syscalls);
+                println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
+                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
+                println!("Packet loss: {:.2}%", self.packet_loss);
+                println!("------------------------");
+            }
         }
-
-        println!("------------------------");
-        println!("Statistics");
-        println!("------------------------");
-        println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
-        println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
-        println!("Amount of datagrams: {}", self.amount_datagrams);
-        println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
-        println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
-        println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
-        println!("Amount of syscalls: {}", self.amount_syscalls);
-        println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
-        println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
-        println!("Packet loss: {:.2}%", self.packet_loss);
-        println!("------------------------");
     }
 
     fn calculate_total_data(&self) -> f64 {
@@ -171,6 +164,38 @@ impl Measurement {
             statistic: Statistic::new(parameter),
             first_packet_received: false,
             last_packet_received: false,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Copy, Clone)]
+pub struct Parameter {
+    pub mode: super::NPerfMode,
+    pub ip: std::net::Ipv4Addr,
+    pub output_format: OutputFormat,
+    pub io_model: super::IOModel,
+    pub test_runtime_length: u64,
+    pub mss: u32,
+    pub datagram_size: u32,
+    pub packet_buffer_size: usize,
+    pub socket_options: SocketOptions,
+    pub exchange_function: super::ExchangeFunction,
+}
+
+impl Parameter {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction) -> Parameter {
+        Parameter {
+            mode,
+            ip,
+            output_format,
+            io_model,
+            test_runtime_length,
+            mss,
+            datagram_size,
+            packet_buffer_size,
+            socket_options,
+            exchange_function,
         }
     }
 }
