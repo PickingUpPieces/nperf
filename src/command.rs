@@ -221,6 +221,8 @@ impl nPerf {
         Some(util::statistic::Parameter::new(
             mode, 
             ipv4, 
+            self.parallel,
+            if self.port == 45001 { self.parallel } else { 1 },
             if self.json {util::statistic::OutputFormat::Json} else {util::statistic::OutputFormat::Text}, 
             io_model, 
             self.time, 

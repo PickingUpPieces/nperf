@@ -172,6 +172,8 @@ impl Measurement {
 pub struct Parameter {
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
+    pub amount_threads: u16,
+    pub amount_ports: u16,
     pub output_format: OutputFormat,
     pub io_model: super::IOModel,
     pub test_runtime_length: u64,
@@ -184,10 +186,12 @@ pub struct Parameter {
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction) -> Parameter {
+    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, amount_ports: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction) -> Parameter {
         Parameter {
             mode,
             ip,
+            amount_threads,
+            amount_ports,
             output_format,
             io_model,
             test_runtime_length,
