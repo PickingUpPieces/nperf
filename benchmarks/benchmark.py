@@ -99,7 +99,6 @@ def run_test(run_config) -> tuple[dict, dict] | None:
     if client_error:
         logging.error('Server error: %s', server_error.decode())
 
-    # TODO: Merge results from client and server, where necessary
     client_results = json.loads(client_output)
     server_results = json.loads(server_output)
     
@@ -166,27 +165,32 @@ def main():
     subprocess.run(['cargo', 'build', '--release'], check=True, cwd=PATH_TO_NPERF_REPO)
 
     parser = argparse.ArgumentParser(description='Benchmark nperf.')
-    parser.add_argument('config_file', nargs='?', default='test.config', help='Path to the JSON configuration file.')
-    parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results.')
+    parser.add_argument('config_file', help='Path to the JSON configuration file')
+    parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results')
+    parser.add_argument('-m', action="store_true", help='Merge results data into one file')
     args = parser.parse_args()
 
+    logging.debug('Parsed arguments: %s', args)
     logging.info('Reading config file: %s', args.config_file)
     test_configs = parse_config_file(args.config_file)
     logging.info('Read %d test configs', len(test_configs))
+
+    csv_file_name = args.results_file
+    test_results = []
+
+    # Create directory for test results
+    os.makedirs(PATH_TO_RESULTS_FOLDER, exist_ok=True)
 
     for config in test_configs:
         logging.debug('Processing config: %s', config)
         test_name = config["test_name"]
 
-        csv_file_name = args.results_file
         if csv_file_name == 'test_results.csv':
             timestamp = int(time.time())
             dt_object = datetime.fromtimestamp(timestamp)
             formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
             csv_file_name = f"{test_name}-{formatted_datetime}.csv"
 
-        test_results = []
-        
         for run in config["runs"]:
             logging.info('Run config: %s', run)
             for _ in range(0,3):
@@ -195,9 +199,14 @@ def main():
                     test_results.append(result)
                     break
 
-        # Create directory for test results
-        os.makedirs(PATH_TO_RESULTS_FOLDER, exist_ok=True)
+        if args.m is False:
+            logging.info('Writing results to CSV file: %s', csv_file_name)
+            write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)
+            csv_file_name = 'test_results.csv'
+            test_results = []
 
+    
+    if args.m is True:
         logging.info('Writing results to CSV file: %s', csv_file_name)
         write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)
 
