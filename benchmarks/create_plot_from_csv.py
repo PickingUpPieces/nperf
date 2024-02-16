@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import logging
 import csv
 
-logging.basicConfig(level=logging.DEBUG , format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def parse_results_file(results_file):
@@ -27,7 +27,8 @@ def generate_area_chart(x, y, data, testname):
     plt.title(testname)
     plt.legend()
     
-    plt.savefig(testname + '.png')
+    plt.savefig(testname + '_area.png')
+    logging.info('Saved plot to %s_area.png', testname)
     plt.close()
 
 
@@ -44,6 +45,7 @@ def generate_bar_chart(y, data, testname):
     plt.ylabel(y)
     plt.title(testname)
     plt.savefig(testname + '_bar.png')
+    logging.info('Saved plot to %s_bar.png', testname)
     plt.close()
     
 

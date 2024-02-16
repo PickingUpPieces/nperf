@@ -9,6 +9,7 @@ import time
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = '/opt/nperf/target/release/nperf'
 
 
@@ -119,8 +120,13 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
         if not file_exists:
             writer.writeheader()
 
+
+
         # FIXME: Add new measurement parameter as a new column here
         for index, result in enumerate(test_results):
+            if result['parameter']['socket_options']['gso'] is None:
+                result['parameter']['socket_options']['gso'] = False
+
             row = {
                 'test_name': test_name,
                 'run_number': index,
@@ -142,7 +148,7 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'packet_loss': result['packet_loss'],
                 'nonblocking': result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': result['parameter']['socket_options']['ip_fragmentation'],
-                'gso': result['parameter']['socket_options']['gso'][0],
+                'gso': result['parameter']['socket_options']['gso'],
                 'gro': result['parameter']['socket_options']['gro']
             }
             writer.writerow(row)
@@ -150,6 +156,9 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
 
 def main():
     logging.debug('Starting main function')
+
+    logging.info('Compiling binary in release mode.')
+    subprocess.run(['cargo', 'build', '--release'], check=True, cwd=PATH_TO_NPERF_REPO)
 
     parser = argparse.ArgumentParser(description='Benchmark nperf.')
     parser.add_argument('config_file', nargs='?', default='test.config', help='Path to the JSON configuration file.')
