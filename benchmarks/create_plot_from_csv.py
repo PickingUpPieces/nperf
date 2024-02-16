@@ -4,6 +4,7 @@ import logging
 import csv
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+PATH_TO_RESULTS_FOLDER = 'results/'
 
 
 def parse_results_file(results_file):
@@ -27,7 +28,7 @@ def generate_area_chart(x, y, data, testname):
     plt.title(testname)
     plt.legend()
     
-    plt.savefig(testname + '_area.png')
+    plt.savefig(PATH_TO_RESULTS_FOLDER + testname + '_area.png')
     logging.info('Saved plot to %s_area.png', testname)
     plt.close()
 
@@ -44,7 +45,7 @@ def generate_bar_chart(y, data, testname):
     plt.xlabel('Run Name')
     plt.ylabel(y)
     plt.title(testname)
-    plt.savefig(testname + '_bar.png')
+    plt.savefig(PATH_TO_RESULTS_FOLDER + testname + '_bar.png')
     logging.info('Saved plot to %s_bar.png', testname)
     plt.close()
     
