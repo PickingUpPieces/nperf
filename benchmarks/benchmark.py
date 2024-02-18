@@ -157,6 +157,11 @@ def write_results_to_csv(test_results: tuple[dict, dict], test_name, csv_file_pa
             }
             writer.writerow(row)
 
+def get_file_name(test_name):
+    timestamp = int(time.time())
+    dt_object = datetime.fromtimestamp(timestamp)
+    formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
+    return f"{test_name}-{formatted_datetime}.csv"
 
 def main():
     logging.debug('Starting main function')
@@ -176,6 +181,10 @@ def main():
     logging.info('Read %d test configs', len(test_configs))
 
     csv_file_name = args.results_file
+
+    if args.results_file == 'test_results.csv' and args.m is True:
+        csv_file_name = get_file_name(test_configs[0]["test_name"])
+        
     test_results = []
 
     # Create directory for test results
@@ -185,30 +194,21 @@ def main():
         logging.debug('Processing config: %s', config)
         test_name = config["test_name"]
 
-        if csv_file_name == 'test_results.csv':
-            timestamp = int(time.time())
-            dt_object = datetime.fromtimestamp(timestamp)
-            formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
-            csv_file_name = f"{test_name}-{formatted_datetime}.csv"
+        if args.results_file == 'test_results.csv' and args.m is False:
+            csv_file_name = get_file_name(test_name)
 
         for run in config["runs"]:
             logging.info('Run config: %s', run)
+            # TODO: Add repetition support. Run the test multiple times and take the average
             for _ in range(0,3):
                 result = run_test(run)
                 if result is not None: 
                     test_results.append(result)
                     break
 
-        if args.m is False:
-            logging.info('Writing results to CSV file: %s', csv_file_name)
-            write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)
-            csv_file_name = 'test_results.csv'
-            test_results = []
-
-    
-    if args.m is True:
         logging.info('Writing results to CSV file: %s', csv_file_name)
         write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)
+        test_results = []
 
 
 if __name__ == '__main__':

@@ -70,7 +70,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Plot generation for nperf benchmarks.')
     parser.add_argument('results_file', help='Path to the CSV file to get the results.')
-    parser.add_argument('test_name', default="Benchmark", help='Name of the test')
+    parser.add_argument('chart_name', default="Benchmark", help='Name of the generated chart')
     parser.add_argument('x_axis_param', default="run_name", help='Name of the x-axis parameter')
     parser.add_argument('y_axis_param', help='Name of the y-axis parameter')
     parser.add_argument('type', default="area", help='Type of graph to generate (area, bar)')
@@ -81,7 +81,7 @@ def main():
     logging.info('Results: %s', results)
 
     if args.type == 'area':
-        generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.test_name)
+        generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.chart_name)
     elif args.type == 'bar':
         for test in results:
             generate_bar_chart(args.y_axis_param, test, test[0]["test_name"])
