@@ -10,8 +10,8 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
-PATH_TO_NPERF_REPO = '/opt/nperf'
-PATH_TO_NPERF_BIN = '/opt/nperf/target/release/nperf'
+PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
+PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
 
 def parse_config_file(json_file_path):
@@ -44,7 +44,7 @@ def parse_config_file(json_file_path):
     return test_configs
 
 
-def run_test(run_config) -> tuple[dict, dict] | None:
+def run_test(run_config):
     logging.debug('Running test with config: %s', run_config)
 
     server_command = [PATH_TO_NPERF_BIN, 'server', '--json']
@@ -85,7 +85,7 @@ def run_test(run_config) -> tuple[dict, dict] | None:
         logging.error('Client error: %s', client_error.decode())
 
     # Give the server some time to finish
-    time.sleep(1)
+    time.sleep(2)
 
     # Check if the server finished as well
     if server_process.poll() is None:
@@ -110,7 +110,7 @@ def run_test(run_config) -> tuple[dict, dict] | None:
     return (server_results, client_results)
     
 
-def write_results_to_csv(test_results: tuple[dict, dict], test_name, csv_file_path):
+def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
     header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro']
     file_exists = os.path.isfile(csv_file_path)
@@ -120,7 +120,6 @@ def write_results_to_csv(test_results: tuple[dict, dict], test_name, csv_file_pa
 
         if not file_exists:
             writer.writeheader()
-
 
 
         # FIXME: Add new measurement parameter as a new column here

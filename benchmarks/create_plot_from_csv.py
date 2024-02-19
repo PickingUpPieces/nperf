@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 PATH_TO_RESULTS_FOLDER = 'results/'
 
 
-def parse_results_file(results_file) -> list[list[dict]]:
+def parse_results_file(results_file):
     results = []
 
     with open(results_file, 'r') as file:
@@ -30,7 +30,7 @@ def parse_results_file(results_file) -> list[list[dict]]:
     return results
 
 
-def generate_area_chart(x: str, y: str, data: list[list[dict]], chart_title):
+def generate_area_chart(x: str, y: str, data, chart_title):
     # Iterate over list of data and add plot for every list
     for test in data:
         x_values = [float(row[x]) for row in test]
@@ -48,7 +48,7 @@ def generate_area_chart(x: str, y: str, data: list[list[dict]], chart_title):
     plt.close()
 
 
-def generate_bar_chart(y: str, data: list[dict], test_name: str):
+def generate_bar_chart(y: str, data, test_name: str):
     # Map every row in the data as a bar with the y value
     logging.debug("Generating bar chart for %s with data %s", y, data)
     y_values = [float(row[y]) for row in data]
