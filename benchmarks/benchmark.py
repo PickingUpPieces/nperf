@@ -9,8 +9,9 @@ import time
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-PATH_TO_NPERF_REPO = '/opt/nperf'
-PATH_TO_NPERF_BIN = '/opt/nperf/target/release/nperf'
+PATH_TO_RESULTS_FOLDER = 'results/'
+PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
+PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
 
 def parse_config_file(json_file_path):
@@ -84,7 +85,7 @@ def run_test(run_config):
         logging.error('Client error: %s', client_error.decode())
 
     # Give the server some time to finish
-    time.sleep(1)
+    time.sleep(2)
 
     # Check if the server finished as well
     if server_process.poll() is None:
@@ -98,20 +99,20 @@ def run_test(run_config):
     if client_error:
         logging.error('Server error: %s', server_error.decode())
 
-    # TODO: Merge results from client and server, where necessary
     client_results = json.loads(client_output)
     server_results = json.loads(server_output)
     
-    # Add run_name to server_results
+    # Add run_name to results
     server_results['run_name'] = run_config['run_name']
+    client_results['run_name'] = run_config['run_name']
 
     logging.info('Returning results: %s', server_results)
-    return server_results
+    return (server_results, client_results)
     
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -121,38 +122,45 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
             writer.writeheader()
 
 
-
         # FIXME: Add new measurement parameter as a new column here
-        for index, result in enumerate(test_results):
-            if result['parameter']['socket_options']['gso'] is None:
-                result['parameter']['socket_options']['gso'] = False
+        for index, (server_result, client_result) in enumerate(test_results):
+            if client_result['parameter']['socket_options']['gso'] is None:
+                client_result['parameter']['socket_options']['gso'] = False
 
             row = {
                 'test_name': test_name,
                 'run_number': index,
-                'run_name': result['run_name'],
-                'test_runtime_length': result['parameter']['test_runtime_length'],
-                'datagram_size': result['parameter']['datagram_size'],
-                'packet_buffer_size': result['parameter']['packet_buffer_size'],
-                'exchange_function': result['parameter']['exchange_function'],
-                'io_model': result['parameter']['io_model'],
-                'total_data_gbyte': result['total_data_gbyte'],
-                'amount_datagrams': result['amount_datagrams'],
-                'amount_data_bytes': result['amount_data_bytes'],
-                'amount_reordered_datagrams': result['amount_reordered_datagrams'],
-                'amount_duplicated_datagrams': result['amount_duplicated_datagrams'],
-                'amount_omitted_datagrams': result['amount_omitted_datagrams'],
-                'data_rate_gbit': result['data_rate_gbit'],
-                'amount_syscalls': result['amount_syscalls'],
-                'amount_io_model_syscalls': result['amount_io_model_syscalls'],
-                'packet_loss': result['packet_loss'],
-                'nonblocking': result['parameter']['socket_options']['nonblocking'],
-                'ip_fragmentation': result['parameter']['socket_options']['ip_fragmentation'],
-                'gso': result['parameter']['socket_options']['gso'],
-                'gro': result['parameter']['socket_options']['gro']
+                'run_name': server_result['run_name'],
+                'amount_threads_client': client_result['parameter']['amount_threads'],
+                'amount_threads_server': server_result['parameter']['amount_threads'],
+                'amount_used_ports_server': server_result['parameter']['amount_ports'],
+                'test_runtime_length': server_result['parameter']['test_runtime_length'],
+                'datagram_size': server_result['parameter']['datagram_size'],
+                'packet_buffer_size': server_result['parameter']['packet_buffer_size'],
+                'exchange_function': server_result['parameter']['exchange_function'],
+                'io_model': server_result['parameter']['io_model'],
+                'total_data_gbyte': server_result['total_data_gbyte'],
+                'amount_datagrams': server_result['amount_datagrams'],
+                'amount_data_bytes': server_result['amount_data_bytes'],
+                'amount_reordered_datagrams': server_result['amount_reordered_datagrams'],
+                'amount_duplicated_datagrams': server_result['amount_duplicated_datagrams'],
+                'amount_omitted_datagrams': server_result['amount_omitted_datagrams'],
+                'data_rate_gbit': server_result['data_rate_gbit'],
+                'amount_syscalls': server_result['amount_syscalls'],
+                'amount_io_model_syscalls': server_result['amount_io_model_syscalls'],
+                'packet_loss': server_result['packet_loss'],
+                'nonblocking': server_result['parameter']['socket_options']['nonblocking'],
+                'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
+                'gso': client_result['parameter']['socket_options']['gso'],
+                'gro': server_result['parameter']['socket_options']['gro']
             }
             writer.writerow(row)
 
+def get_file_name(test_name):
+    timestamp = int(time.time())
+    dt_object = datetime.fromtimestamp(timestamp)
+    formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
+    return f"{test_name}-{formatted_datetime}.csv"
 
 def main():
     logging.debug('Starting main function')
@@ -161,29 +169,36 @@ def main():
     subprocess.run(['cargo', 'build', '--release'], check=True, cwd=PATH_TO_NPERF_REPO)
 
     parser = argparse.ArgumentParser(description='Benchmark nperf.')
-    parser.add_argument('config_file', nargs='?', default='test.config', help='Path to the JSON configuration file.')
-    parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results.')
+    parser.add_argument('config_file', help='Path to the JSON configuration file')
+    parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results')
+    parser.add_argument('-m', action="store_true", help='Merge results data into one file')
     args = parser.parse_args()
 
+    logging.debug('Parsed arguments: %s', args)
     logging.info('Reading config file: %s', args.config_file)
     test_configs = parse_config_file(args.config_file)
     logging.info('Read %d test configs', len(test_configs))
+
+    csv_file_name = args.results_file
+
+    if args.results_file == 'test_results.csv' and args.m is True:
+        csv_file_name = get_file_name(test_configs[0]["test_name"])
+        
+    test_results = []
+
+    # Create directory for test results
+    os.makedirs(PATH_TO_RESULTS_FOLDER, exist_ok=True)
 
     for config in test_configs:
         logging.debug('Processing config: %s', config)
         test_name = config["test_name"]
 
-        csv_file_name = args.results_file
-        if csv_file_name == 'test_results.csv':
-            timestamp = int(time.time())
-            dt_object = datetime.fromtimestamp(timestamp)
-            formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
-            csv_file_name = f"{test_name}-{formatted_datetime}.csv"
+        if args.results_file == 'test_results.csv' and args.m is False:
+            csv_file_name = get_file_name(test_name)
 
-        test_results = []
-        
         for run in config["runs"]:
             logging.info('Run config: %s', run)
+            # TODO: Add repetition support. Run the test multiple times and take the average
             for _ in range(0,3):
                 result = run_test(run)
                 if result is not None: 
@@ -191,7 +206,8 @@ def main():
                     break
 
         logging.info('Writing results to CSV file: %s', csv_file_name)
-        write_results_to_csv(test_results, test_name, csv_file_name)
+        write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)
+        test_results = []
 
 
 if __name__ == '__main__':
