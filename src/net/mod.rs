@@ -1,43 +1,71 @@
 use std::{net::Ipv4Addr, str::FromStr};
-use bincode::{deserialize, serialize};
-use serde::{Deserialize, Serialize};
 
 pub mod socket;
 pub mod socket_options;
 
-#[repr(u8)]
-#[derive(Serialize, Deserialize, Debug)]
+#[repr(u64)]
+#[derive(Debug)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum MessageType {
-    INIT = 0,
-    MEASUREMENT = 1,
-    LAST = 2
+    INIT,
+    MEASUREMENT,
+    LAST
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+const LEN_HEADER: usize = std::mem::size_of::<MessageHeader>();
+
+#[derive(Debug)]
+#[repr(transparent)]
 pub struct MessageHeader {
-    pub mtype: MessageType,
-    pub test_id: u16,
-    pub packet_id: u64
+    header: [u64; 3]
 }
+// First 8 bytes: MessageType
+// Second 8 bytes: Test ID
+// Third 8 bytes: Packet ID
 
 impl MessageHeader {
-    pub fn new(mtype: MessageType, test_id: u16, packet_id: u64) -> MessageHeader {
+    pub fn new(mtype: MessageType, test_id: u64, packet_id: u64) -> MessageHeader {
         MessageHeader {
-            mtype,
-            test_id,
-            packet_id
+            header: [mtype as u64, test_id, packet_id]
         }
     }
-    pub fn serialize(&self) -> Vec<u8> {
-        serialize(&self).unwrap()
+
+    pub fn serialize(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(self.header.as_ptr() as *const u8, LEN_HEADER)
+        }
     }
 
-    pub fn deserialize(buffer: &[u8]) -> MessageHeader {
-        // TODO: Currently static serde buffer size
-        deserialize::<MessageHeader>(&buffer[0..14]).unwrap()
+    pub fn set_packet_id(&mut self, packet_id: u64) {
+        self.header[2] = packet_id;
+    }
+
+    pub fn get_packet_id(buffer: &[u8]) -> u64 {
+        unsafe {
+            let header = std::mem::transmute::<&[u8], &[u64]>(buffer);
+            header[2]
+        }
+    }
+
+    pub fn get_test_id(buffer: &[u8]) -> u64 {
+        unsafe {
+            let header = std::mem::transmute::<&[u8], &[u64]>(buffer);
+            header[1]
+        }
+    }
+
+    pub fn get_message_type(buffer: &[u8]) -> MessageType {
+        unsafe {
+            let header = std::mem::transmute::<&[u8], &[u64]>(buffer);
+            std::mem::transmute::<u64, MessageType>(header[0])
+        }
+    }
+        
+    pub fn len(&self) -> usize {
+        LEN_HEADER
     }
 }
+
 
 pub fn parse_ipv4(adress: &str) -> Result<Ipv4Addr, &'static str> {
     match Ipv4Addr::from_str(adress) {

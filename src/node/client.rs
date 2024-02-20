@@ -6,7 +6,7 @@ use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::
 use super::Node;
 
 pub struct Client {
-    test_id: u16,
+    test_id: u64,
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
     statistic: Statistic,
@@ -16,7 +16,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u16, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+    pub fn new(test_id: u64, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
         info!("Current mode 'client' sending to remote host {}:{} with test ID {}", ip, remote_port, test_id);
         let socket = Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket");
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
@@ -35,7 +35,7 @@ impl Client {
     fn send_control_message(&mut self, mtype: MessageType) -> Result<(), &'static str> {
         let header = MessageHeader::new(mtype, self.test_id, 0);
         debug!("Coordination message send: {:?}", header);
-        match self.socket.send(MessageHeader::serialize(&header).as_slice(), MessageHeader::serialize(&header).len()) {
+        match self.socket.send(header.serialize(), header.len()) {
             Ok(_) => { Ok(()) },
             Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
             Err(x) => Err(x)

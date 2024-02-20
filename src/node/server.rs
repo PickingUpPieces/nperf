@@ -11,7 +11,7 @@ pub struct Server {
     socket: Socket,
     next_packet_id: u64,
     parameter: Parameter,
-    measurements: HashMap<u16, Measurement>,
+    measurements: HashMap<u64, Measurement>,
     exchange_function: ExchangeFunction
 }
 
@@ -42,12 +42,13 @@ impl Server {
     fn recv(&mut self) -> Result<(), &'static str> {
         match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
             Ok(amount_received_bytes) => {
-                let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
-                debug!("Received packet with test id: {}", header.test_id);
+                let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer());
+                let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
+                debug!("Received packet with test id: {}", test_id);
 
-                self.parse_message_type(&header)?;
+                self.parse_message_type(mtype, test_id)?;
 
-                let statistic = &mut self.measurements.get_mut(&header.test_id).expect("Error getting statistic: test id not found").statistic;
+                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let datagram_size = self.packet_buffer[0].get_datagram_size() as usize;
                 let amount_received_packets = util::process_packet_buffer(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, statistic);
                 self.next_packet_id += amount_received_packets;
@@ -65,11 +66,12 @@ impl Server {
 
         match self.socket.recvmsg(&mut msghdr) {
             Ok(amount_received_bytes) => {
-                let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
+                let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer());
+                let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
 
-                self.parse_message_type(&header)?;
+                self.parse_message_type(mtype, test_id)?;
 
-                let statistic = &mut self.measurements.get_mut(&header.test_id).expect("Error getting statistic: test id not found").statistic;
+                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let absolut_packets_received;
                 (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, statistic);
                 statistic.amount_datagrams += absolut_packets_received;
@@ -93,12 +95,13 @@ impl Server {
                     return Ok(());
                 }
 
-                let header = MessageHeader::deserialize(self.packet_buffer[0].get_buffer_pointer());
+                let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer());
+                let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
                 let amount_received_bytes = util::get_total_bytes(&mmsghdr_vec, amount_received_mmsghdr);
 
-                self.parse_message_type(&header)?;
+                self.parse_message_type(mtype, test_id)?;
 
-                let statistic = &mut self.measurements.get_mut(&header.test_id).expect("Error getting statistic: test id not found").statistic;
+                let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
 
                 for (index, mmsghdr) in mmsghdr_vec.iter_mut().enumerate() {
@@ -122,25 +125,25 @@ impl Server {
         }
     }
 
-    fn parse_message_type(&mut self, header: &MessageHeader) -> Result<(), &'static str> {
-        match header.mtype {
+    fn parse_message_type(&mut self, mtype: MessageType, test_id: u64) -> Result<(), &'static str> {
+        match mtype {
             MessageType::INIT => {
-                info!("INIT packet received from test {}!", header.test_id);
-                self.measurements.insert(header.test_id, Measurement::new(self.parameter));
+                info!("INIT packet received from test {}!", test_id);
+                self.measurements.insert(test_id, Measurement::new(self.parameter));
                 Err("INIT_MESSAGE_RECEIVED")
             },
             MessageType::MEASUREMENT => { 
-                let measurement = self.measurements.get_mut(&header.test_id).expect("Error getting statistic in last message: test id not found");
+                let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic in last message: test id not found");
                 if !measurement.first_packet_received {
-                    info!("First packet received from test {}!", header.test_id);
+                    info!("First packet received from test {}!", test_id);
                     measurement.start_time = Instant::now();
                     measurement.first_packet_received = true;
                 }
                 Ok(())
             },
             MessageType::LAST => {
-                info!("LAST packet received from test {}!", header.test_id);
-                let measurement = self.measurements.get_mut(&header.test_id).expect("Error getting statistic in last message: test id not found");
+                info!("LAST packet received from test {}!", test_id);
+                let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic in last message: test id not found");
                 let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
                 measurement.last_packet_received = true;
                 measurement.statistic.set_test_duration(measurement.start_time, end_time);
