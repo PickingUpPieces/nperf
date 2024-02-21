@@ -1,6 +1,6 @@
 {
     "parameters": {
-        "repetitions": 1,
+        "repetitions": 5,
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
