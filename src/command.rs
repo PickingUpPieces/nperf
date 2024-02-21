@@ -254,11 +254,7 @@ impl nPerf {
             (None, None)
         };
 
-        let gro = if mode == util::NPerfMode::Server && self.with_gsro {
-                            true
-                        } else { 
-                            false 
-                        };
+        let gro = mode == util::NPerfMode::Server && self.with_gsro;
         
         SocketOptions::new(
             !self.without_non_blocking, 
