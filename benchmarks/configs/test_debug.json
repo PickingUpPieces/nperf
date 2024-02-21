@@ -1,9 +1,11 @@
 {
+    "parameters": {
+        "repetitions": 7,
+        "ip": "0.0.0.0"
+    },
     "test-debug": {
         "0": {
-            "repetitions": 5,
             "client": {
-                "ip": "0.0.0.0",
                 "port": 45001,
                 "datagram-size": 1472,
                 "time": 2,

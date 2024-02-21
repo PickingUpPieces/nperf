@@ -15,12 +15,15 @@ PATH_TO_RESULTS_FOLDER = 'results/'
 PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
-
 def parse_config_file(json_file_path):
     with open(json_file_path, 'r') as json_file:
         data = json.load(json_file)
 
     logging.debug('Read test config: %s', data)
+
+    global_parameters = data.pop('parameters', data)
+    logging.debug('Global parameters: %s', global_parameters)
+    repetitions = global_parameters.pop('repetitions', 1)
 
     test_configs = []
 
@@ -34,11 +37,14 @@ def parse_config_file(json_file_path):
         for run_name, run_config in test_runs.items():
             logging.debug('Processing run "%s" with config: %s', run_name, run_config)
 
+            # If a parameter is not set in the run, use the global parameter
+            run_config_client = {**global_parameters, **run_config['client']}
+            run_config_server = {**global_parameters, **run_config['server']}
             run = {
                 'run_name': run_name,
-                'repetitions': run_config.get('repetitions', 1),
-                'client': run_config['client'],
-                'server': run_config['server']
+                'repetitions': run_config.get('repetitions', repetitions),
+                'client': run_config_client,
+                'server': run_config_server 
             }
             test_config["runs"].append(run)
 
