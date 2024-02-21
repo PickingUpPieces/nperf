@@ -87,7 +87,7 @@ impl PacketBuffer {
             let start_of_packet = i * self.datagram_size as usize;
             header.set_packet_id(packet_id + amount_used_packet_ids);
             let serialized_header = header.serialize();
-            self.buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(&serialized_header);
+            self.buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(serialized_header);
             amount_used_packet_ids += 1;
         }
         debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
