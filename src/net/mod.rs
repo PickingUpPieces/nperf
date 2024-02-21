@@ -47,6 +47,13 @@ impl MessageHeader {
         }
     }
 
+    pub fn set_packet_id_raw(buffer: &mut [u8], packet_id: u64) {
+        unsafe {
+            let header = std::mem::transmute::<&mut [u8], &mut [u64]>(buffer);
+            header[2] = packet_id;
+        }
+    }
+
     pub fn get_test_id(buffer: &[u8]) -> u64 {
         unsafe {
             let header = std::mem::transmute::<&[u8], &[u64]>(buffer);
