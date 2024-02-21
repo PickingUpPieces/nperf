@@ -10,7 +10,7 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
-PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
+PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
 
