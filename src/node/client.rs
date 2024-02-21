@@ -113,7 +113,7 @@ impl Client {
         let mut total_amount_used_packet_ids: u64 = 0;
 
         for packet_buffer in self.packet_buffer.iter_mut() {
-            let amount_used_packet_ids = packet_buffer.add_message_header(self.test_id, self.next_packet_id)?;
+            let amount_used_packet_ids = packet_buffer.add_packet_ids(self.next_packet_id)?;
             self.next_packet_id += amount_used_packet_ids;
             total_amount_used_packet_ids += amount_used_packet_ids;
         }
@@ -123,6 +123,11 @@ impl Client {
         Ok(total_amount_used_packet_ids)
     }
 
+    fn add_message_headers(&mut self) {
+        for packet_buffer in self.packet_buffer.iter_mut() {
+            packet_buffer.add_message_header(self.test_id, 0).expect("Error adding message header");
+        }
+    }
 
     fn fill_packet_buffers_with_repeating_pattern(&mut self) {
         for packet_buffer in self.packet_buffer.iter_mut() {
@@ -135,6 +140,7 @@ impl Client {
 impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
+        self.add_message_headers();
         self.socket.connect().expect("Error connecting to remote host"); 
 
         if let Ok(mss) = self.socket.get_mss() {
