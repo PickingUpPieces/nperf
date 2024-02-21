@@ -79,17 +79,31 @@ impl PacketBuffer {
         debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
     }
 
-    pub fn add_message_header(&mut self, test_id: u16, packet_id: u64) -> Result<u64, &'static str>{
+    pub fn add_message_header(&mut self, test_id: u64, packet_id: u64) -> Result<u64, &'static str> {
         let mut amount_used_packet_ids: u64 = 0;
         let mut header = MessageHeader::new(MessageType::MEASUREMENT, test_id, packet_id);
 
         for i in 0..self.packets_amount {
             let start_of_packet = i * self.datagram_size as usize;
-            header.packet_id = packet_id + amount_used_packet_ids;
+            header.set_packet_id(packet_id + amount_used_packet_ids);
             let serialized_header = header.serialize();
-            self.buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(&serialized_header);
+            self.buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(serialized_header);
             amount_used_packet_ids += 1;
         }
+        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
+        // Return amount of used packet IDs
+        Ok(amount_used_packet_ids)
+    }
+
+    pub fn add_packet_ids(&mut self, packet_id: u64) -> Result<u64, &'static str> {
+        let mut amount_used_packet_ids: u64 = 0;
+
+        for i in 0..self.packets_amount {
+            let start_of_packet = i * self.datagram_size as usize;
+            MessageHeader::set_packet_id_raw(&mut self.buffer[start_of_packet..], packet_id + amount_used_packet_ids);
+            amount_used_packet_ids += 1;
+        }
+
         debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
         // Return amount of used packet IDs
         Ok(amount_used_packet_ids)

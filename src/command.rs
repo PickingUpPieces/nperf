@@ -127,7 +127,7 @@ impl nPerf {
                 
                 fetch_handle.push(thread::spawn(move || {
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
-                        Box::new(Client::new(i, parameter.ip, port, parameter))
+                        Box::new(Client::new(i as u64, parameter.ip, port, parameter))
                     } else {
                         Box::new(Server::new(parameter.ip, port, parameter))
                     };

@@ -6,7 +6,7 @@ use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::
 use super::Node;
 
 pub struct Client {
-    test_id: u16,
+    test_id: u64,
     packet_buffer: Vec<PacketBuffer>,
     socket: Socket,
     statistic: Statistic,
@@ -16,7 +16,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u16, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
+    pub fn new(test_id: u64, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
         info!("Current mode 'client' sending to remote host {}:{} with test ID {}", ip, remote_port, test_id);
         let socket = Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket");
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
@@ -35,7 +35,7 @@ impl Client {
     fn send_control_message(&mut self, mtype: MessageType) -> Result<(), &'static str> {
         let header = MessageHeader::new(mtype, self.test_id, 0);
         debug!("Coordination message send: {:?}", header);
-        match self.socket.send(MessageHeader::serialize(&header).as_slice(), MessageHeader::serialize(&header).len()) {
+        match self.socket.send(header.serialize(), header.len()) {
             Ok(_) => { Ok(()) },
             Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
             Err(x) => Err(x)
@@ -113,7 +113,7 @@ impl Client {
         let mut total_amount_used_packet_ids: u64 = 0;
 
         for packet_buffer in self.packet_buffer.iter_mut() {
-            let amount_used_packet_ids = packet_buffer.add_message_header(self.test_id, self.next_packet_id)?;
+            let amount_used_packet_ids = packet_buffer.add_packet_ids(self.next_packet_id)?;
             self.next_packet_id += amount_used_packet_ids;
             total_amount_used_packet_ids += amount_used_packet_ids;
         }
@@ -123,6 +123,11 @@ impl Client {
         Ok(total_amount_used_packet_ids)
     }
 
+    fn add_message_headers(&mut self) {
+        for packet_buffer in self.packet_buffer.iter_mut() {
+            packet_buffer.add_message_header(self.test_id, 0).expect("Error adding message header");
+        }
+    }
 
     fn fill_packet_buffers_with_repeating_pattern(&mut self) {
         for packet_buffer in self.packet_buffer.iter_mut() {
@@ -135,6 +140,7 @@ impl Client {
 impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
+        self.add_message_headers();
         self.socket.connect().expect("Error connecting to remote host"); 
 
         if let Ok(mss) = self.socket.get_mss() {

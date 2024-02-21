@@ -29,13 +29,18 @@ def parse_results_file(results_file):
     logging.info('Read %s test results', len(results))
     return results
 
-
-def generate_area_chart(x: str, y: str, data, chart_title):
+def generate_area_chart(x: str, y: str, data, chart_title, add_labels=False):
     # Iterate over list of data and add plot for every list
     for test in data:
         x_values = [float(row[x]) for row in test]
         y_values = [float(row[y]) for row in test]
         test_name = test[0]['test_name']
+
+        if add_labels:
+            for i in range(len(x_values)):
+                value = "{:.0f}".format(y_values[i])
+                plt.annotate(value, (x_values[i], y_values[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
         plt.plot(x_values, y_values, label=test_name, marker='o')
 
     plt.xlabel(x)
@@ -74,6 +79,7 @@ def main():
     parser.add_argument('x_axis_param', default="run_name", help='Name of the x-axis parameter')
     parser.add_argument('y_axis_param', help='Name of the y-axis parameter')
     parser.add_argument('type', default="area", help='Type of graph to generate (area, bar)')
+    parser.add_argument('-l', action="store_true", help='Add labels to data points')
     args = parser.parse_args()
 
     logging.info('Reading results file: %s', args.results_file)
@@ -81,7 +87,7 @@ def main():
     logging.info('Results: %s', results)
 
     if args.type == 'area':
-        generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.chart_name)
+        generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.chart_name, args.l)
     elif args.type == 'bar':
         for test in results:
             generate_bar_chart(args.y_axis_param, test, test[0]["test_name"])

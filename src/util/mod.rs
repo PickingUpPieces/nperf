@@ -47,7 +47,7 @@ pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id
 }
 
 pub fn process_packet(buffer: &[u8], next_packet_id: u64, statistic: &mut Statistic) -> u64 {
-    let packet_id = MessageHeader::deserialize(buffer).packet_id;
+    let packet_id = MessageHeader::get_packet_id(buffer);
     debug!("Received packet number: {}", packet_id);
     process_packet_number(packet_id, next_packet_id, statistic)
 }
