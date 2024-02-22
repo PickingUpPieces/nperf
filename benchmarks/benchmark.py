@@ -7,18 +7,23 @@ import argparse
 import json
 import time
 import logging
+import numpy as np
+import scipy.stats as stats
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
 PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
-
 def parse_config_file(json_file_path):
     with open(json_file_path, 'r') as json_file:
         data = json.load(json_file)
 
     logging.debug('Read test config: %s', data)
+
+    global_parameters = data.pop('parameters', data)
+    logging.debug('Global parameters: %s', global_parameters)
+    repetitions = global_parameters.pop('repetitions', 1)
 
     test_configs = []
 
@@ -31,11 +36,15 @@ def parse_config_file(json_file_path):
 
         for run_name, run_config in test_runs.items():
             logging.debug('Processing run "%s" with config: %s', run_name, run_config)
+
+            # If a parameter is not set in the run, use the global parameter
+            run_config_client = {**global_parameters, **run_config['client']}
+            run_config_server = {**global_parameters, **run_config['server']}
             run = {
                 'run_name': run_name,
-                'repetitions': run_config['repetitions'],
-                'client': run_config['client'],
-                'server': run_config['server']
+                'repetitions': run_config.get('repetitions', repetitions),
+                'client': run_config_client,
+                'server': run_config_server 
             }
             test_config["runs"].append(run)
 
@@ -162,6 +171,41 @@ def get_file_name(test_name):
     formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
     return f"{test_name}-{formatted_datetime}.csv"
 
+def get_median_result(results):
+    if len(results) == 1:
+        return results[0]
+
+    array = []
+    for (server_result, client_result) in results:
+        array.append(server_result["data_rate_gbit"])
+
+    logging.debug("Array of results: %s", array)
+
+    # Calculate z-scores for each result in the array https://en.wikipedia.org/wiki/Standard_score
+    zscore = (stats.zscore(array))
+    logging.debug("Z-scores: %s", zscore)
+
+    # Map each z-score in the array which is greater than 1.4/-1.4 to None
+    array = [array[i] if zscore[i] < 1.4 and zscore[i] > -1.4 else None for i in range(len(array))]
+    filtered_arr = [x for x in array if x is not None]
+    logging.debug("Array with outliers removed: %s", filtered_arr)
+
+    # Get the index of the median value in the original array
+    median_index = find_closest_to_median_index(filtered_arr)
+    logging.debug("Median index: %s", median_index)
+
+    # Find the index of the median value in the original array
+    median_index = array.index(filtered_arr[median_index])
+
+    # Return median result
+    logging.debug("Returning median result: %s", results[median_index])
+    return results[median_index]
+
+def find_closest_to_median_index(arr):
+    # Calculate the median and find the index of the closest value
+    closest_index = np.argmin(np.abs(np.array(arr) - np.median(arr)))
+    return closest_index
+
 def main():
     logging.debug('Starting main function')
 
@@ -198,12 +242,14 @@ def main():
 
         for run in config["runs"]:
             logging.info('Run config: %s', run)
-            # TODO: Add repetition support. Run the test multiple times and take the average
-            for _ in range(0,3):
-                result = run_test(run)
-                if result is not None: 
-                    test_results.append(result)
-                    break
+            run_results = []
+            for _ in range(run["repetitions"]):
+                for _ in range(0,2): # Retries, in case of an error
+                    result = run_test(run)
+                    if result is not None: 
+                        run_results.append(result)
+                        break
+            test_results.append(get_median_result(run_results))
 
         logging.info('Writing results to CSV file: %s', csv_file_name)
         write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)

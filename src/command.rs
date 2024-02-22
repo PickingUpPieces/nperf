@@ -3,7 +3,7 @@ use log::{debug, error, info};
 
 use std::{sync::mpsc::{self, Sender}, thread};
 
-use crate::node::{client::Client, server::Server, Node};
+use crate::{node::{client::Client, server::Server, Node}, util::NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
 use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
@@ -39,9 +39,9 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Enable GSO on sending socket
+    /// Enable GSO/GRO on socket
     #[arg(long, default_value_t = false)]
-    with_gso: bool,
+    with_gsro: bool,
 
     /// Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
     #[arg(long, default_value_t = crate::DEFAULT_GSO_BUFFER_SIZE)]
@@ -50,10 +50,6 @@ pub struct nPerf {
     /// Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled.
     #[arg(long, default_value_t = crate::DEFAULT_MSS)]
     with_mss: u32,
-
-    /// Enable GRO on receiving socket
-    #[arg(long, default_value_t = false)]
-    with_gro: bool,
 
     /// Disable fragmentation on sending socket
     #[arg(long, default_value_t = false)]
@@ -198,7 +194,7 @@ impl nPerf {
         };
         info!("Exchange function used: {:?}", exchange_function);
         
-        let mss = if self.with_gso || self.with_gro {
+        let mss = if self.with_gsro {
             info!("GSO/GRO enabled with buffer size {}", self.with_gso_buffer);
             self.with_gso_buffer
         } else {
@@ -216,7 +212,7 @@ impl nPerf {
         info!("Output format: {}", if self.json {"json"} else {"text"});
         info!("UDP datagram size used: {}", self.datagram_size);
 
-        let socket_options = self.parse_socket_options();
+        let socket_options = self.parse_socket_options(mode);
 
         Some(util::statistic::Parameter::new(
             mode, 
@@ -240,19 +236,11 @@ impl nPerf {
             return false;
         }
 
-        if parameter.mode == util::NPerfMode::Client && parameter.socket_options.gro {
-            error!("GRO is not supported on sending socket!");
-            return false;
-        }
-        if parameter.mode == util::NPerfMode::Server && parameter.socket_options.gso.is_some() {
-            error!("GSO is not supported on receiving socket!");
-            return false;
-        }
         true
     }
 
-    fn parse_socket_options(&self) -> SocketOptions {
-        let gso = if self.with_gso {
+    fn parse_socket_options(&self, mode: NPerfMode) -> SocketOptions {
+        let gso = if self.with_gsro && mode == util::NPerfMode::Client {
             Some(self.datagram_size)
         } else {
             None
@@ -265,12 +253,14 @@ impl nPerf {
             info!("Setting buffer size of UDP socket disabled!");
             (None, None)
         };
+
+        let gro = mode == util::NPerfMode::Server && self.with_gsro;
         
         SocketOptions::new(
             !self.without_non_blocking, 
             self.with_ip_frag, 
             gso, 
-            self.with_gro, 
+            gro, 
             recv_buffer_size, 
             send_buffer_size
         )
