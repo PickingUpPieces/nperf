@@ -180,6 +180,126 @@
             }
         }
     },
+    "|mmsg-vec| 15": {
+        "1": {
+            "client": {
+                "with-mmsg-amount": 15
+            },
+            "server": {
+                "with-mmsg-amount": 15
+            }
+        },
+        "2": {
+            "client": {
+                "with-mmsg-amount": 15,
+                "parallel": 2
+            },
+            "server": {
+                "with-mmsg-amount": 15,
+                "parallel": 2
+            }
+        },
+        "4": {
+            "client": {
+                "with-mmsg-amount": 15,
+                "parallel": 4
+            },
+            "server": {
+                "with-mmsg-amount": 15,
+                "parallel": 4
+            }
+        },
+        "6": {
+            "client": {
+                "with-mmsg-amount": 15,
+                "parallel": 6
+            },
+            "server": {
+                "with-mmsg-amount": 15,
+                "parallel": 6
+            }
+        },
+        "8": {
+            "client": {
+                "with-mmsg-amount": 15,
+                "parallel": 8
+            },
+            "server": {
+                "with-mmsg-amount": 15,
+                "parallel": 8
+            }
+        },
+        "10": {
+            "client": {
+                "with-mmsg-amount": 15,
+                "parallel": 10
+            },
+            "server": {
+                "with-mmsg-amount": 15,
+                "parallel": 10
+            }
+        }
+    },
+    "|mmsg-vec| 20": {
+        "1": {
+            "client": {
+                "with-mmsg-amount": 20
+            },
+            "server": {
+                "with-mmsg-amount": 20
+            }
+        },
+        "2": {
+            "client": {
+                "with-mmsg-amount": 20,
+                "parallel": 2
+            },
+            "server": {
+                "with-mmsg-amount": 20,
+                "parallel": 2
+            }
+        },
+        "4": {
+            "client": {
+                "with-mmsg-amount": 20,
+                "parallel": 4
+            },
+            "server": {
+                "with-mmsg-amount": 20,
+                "parallel": 4
+            }
+        },
+        "6": {
+            "client": {
+                "with-mmsg-amount": 20,
+                "parallel": 6
+            },
+            "server": {
+                "with-mmsg-amount": 20,
+                "parallel": 6
+            }
+        },
+        "8": {
+            "client": {
+                "with-mmsg-amount": 20,
+                "parallel": 8
+            },
+            "server": {
+                "with-mmsg-amount": 20,
+                "parallel": 8
+            }
+        },
+        "10": {
+            "client": {
+                "with-mmsg-amount": 20,
+                "parallel": 10
+            },
+            "server": {
+                "with-mmsg-amount": 20,
+                "parallel": 10
+            }
+        }
+    },
     "|mmsg-vec| 25": {
         "1": {
             "client": {
