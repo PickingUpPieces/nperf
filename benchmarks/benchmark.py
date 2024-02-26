@@ -244,7 +244,8 @@ def main():
         for run in config["runs"]:
             logging.info('Run config: %s', run)
             run_results = []
-            for _ in range(run["repetitions"]):
+            for i in range(run["repetitions"]):
+                logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
                 for _ in range(0,2): # Retries, in case of an error
                     result = run_test(run)
                     if result is not None: 
