@@ -182,11 +182,12 @@ pub struct Parameter {
     pub packet_buffer_size: usize,
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
+    pub single_connection: bool,
 }
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, amount_ports: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction) -> Parameter {
+    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, amount_ports: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, single_connection: bool) -> Parameter {
         Parameter {
             mode,
             ip,
@@ -200,6 +201,7 @@ impl Parameter {
             packet_buffer_size,
             socket_options,
             exchange_function,
+            single_connection
         }
     }
 }

@@ -83,6 +83,10 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     json: bool,
 
+    /// Only one socket descriptor is used for all threads
+    #[arg(long, default_value_t = false)]
+    single_connection: bool,
+
     #[arg(long, hide = true)]
     markdown_help: bool,
 }
@@ -226,7 +230,8 @@ impl nPerf {
             self.datagram_size, 
             packet_buffer_size, 
             socket_options, 
-            exchange_function
+            exchange_function,
+            self.single_connection
         ))
     }
 
