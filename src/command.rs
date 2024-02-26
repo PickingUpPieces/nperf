@@ -3,7 +3,7 @@ use log::{debug, error, info};
 
 use std::{sync::mpsc::{self, Sender}, thread};
 
-use crate::{node::{client::Client, server::Server, Node}, util::NPerfMode};
+use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
 use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
@@ -85,7 +85,7 @@ pub struct nPerf {
 
     /// Only one socket descriptor is used for all threads
     #[arg(long, default_value_t = false)]
-    single_connection: bool,
+    single_socket: bool,
 
     #[arg(long, hide = true)]
     markdown_help: bool,
@@ -116,20 +116,39 @@ impl nPerf {
             let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
             let (tx, rx) = mpsc::channel();
     
+            // If single-connection, creating the socket and bind to port/connect must happen before the threads are spawned
+            let socket = if self.single_socket {
+                let socket = Socket::new(parameter.ip, self.port, parameter.socket_options).expect("Error creating socket");
+                if parameter.mode == util::NPerfMode::Client {
+                    socket.connect().expect("Error connecting to remote host");
+                } else {
+                    socket.bind().expect("Error binding to local port");
+                }
+                Some(socket)
+            } else { 
+                None 
+            };
+
             for i in 0..self.parallel {
                 let tx: Sender<_> = tx.clone();
-                let port = if self.port != 45001 {
-                    info!("Port is set to different port than 45001. Incrementing port number is disabled.");
+                let port = if self.port != 45001 || self.single_socket {
+                    info!("Port is set to different port than 45001 or single_socket mode is enabled. Incrementing port number is disabled.");
                     self.port
                 } else {
                     self.port + i
                 };
-                
+
+                let i = if self.single_socket {
+                    0
+                } else {
+                    i
+                };
+
                 fetch_handle.push(thread::spawn(move || {
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
-                        Box::new(Client::new(i as u64, parameter.ip, port, parameter))
+                        Box::new(Client::new(i as u64, parameter.ip, port, socket, parameter))
                     } else {
-                        Box::new(Server::new(parameter.ip, port, parameter))
+                        Box::new(Server::new(parameter.ip, port, socket, parameter))
                     };
     
                     match node.run(parameter.io_model) {
@@ -231,7 +250,7 @@ impl nPerf {
             packet_buffer_size, 
             socket_options, 
             exchange_function,
-            self.single_connection
+            self.single_socket
         ))
     }
 

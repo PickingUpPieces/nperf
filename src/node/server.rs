@@ -16,9 +16,9 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, parameter: Parameter) -> Server {
+    pub fn new(ip: Ipv4Addr, local_port: u16, socket: Option<Socket>, parameter: Parameter) -> Server {
         info!("Current mode 'server' listening on {}:{}", ip, local_port);
-        let socket = Socket::new(ip, local_port, parameter.socket_options).expect("Error creating socket");
+        let socket = socket.unwrap_or(Socket::new(ip, local_port, parameter.socket_options).expect("Error creating socket"));
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Server {
@@ -133,7 +133,12 @@ impl Server {
                 Err("INIT_MESSAGE_RECEIVED")
             },
             MessageType::MEASUREMENT => { 
-                let measurement = self.measurements.get_mut(&test_id).expect("Error getting statistic in last message: test id not found");
+                let measurement = if let Some(x) = self.measurements.get_mut(&test_id) {
+                    x
+                } else {
+                    self.measurements.insert(test_id, Measurement::new(self.parameter));
+                    self.measurements.get_mut(&test_id).expect("Error getting statistic in measurement message: test id not found")
+                };
                 if !measurement.first_packet_received {
                     info!("First packet received from test {}!", test_id);
                     measurement.start_time = Instant::now();
@@ -157,7 +162,10 @@ impl Server {
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
         info!("Current mode: server");
-        self.socket.bind().expect("Error binding socket");
+
+        if !self.parameter.single_socket {
+            self.socket.bind().expect("Error binding to local port");
+        }
 
         info!("Start server loop...");
         let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
@@ -197,7 +205,9 @@ impl Node for Server {
             statistic.amount_syscalls += 1;
         }
 
-        self.socket.close()?;
+        if !self.parameter.single_socket {
+            self.socket.close()?;
+        }
 
         debug!("Finished receiving data from remote host");
         // Fold over all statistics, and calculate the final statistic

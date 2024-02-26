@@ -4,7 +4,7 @@ use std::{self, net::Ipv4Addr, io::Error};
 
 use super::socket_options::{self, SocketOptions};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
