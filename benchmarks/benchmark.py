@@ -12,7 +12,8 @@ import scipy.stats as stats
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
-PATH_TO_NPERF_REPO = '/opt/nperf'
+PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
+#PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
 def parse_config_file(json_file_path):
@@ -243,7 +244,8 @@ def main():
         for run in config["runs"]:
             logging.info('Run config: %s', run)
             run_results = []
-            for _ in range(run["repetitions"]):
+            for i in range(run["repetitions"]):
+                logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
                 for _ in range(0,2): # Retries, in case of an error
                     result = run_test(run)
                     if result is not None: 

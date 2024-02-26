@@ -84,7 +84,7 @@ def main():
 
     logging.info('Reading results file: %s', args.results_file)
     results = parse_results_file(args.results_file)
-    logging.info('Results: %s', results)
+    logging.debug('Results: %s', results)
 
     if args.type == 'area':
         generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.chart_name, args.l)
