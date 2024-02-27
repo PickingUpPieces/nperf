@@ -80,6 +80,11 @@ impl Client {
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("EAGAIN") => {
+                // Reset next_packet_id to the last packet_id that was sent
+                self.next_packet_id -= amount_datagrams;
+                Ok(())
+            },
             Err(x) => Err(x) 
         }
     }
@@ -104,6 +109,11 @@ impl Client {
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("EAGAIN") => {
+                // Reset next_packet_id to the last packet_id that was sent
+                self.next_packet_id -= amount_datagrams;
+                Ok(())
+            },
             Err(x) => Err(x)
         }
     }

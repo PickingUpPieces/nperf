@@ -173,12 +173,17 @@ impl nPerf {
                 handle.join().unwrap(); 
                 stat 
             });
+
             info!("All threads finished!");
+            if let Some(socket) = socket {
+                socket.close().expect("Error closing socket");
+            }
     
             if statistic.amount_datagrams != 0 {
                 statistic.calculate_statistics();
                 statistic.print(parameter.output_format);
             }
+
             if !(self.run_infinite && parameter.mode == util::NPerfMode::Server) {
                 return Some(statistic);
             }
