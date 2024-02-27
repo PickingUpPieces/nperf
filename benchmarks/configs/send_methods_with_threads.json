@@ -1,6 +1,6 @@
 {
     "parameters": {
-        "repetitions": 7,
+        "repetitions": 3,
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
@@ -13,6 +13,7 @@
         "with-mmsg-amount": 20,
         "with-ip-frag": false,
         "without-non-blocking": false,
+	    "single-socket": true,
         "io-model": "select"
     },
     "sendmmsg": {

@@ -41,7 +41,7 @@ A network performance measurement tool
 * `-t`, `--time <TIME>` — Time to run the test
 
   Default value: `10`
-* `--with-gso` — Enable GSO on sending socket
+* `--with-gsro` — Enable GSO/GRO on socket
 
   Default value: `false`
 
@@ -53,12 +53,6 @@ A network performance measurement tool
 * `--with-mss <WITH_MSS>` — Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled
 
   Default value: `1472`
-* `--with-gro` — Enable GRO on receiving socket
-
-  Default value: `false`
-
-  Possible values: `true`, `false`
-
 * `--with-ip-frag` — Disable fragmentation on sending socket
 
   Default value: `false`
@@ -80,7 +74,13 @@ A network performance measurement tool
 * `--with-mmsg-amount <WITH_MMSG_AMOUNT>` — Amount of message packs of gso_buffers to send when using sendmmsg
 
   Default value: `1024`
-* `--without-non-blocking` — Enable non-blocking socket
+* `--with-socket-buffer` — Enable setting udp socket buffer size
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
+* `--without-non-blocking` — Disable non-blocking socket
 
   Default value: `false`
 
@@ -90,6 +90,12 @@ A network performance measurement tool
 
   Default value: `select`
 * `--json` — Enable json output of statistics
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
+* `--single-connection` — Only one socket descriptor is used for all threads
 
   Default value: `false`
 

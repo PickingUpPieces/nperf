@@ -1,14 +1,15 @@
 
-use log::{info, trace, debug, error};
+use log::{debug, error, info, trace, warn};
 use std::{self, net::Ipv4Addr, io::Error};
 
 use super::socket_options::{self, SocketOptions};
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Socket {
     ip: Ipv4Addr,
     port: u16,
-    socket: i32
+    socket: i32,
+    sendmmsg_econnrefused_counter: u16
 } 
 
 impl Socket {
@@ -20,7 +21,8 @@ impl Socket {
         Some(Socket {
             ip,
             port,
-            socket
+            socket,
+            sendmmsg_econnrefused_counter: 0
         })
     }
 
@@ -89,10 +91,9 @@ impl Socket {
         if buffer_len == 0 {
             error!("Buffer is empty");
             return Err("Buffer is empty");
-        } else {
-            debug!("Sending on socket {} with buffer size: {}", self.socket, buffer_len);
-            trace!("Buffer: {:?}", buffer)
         }
+        debug!("Sending on socket {} with buffer size: {}", self.socket, buffer_len);
+        trace!("Buffer: {:?}", buffer);
     
         let send_result = unsafe {
             libc::send(
@@ -145,6 +146,10 @@ impl Socket {
                     error!("Connection refused while trying to send data!");
                     return Err("ECONNREFUSED");
                 },
+                Some(libc::EAGAIN) => {
+                    warn!("Error EGAIN: Probably socket buffer is full!");
+                    return Err("EAGAIN");
+                },
                 _ => {
                     error!("Errno when trying to send data with sendmsg(): {}", errno);
                     return Err("Failed to send data");
@@ -156,7 +161,7 @@ impl Socket {
         Ok(send_result as usize)
     }
 
-    pub fn sendmmsg(&self, mmsgvec: &mut [libc::mmsghdr]) -> Result<usize, &'static str> {
+    pub fn sendmmsg(&mut self, mmsgvec: &mut [libc::mmsghdr]) -> Result<usize, &'static str> {
         let send_result: i32 = unsafe {
             libc::sendmmsg(
                 self.socket,
@@ -173,14 +178,24 @@ impl Socket {
                     error!("Connection refused while trying to send data!");
                     return Err("ECONNREFUSED");
                 },
+                Some(libc::EAGAIN) => {
+                    warn!("Error EGAIN: Probably socket buffer is full!");
+                    return Err("EAGAIN");
+                },
                 _ => {
                     error!("Errno when trying to send data with sendmmsg(): {}", errno);
                     return Err("Failed to send data");
                 }
             }
+        // sendmmsg() always returns 1, even when it should return ECONNREFUSED (when the server isn't up yet, similar to send()/sendmsg()). This is a workaround to detect ECONNREFUSED.
         } else if send_result == 1 && mmsgvec.len() > 1 {
-            error!("sendmmsg() returned 1, but mmsgvec.len() > 1. This probably means that the first message was sent successfully, but the second one failed. We assume that the server is not running.");
-            return Err("ECONNREFUSED");
+            if self.sendmmsg_econnrefused_counter > 5 {
+                error!("sendmmsg() returned 1, but mmsgvec.len() > 1. This probably means that the first message was sent successfully, but the second one failed. We assume that the server is not running.");
+                return Err("ECONNREFUSED");
+            } 
+            self.sendmmsg_econnrefused_counter += 1;
+        } else {
+            self.sendmmsg_econnrefused_counter = 0;
         }
     
         debug!("Sent {} mmsghdr(s)", send_result);
