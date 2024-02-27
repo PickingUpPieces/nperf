@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{debug, error, info};
 
-use std::{sync::mpsc::{self, Sender}, thread};
+use std::{cmp::max, sync::mpsc::{self, Sender}, thread};
 
 use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
@@ -166,10 +166,16 @@ impl nPerf {
     
             info!("Waiting for all threads to finish...");
             let mut statistic = fetch_handle.into_iter().fold(Statistic::new(parameter), |acc: Statistic, handle| { 
-                let stat = acc + match rx.recv_timeout(std::time::Duration::from_secs(parameter.test_runtime_length * 2)).expect("Timeout") {
-                    Some(x) => x,
-                    None => Statistic::new(parameter)
+                let stat = acc + match rx.recv_timeout(std::time::Duration::from_secs(max(parameter.test_runtime_length * 2, 120))) {
+                    Ok(x) => {
+                        match x {
+                        Some(x) => x,
+                        None => Statistic::new(parameter)
+                        }
+                    },
+                    Err(_) => Statistic::new(parameter)
                 };
+                    
                 handle.join().unwrap(); 
                 stat 
             });
