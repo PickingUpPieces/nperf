@@ -17,8 +17,8 @@ pub struct Server {
 
 impl Server {
     pub fn new(ip: Ipv4Addr, local_port: u16, socket: Option<Socket>, parameter: Parameter) -> Server {
-        info!("Current mode 'server' listening on {}:{}", ip, local_port);
-        let socket = socket.unwrap_or(Socket::new(ip, local_port, parameter.socket_options).expect("Error creating socket"));
+        let socket = socket.unwrap_or_else(|| Socket::new(ip, local_port, parameter.socket_options).expect("Error creating socket"));
+        info!("Current mode 'server' listening on {}:{} with socketID {}", ip, local_port, socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Server {
@@ -161,8 +161,6 @@ impl Server {
 
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
-        info!("Current mode: server");
-
         if !self.parameter.single_socket {
             self.socket.bind().expect("Error binding to local port");
         }

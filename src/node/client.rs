@@ -17,8 +17,8 @@ pub struct Client {
 
 impl Client {
     pub fn new(test_id: u64, ip: Ipv4Addr, remote_port: u16, socket: Option<Socket>, parameter: Parameter) -> Self {
-        info!("Current mode 'client' sending to remote host {}:{} with test ID {}", ip, remote_port, test_id);
-        let socket = socket.unwrap_or(Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket"));
+        let socket: Socket = socket.unwrap_or_else(|| Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket"));
+        info!("Current mode 'client' sending to remote host {}:{} with test ID {} on socketID {}", ip, remote_port, test_id, socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
@@ -60,6 +60,11 @@ impl Client {
                 self.statistic.amount_datagrams += amount_datagrams;
                 self.statistic.amount_data_bytes += amount_send_bytes;
                 trace!("Sent datagram to remote host");
+                Ok(())
+            },
+            Err("EAGAIN") => {
+                // Reset next_packet_id to the last packet_id that was sent
+                self.next_packet_id -= amount_datagrams;
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),

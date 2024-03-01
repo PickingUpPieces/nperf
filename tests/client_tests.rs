@@ -19,7 +19,6 @@ fn test_client_sendmsg() -> Result<(), Box<dyn std::error::Error>>{
 
     let args = vec!["client", "--with-msg", "--port", "45002"];
     if let Some(x) = nperf::nPerf::new().set_args(args).exec() {
-        println!("{:?}", x);
         assert!(x.amount_datagrams > 10000);
     };
 

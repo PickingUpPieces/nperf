@@ -292,6 +292,10 @@ impl Socket {
         socket_options::get_mss(self.socket)
     }
 
+    pub fn get_socket_id(&self) -> i32 {
+        self.socket
+    }
+
     fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
         let addr_u32: u32 = address.into(); 
     

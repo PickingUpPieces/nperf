@@ -22,7 +22,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["client", "--with-mmsg", "--with-gso"],
+            "args": ["client", "--with-msg", "--single-socket", "--parallel", "2"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "delay"
         },
@@ -44,7 +44,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["server", "--with-mmsg", "--with-gro"],
+            "args": ["server", "--with-msg", "--single-socket", "--parallel", "2"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -55,7 +55,7 @@
                 "RUST_LOG": "INFO",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["client", "--with-msg", "--with-gso"],
+            "args": ["client", "--with-msg", "--single-socket", "--parallel", "2"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
             "preLaunchTask": "delay"
@@ -68,7 +68,7 @@
                 "RUST_LOG": "INFO",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["server", "--with-msg", "--with-gro"],
+            "args": ["server", "--with-msg", "--single-socket", "--parallel", "2"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
         },
