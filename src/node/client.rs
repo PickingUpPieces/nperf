@@ -16,9 +16,9 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u64, ip: Ipv4Addr, remote_port: u16, parameter: Parameter) -> Self {
-        info!("Current mode 'client' sending to remote host {}:{} with test ID {}", ip, remote_port, test_id);
-        let socket = Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket");
+    pub fn new(test_id: u64, ip: Ipv4Addr, remote_port: u16, socket: Option<Socket>, parameter: Parameter) -> Self {
+        let socket: Socket = socket.unwrap_or_else(|| Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket"));
+        info!("Current mode 'client' sending to remote host {}:{} with test ID {} on socketID {}", ip, remote_port, test_id, socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
@@ -62,6 +62,11 @@ impl Client {
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
+            Err("EAGAIN") => {
+                // Reset next_packet_id to the last packet_id that was sent
+                self.next_packet_id -= amount_datagrams;
+                Ok(())
+            },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
             Err(x) => Err(x) 
         }
@@ -80,6 +85,11 @@ impl Client {
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("EAGAIN") => {
+                // Reset next_packet_id to the last packet_id that was sent
+                self.next_packet_id -= amount_datagrams;
+                Ok(())
+            },
             Err(x) => Err(x) 
         }
     }
@@ -104,6 +114,11 @@ impl Client {
                 Ok(())
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("EAGAIN") => {
+                // Reset next_packet_id to the last packet_id that was sent
+                self.next_packet_id -= amount_datagrams;
+                Ok(())
+            },
             Err(x) => Err(x)
         }
     }
@@ -141,7 +156,10 @@ impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.add_message_headers();
-        self.socket.connect().expect("Error connecting to remote host"); 
+
+        if !self.statistic.parameter.single_socket {
+            self.socket.connect().expect("Error connecting to remote host"); 
+        }
 
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);
