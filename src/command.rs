@@ -282,11 +282,11 @@ impl nPerf {
         };
 
         let (recv_buffer_size, send_buffer_size) = if self.with_socket_buffer {
-            info!("Setting udp buffer sizes with recv {} and send {}", crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE, crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE);
-            (Some(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE))
+            info!("Setting udp buffer sizes with recv {} and send {}", crate::MAX_SOCKET_RECEIVE_BUFFER_SIZE, crate::MAX_SOCKET_SEND_BUFFER_SIZE);
+            (Some(crate::MAX_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::MAX_SOCKET_SEND_BUFFER_SIZE))
         } else {
             info!("Setting buffer size of UDP socket disabled!");
-            (None, None)
+            (Some(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE))
         };
 
         let gro = mode == util::NPerfMode::Server && self.with_gsro;

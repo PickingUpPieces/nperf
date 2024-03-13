@@ -12,8 +12,8 @@ import scipy.stats as stats
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
-PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
-#PATH_TO_NPERF_REPO = '/opt/nperf'
+#PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
+PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
 def parse_config_file(json_file_path):
@@ -122,7 +122,7 @@ def run_test(run_config):
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro', 'single-socket']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro', 'single-socket', 'receive_buffer_size', 'send_buffer_size']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -163,7 +163,9 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
                 'gso': client_result['parameter']['socket_options']['gso'],
                 'gro': server_result['parameter']['socket_options']['gro'],
-                'single-socket': server_result['parameter']['single_socket']
+                'single-socket': server_result['parameter']['single_socket'],
+                'receive_buffer_size': server_result['parameter']['socket_options']['recv_buffer_size'],
+                'send_buffer_size': server_result['parameter']['socket_options']['send_buffer_size']
             }
             writer.writerow(row)
 
