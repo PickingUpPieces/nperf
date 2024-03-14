@@ -7,20 +7,22 @@ use super::socket_options::{self, SocketOptions};
 #[derive(Debug, Copy, Clone)]
 pub struct Socket {
     ip: Ipv4Addr,
-    port: u16,
+    local_port: Option<u16>,
+    remote_port: Option<u16>,
     socket: i32,
     sendmmsg_econnrefused_counter: u16
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, port: u16, mut socket_options: SocketOptions) -> Option<Socket> {
+    pub fn new(ip: Ipv4Addr, local_port: Option<u16>, remote_port: Option<u16>, mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
         socket_options.set_socket_options(socket).expect("Error updating socket options");
 
         Some(Socket {
             ip,
-            port,
+            local_port,
+            remote_port,
             socket,
             sendmmsg_econnrefused_counter: 0
         })
@@ -39,7 +41,11 @@ impl Socket {
 
 
     pub fn connect(&self) -> Result<(), &'static str> {
-        let sockaddr = Self::create_sockaddr(self.ip, self.port);
+        if self.local_port.is_some() {
+            self.bind()?;
+        }
+
+        let sockaddr = Self::create_sockaddr(self.ip, self.remote_port.unwrap());
     
         let connect_result = unsafe {
             libc::connect(
@@ -58,7 +64,7 @@ impl Socket {
     }
 
     pub fn bind(&self) -> Result<(), &'static str> {
-        let sockaddr = Self::create_sockaddr(self.ip, self.port);
+        let sockaddr = Self::create_sockaddr(self.ip, self.local_port.unwrap());
     
         let bind_result = unsafe {
             libc::bind(

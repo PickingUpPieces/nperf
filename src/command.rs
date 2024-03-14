@@ -3,7 +3,7 @@ use log::{debug, error, info};
 
 use std::{cmp::max, sync::mpsc::{self, Sender}, thread};
 
-use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode};
+use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode, DEFAULT_CLIENT_PORT};
 use crate::net::{self, socket_options::SocketOptions};
 use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
@@ -20,7 +20,7 @@ pub struct nPerf {
     ip: String,
 
     /// Port number to measure against/listen on. If port is defined with parallel mode, all client threads will measure against the same port. 
-    #[arg(short, long, default_value_t = crate::DEFAULT_PORT)]
+    #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
     port: u16,
 
     /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
@@ -123,16 +123,20 @@ impl nPerf {
     
             // If single-connection, creating the socket and bind to port/connect must happen before the threads are spawned
             let socket = if self.single_socket {
-                let socket = Socket::new(parameter.ip, self.port, parameter.socket_options).expect("Error creating socket");
                 if parameter.mode == util::NPerfMode::Client {
+                    let socket = Socket::new(parameter.ip, None, Some(self.port), parameter.socket_options).expect("Error creating socket");
                     socket.connect().expect("Error connecting to remote host");
+                    Some(socket)
                 } else {
+                    let socket = Socket::new(parameter.ip, Some(self.port), None, parameter.socket_options).expect("Error creating socket");
                     socket.bind().expect("Error binding to local port");
+                    Some(socket)
                 }
-                Some(socket)
             } else { 
                 None 
             };
+
+            let local_port_client: Option<u16> = if self.with_reuseport { Some(DEFAULT_CLIENT_PORT) } else { None };
 
             for i in 0..self.parallel {
                 let tx: Sender<_> = tx.clone();
@@ -143,15 +147,12 @@ impl nPerf {
                     self.port + i
                 };
 
-                let i = if self.single_socket {
-                    0
-                } else {
-                    i
-                };
+                // Use same test id for all threads
+                let i = if self.single_socket { 0 } else { i };
 
                 fetch_handle.push(thread::spawn(move || {
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
-                        Box::new(Client::new(i as u64, parameter.ip, port, socket, parameter))
+                        Box::new(Client::new(i as u64, parameter.ip, local_port_client, port, socket, parameter))
                     } else {
                         Box::new(Server::new(parameter.ip, port, socket, parameter))
                     };
