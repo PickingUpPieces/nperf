@@ -87,6 +87,11 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     single_socket: bool,
 
+    // Enable reuseport option on socket. For parallel mode same port number for sending is used for all threads.
+    #[arg(long, default_value_t = false)]
+    with_reuseport: bool,
+
+    /// Show help in markdown format
     #[arg(long, hide = true)]
     markdown_help: bool,
 }
@@ -105,7 +110,7 @@ impl nPerf {
             None => { error!("Error running app"); return None; },
         };
 
-        match Self::parameter_check(&parameter) {
+        match self.parameter_check(&parameter) {
             false => { error!("Invalid parameter!"); return None; },
             true => {}
         }
@@ -265,9 +270,14 @@ impl nPerf {
         ))
     }
 
-    fn parameter_check(parameter: &util::statistic::Parameter)-> bool {
+    fn parameter_check(&self, parameter: &util::statistic::Parameter)-> bool {
         if parameter.datagram_size > crate::MAX_UDP_DATAGRAM_SIZE {
             error!("UDP datagram size is too big! Maximum is {}", crate::MAX_UDP_DATAGRAM_SIZE);
+            return false;
+        }
+
+        if self.with_reuseport && parameter.mode == util::NPerfMode::Server {
+            error!("Reuseport option is only available for client mode!");
             return false;
         }
 
@@ -294,6 +304,7 @@ impl nPerf {
         SocketOptions::new(
             !self.without_non_blocking, 
             self.with_ip_frag, 
+            self.with_reuseport,
             gso, 
             gro, 
             recv_buffer_size, 

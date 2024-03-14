@@ -7,17 +7,19 @@ use std::io::Error;
 pub struct SocketOptions {
     nonblocking: bool,
     ip_fragmentation: bool,
-    pub gso: Option<u32>,
-    pub gro: bool,
+    reuseport: bool,
+    gso: Option<u32>,
+    gro: bool,
     recv_buffer_size: Option<u32>,
     send_buffer_size: Option<u32>,
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, ip_fragmentation: bool, gso: Option<u32>, gro: bool, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
+    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
         SocketOptions {
             nonblocking,
             ip_fragmentation,
+            reuseport,
             gso,
             gro,
             recv_buffer_size,
