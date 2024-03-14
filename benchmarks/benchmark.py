@@ -122,7 +122,7 @@ def run_test(run_config):
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'gso', 'gro', 'single-socket', 'receive_buffer_size', 'send_buffer_size']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'reuseport', 'gso', 'gro', 'single-socket', 'receive_buffer_size', 'send_buffer_size']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -161,6 +161,7 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'packet_loss': server_result['packet_loss'],
                 'nonblocking': server_result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
+                'reuseport': server_result['parameter']['socket_options']['reuseport'],
                 'gso': client_result['parameter']['socket_options']['gso'],
                 'gro': server_result['parameter']['socket_options']['gro'],
                 'single-socket': server_result['parameter']['single_socket'],

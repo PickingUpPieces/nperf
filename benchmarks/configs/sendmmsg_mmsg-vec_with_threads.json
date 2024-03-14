@@ -12,6 +12,7 @@
         "with-gsro": true,
         "with-ip-frag": false,
         "without-non-blocking": false,
+        "with-reuseport": false,
         "io-model": "select"
     },
     "|mmsg-vec| 1": {
