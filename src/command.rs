@@ -281,6 +281,11 @@ impl nPerf {
             return false;
         }
 
+        if self.with_reuseport && self.single_socket {
+            error!("Reuseport and single socket option can't be used simultaneously!");
+            return false;
+        }
+
         true
     }
 
