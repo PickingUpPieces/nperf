@@ -277,14 +277,13 @@ impl nPerf {
             return false;
         }
 
-        if self.with_reuseport && parameter.mode == util::NPerfMode::Server {
-            error!("Reuseport option is only available for client mode!");
-            return false;
-        }
-
         if self.with_reuseport && self.single_socket {
             error!("Reuseport and single socket option can't be used simultaneously!");
             return false;
+        }
+
+        if self.with_reuseport && parameter.mode == util::NPerfMode::Server {
+            error!("Reuseport option is enabled, but it is only available for client mode!");
         }
 
         true
