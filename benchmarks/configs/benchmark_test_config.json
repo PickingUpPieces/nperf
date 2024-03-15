@@ -17,6 +17,7 @@
                 "with-mmsg": false,
                 "with-mmsg-amount": 1024,
                 "without-non-blocking": false,
+                "with-reuseport": false,
                 "io-model": "select"
             },
             "server": {
@@ -50,6 +51,7 @@
                 "with-mmsg": false,
                 "with-mmsg-amount": 1024,
                 "without-non-blocking": false,
+                "with-reuseport": false,
                 "io-model": "select"
             },
             "server": {
@@ -85,6 +87,7 @@
                 "with-mmsg": false,
                 "with-mmsg-amount": 1024,
                 "without-non-blocking": false,
+                "with-reuseport": false,
                 "io-model": "select"
             },
             "server": {
@@ -118,6 +121,7 @@
                 "with-mmsg": false,
                 "with-mmsg-amount": 1024,
                 "without-non-blocking": false,
+                "with-reuseport": false,
                 "io-model": "select"
             },
             "server": {

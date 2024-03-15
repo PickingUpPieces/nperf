@@ -16,9 +16,9 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u64, ip: Ipv4Addr, remote_port: u16, socket: Option<Socket>, parameter: Parameter) -> Self {
-        let socket: Socket = socket.unwrap_or_else(|| Socket::new(ip, remote_port, parameter.socket_options).expect("Error creating socket"));
-        info!("Current mode 'client' sending to remote host {}:{} with test ID {} on socketID {}", ip, remote_port, test_id, socket.get_socket_id());
+    pub fn new(test_id: u64, ip: Ipv4Addr, local_port: Option<u16>, remote_port: u16, socket: Option<Socket>, parameter: Parameter) -> Self {
+        let socket: Socket = socket.unwrap_or_else(|| Socket::new(ip, local_port, Some(remote_port), parameter.socket_options).expect("Error creating socket"));
+        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", ip, remote_port, ip, local_port.unwrap_or_default(), test_id, socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {

@@ -13,7 +13,8 @@
         "with-mmsg-amount": 20,
         "with-ip-frag": false,
         "without-non-blocking": false,
-	    "single-socket": true,
+        "with-reuseport": true,
+	    "single-socket": false,
         "io-model": "select"
     },
     "sendmmsg": {

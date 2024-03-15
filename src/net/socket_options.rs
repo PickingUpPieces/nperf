@@ -7,17 +7,19 @@ use std::io::Error;
 pub struct SocketOptions {
     nonblocking: bool,
     ip_fragmentation: bool,
-    pub gso: Option<u32>,
-    pub gro: bool,
+    reuseport: bool,
+    gso: Option<u32>,
+    gro: bool,
     recv_buffer_size: Option<u32>,
     send_buffer_size: Option<u32>,
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, ip_fragmentation: bool, gso: Option<u32>, gro: bool, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
+    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
         SocketOptions {
             nonblocking,
             ip_fragmentation,
+            reuseport,
             gso,
             gro,
             recv_buffer_size,
@@ -36,9 +38,9 @@ impl SocketOptions {
         if let Some(size) = self.gso {
             set_gso(socket, size)?;
         }
-        if self.gro {
-            set_gro(socket)?;
-        }
+
+        set_gro(socket, self.gro)?;
+        set_reuseport(socket, self.reuseport)?;
 
         if let Some(size) = self.recv_buffer_size { 
             set_buffer_size(socket, size, libc::SO_SNDBUF)?;
@@ -145,9 +147,9 @@ fn set_gso(socket: i32, gso_size: u32) -> Result<(), &'static str> {
     set_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT, gso_size)
 }
 
-fn set_gro(socket: i32) -> Result<(), &'static str> {
-    let value = 1;
-    info!("Set socket option GRO to {}", value);
+fn set_gro(socket: i32, status: bool) -> Result<(), &'static str> {
+    let value: u32 = if status { 1 } else { 0 };
+    info!("Set socket option GRO to {}", status);
     set_socket_option(socket, libc::SOL_UDP, libc::UDP_GRO, value)
 }
 
@@ -167,4 +169,10 @@ pub fn get_mss(socket: i32) -> Result<u32, &'static str> {
 
 pub fn _get_gso_size(socket: i32) -> Result<u32, &'static str> {
     get_socket_option(socket, libc::SOL_UDP, libc::UDP_SEGMENT)
+}
+
+pub fn set_reuseport(socket: i32, status: bool) -> Result<(), &'static str> {
+    let value: u32 = if status { 1 } else { 0 };
+    info!("Set socket option REUSEPORT to {}", status);
+    set_socket_option(socket, libc::SOL_SOCKET, libc::SO_REUSEPORT, value)
 }

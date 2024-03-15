@@ -3,7 +3,7 @@ use log::{debug, error, info};
 
 use std::{cmp::max, sync::mpsc::{self, Sender}, thread};
 
-use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode};
+use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode, DEFAULT_CLIENT_PORT};
 use crate::net::{self, socket_options::SocketOptions};
 use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
@@ -20,7 +20,7 @@ pub struct nPerf {
     ip: String,
 
     /// Port number to measure against/listen on. If port is defined with parallel mode, all client threads will measure against the same port. 
-    #[arg(short, long, default_value_t = crate::DEFAULT_PORT)]
+    #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
     port: u16,
 
     /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
@@ -87,6 +87,11 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     single_socket: bool,
 
+    // Enable reuseport option on socket. For parallel mode same port number for sending is used for all threads.
+    #[arg(long, default_value_t = false)]
+    with_reuseport: bool,
+
+    /// Show help in markdown format
     #[arg(long, hide = true)]
     markdown_help: bool,
 }
@@ -105,7 +110,7 @@ impl nPerf {
             None => { error!("Error running app"); return None; },
         };
 
-        match Self::parameter_check(&parameter) {
+        match self.parameter_check(&parameter) {
             false => { error!("Invalid parameter!"); return None; },
             true => {}
         }
@@ -118,16 +123,20 @@ impl nPerf {
     
             // If single-connection, creating the socket and bind to port/connect must happen before the threads are spawned
             let socket = if self.single_socket {
-                let socket = Socket::new(parameter.ip, self.port, parameter.socket_options).expect("Error creating socket");
                 if parameter.mode == util::NPerfMode::Client {
+                    let socket = Socket::new(parameter.ip, None, Some(self.port), parameter.socket_options).expect("Error creating socket");
                     socket.connect().expect("Error connecting to remote host");
+                    Some(socket)
                 } else {
+                    let socket = Socket::new(parameter.ip, Some(self.port), None, parameter.socket_options).expect("Error creating socket");
                     socket.bind().expect("Error binding to local port");
+                    Some(socket)
                 }
-                Some(socket)
             } else { 
                 None 
             };
+
+            let local_port_client: Option<u16> = if self.with_reuseport { Some(DEFAULT_CLIENT_PORT) } else { None };
 
             for i in 0..self.parallel {
                 let tx: Sender<_> = tx.clone();
@@ -138,15 +147,12 @@ impl nPerf {
                     self.port + i
                 };
 
-                let i = if self.single_socket {
-                    0
-                } else {
-                    i
-                };
+                // Use same test id for all threads
+                let i = if self.single_socket { 0 } else { i };
 
                 fetch_handle.push(thread::spawn(move || {
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
-                        Box::new(Client::new(i as u64, parameter.ip, port, socket, parameter))
+                        Box::new(Client::new(i as u64, parameter.ip, local_port_client, port, socket, parameter))
                     } else {
                         Box::new(Server::new(parameter.ip, port, socket, parameter))
                     };
@@ -265,10 +271,19 @@ impl nPerf {
         ))
     }
 
-    fn parameter_check(parameter: &util::statistic::Parameter)-> bool {
+    fn parameter_check(&self, parameter: &util::statistic::Parameter)-> bool {
         if parameter.datagram_size > crate::MAX_UDP_DATAGRAM_SIZE {
             error!("UDP datagram size is too big! Maximum is {}", crate::MAX_UDP_DATAGRAM_SIZE);
             return false;
+        }
+
+        if self.with_reuseport && self.single_socket {
+            error!("Reuseport and single socket option can't be used simultaneously!");
+            return false;
+        }
+
+        if self.with_reuseport && parameter.mode == util::NPerfMode::Server {
+            error!("Reuseport option is enabled, but it is only available for client mode!");
         }
 
         true
@@ -294,6 +309,7 @@ impl nPerf {
         SocketOptions::new(
             !self.without_non_blocking, 
             self.with_ip_frag, 
+            self.with_reuseport,
             gso, 
             gro, 
             recv_buffer_size, 

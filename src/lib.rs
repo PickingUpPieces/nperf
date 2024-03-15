@@ -14,7 +14,8 @@ const MAX_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 212992 ; // 25MB; // The buffer size
 const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 212992; 
 const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 212992; 
 const DEFAULT_DURATION: u64 = 10; // /* seconds */
-const DEFAULT_PORT: u16 = 45001;
+const DEFAULT_SERVER_PORT: u16 = 45001;
+const DEFAULT_CLIENT_PORT: u16 = 46001;
 const WAIT_CONTROL_MESSAGE: u64 = 200; // /* milliseconds */
 
 // /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
