@@ -21,6 +21,5 @@ const WAIT_CONTROL_MESSAGE: u64 = 200; // /* milliseconds */
 // /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1;
-const DEFAULT_IO_MODEL: &str = "select";
 
 pub use command::nPerf;

@@ -5,10 +5,26 @@ use serde_json;
 
 use crate::net::socket_options::SocketOptions;
 
-#[derive(PartialEq, Debug, Clone, Copy, Serialize)]
+#[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
-    Json,
+    #[default]
     Text,
+    Json,
+}
+
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum MultiplexPort {
+    #[default]
+    Individual,
+    Sharing,
+    Sharding
+}
+
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum SimulateConnection {
+    Single,
+    #[default]
+    Multiple
 }
 
 #[derive(Debug, Serialize, Copy, Clone)]
@@ -182,12 +198,14 @@ pub struct Parameter {
     pub packet_buffer_size: usize,
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
-    pub single_socket: bool,
+    pub multiplex_port: MultiplexPort,
+    pub multiplex_port_server: MultiplexPort,
+    pub simulate_connection: SimulateConnection,
 }
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, amount_ports: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, single_socket: bool) -> Parameter {
+    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, amount_ports: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, multiplex_port: MultiplexPort, multiplex_port_server: MultiplexPort, simulate_connection: SimulateConnection) -> Parameter {
         Parameter {
             mode,
             ip,
@@ -201,7 +219,9 @@ impl Parameter {
             packet_buffer_size,
             socket_options,
             exchange_function,
-            single_socket
+            multiplex_port,
+            multiplex_port_server,
+            simulate_connection,
         }
     }
 }

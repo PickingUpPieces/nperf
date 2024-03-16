@@ -161,7 +161,7 @@ impl Server {
 
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
-        if !self.parameter.single_socket {
+        if self.parameter.multiplex_port != MultiplexPort::Sharing {
             self.socket.bind().expect("Error binding to local port");
         }
 
@@ -203,7 +203,7 @@ impl Node for Server {
             statistic.amount_syscalls += 1;
         }
 
-        if !self.parameter.single_socket {
+        if self.parameter.multiplex_port != MultiplexPort::Sharing {
             self.socket.close()?;
         }
 

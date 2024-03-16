@@ -9,34 +9,29 @@ use serde::Serialize;
 use {packet_buffer::PacketBuffer, statistic::Statistic};
 use crate::net::MessageHeader;
 
-#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
+#[derive(clap::ValueEnum, PartialEq, Default, Debug, Copy, Clone, Serialize)]
 pub enum NPerfMode {
-    Client,
+    #[default]
     Server,
+    Client,
 }
 
-#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
+#[derive(clap::ValueEnum, Default, PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum ExchangeFunction {
     Normal,
+    #[default]
     Msg,
     Mmsg
 }
 
-#[derive(PartialEq, Debug, Copy, Clone, Serialize)]
+#[derive(clap::ValueEnum, Default, PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum IOModel {
+    #[default]
+    Poll,
     BusyWaiting,
     Select,
-    Poll,
 }
 
-
-pub fn parse_mode(mode: &str) -> Option<NPerfMode> {
-    match mode {
-        "client" => Some(NPerfMode::Client),
-        "server" => Some(NPerfMode::Server),
-        _ => None,
-    }
-}
 
 pub fn process_packet_buffer(buffer: &[u8], datagram_size: usize, next_packet_id: u64, statistic: &mut Statistic) -> u64 {
     let mut amount_received_packets = 0;

@@ -3,7 +3,7 @@ use log::{debug, error, info};
 
 use std::{cmp::max, sync::mpsc::{self, Sender}, thread};
 
-use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::NPerfMode, DEFAULT_CLIENT_PORT};
+use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::{statistic::{MultiplexPort, OutputFormat, SimulateConnection}, IOModel, NPerfMode}, DEFAULT_CLIENT_PORT};
 use crate::net::{self, socket_options::SocketOptions};
 use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
@@ -12,8 +12,8 @@ use crate::util::{self, statistic::Statistic, ExchangeFunction};
 #[allow(non_camel_case_types)]
 pub struct nPerf {
     /// Mode of operation: client or server
-    #[arg(default_value_t = String::from("server"))]
-    mode: String,
+    #[arg(default_value_t, value_enum)]
+    mode: NPerfMode,
 
     /// IP address to measure against/listen on
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
@@ -55,41 +55,41 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     with_ip_frag: bool,
 
-    /// Use sendmsg/recvmsg method for sending data
+    /// Disable non-blocking socket
     #[arg(long, default_value_t = false)]
-    with_msg: bool,    
-
-    /// Use sendmmsg/recvmmsg method for sending data
-    #[arg(long, default_value_t = false)]
-    with_mmsg: bool, 
-
-    /// Amount of message packs of gso_buffers to send when using sendmmsg
-    #[arg(long, default_value_t = crate::DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)]
-    with_mmsg_amount: usize,
+    without_non_blocking: bool,
 
     /// Enable setting udp socket buffer size
     #[arg(long, default_value_t = false)]
     with_socket_buffer: bool,
 
-    /// Disable non-blocking socket
-    #[arg(long, default_value_t = false)]
-    without_non_blocking: bool,
+    /// Exchange function to use: normal (send/recv), sendmsg/recvmsg, sendmmsg/recvmmsg
+    #[arg(long, default_value_t, value_enum)]
+    exchange_function: ExchangeFunction,
+    
+    /// Amount of message packs of gso_buffers to send when using sendmmsg
+    #[arg(long, default_value_t = crate::DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)]
+    with_mmsg_amount: usize,
 
     /// Select the IO model to use: busy-waiting, select, poll
-    #[arg(long, default_value_t = crate::DEFAULT_IO_MODEL.to_string())]
-    io_model: String,
+    #[arg(long, default_value_t, value_enum)]
+    io_model: IOModel,
 
-    /// Enable json output of statistics
-    #[arg(long, default_value_t = false)]
-    json: bool,
+    /// Define the data structure type the output 
+    #[arg(long, default_value_t, value_enum)]
+    output_format: OutputFormat,
 
-    /// Only one socket descriptor is used for all threads
-    #[arg(long, default_value_t = false)]
-    single_socket: bool,
+    /// Use different port number for each client thread, share a single port or shard a single port with reuseport
+    #[arg(long, default_value_t, value_enum)]
+    multiplex_port: MultiplexPort,
 
-    // Enable reuseport option on socket. For parallel mode same port number for sending is used for all threads.
-    #[arg(long, default_value_t = false)]
-    with_reuseport: bool,
+    /// Same as for multiplex_port, but for the server
+    #[arg(long, default_value_t, value_enum)]
+    multiplex_port_server: MultiplexPort,
+
+    /// CURRENTLY IGNORED. Simulate a single QUIC connection or one QUIC connection per thread.
+    #[arg(long, default_value_t, value_enum)]
+    simulate_connection: SimulateConnection,
 
     /// Show help in markdown format
     #[arg(long, hide = true)]
@@ -122,7 +122,7 @@ impl nPerf {
             let (tx, rx) = mpsc::channel();
     
             // If single-connection, creating the socket and bind to port/connect must happen before the threads are spawned
-            let socket = if self.single_socket {
+            let socket = if self.multiplex_port == MultiplexPort::Sharing {
                 if parameter.mode == util::NPerfMode::Client {
                     let socket = Socket::new(parameter.ip, None, Some(self.port), parameter.socket_options).expect("Error creating socket");
                     socket.connect().expect("Error connecting to remote host");
@@ -136,19 +136,19 @@ impl nPerf {
                 None 
             };
 
-            let local_port_client: Option<u16> = if self.with_reuseport { Some(DEFAULT_CLIENT_PORT) } else { None };
+            let local_port_client: Option<u16> = if self.multiplex_port == MultiplexPort::Sharding { Some(DEFAULT_CLIENT_PORT) } else { None };
 
             for i in 0..self.parallel {
                 let tx: Sender<_> = tx.clone();
-                let port = if self.port != 45001 || self.single_socket {
-                    info!("Port is set to different port than 45001 or single_socket mode is enabled. Incrementing port number is disabled.");
+                let port = if self.port != 45001 || self.multiplex_port == MultiplexPort::Sharing {
+                    info!("Port is set to different port than 45001 or single socket mode is enabled. Incrementing port number is disabled.");
                     self.port
                 } else {
                     self.port + i
                 };
 
                 // Use same test id for all threads
-                let i = if self.single_socket { 0 } else { i };
+                let i = if self.multiplex_port == MultiplexPort::Sharing { 0 } else { i };
 
                 fetch_handle.push(thread::spawn(move || {
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
@@ -215,24 +215,17 @@ impl nPerf {
             return None;
         }
     
-        let mode: util::NPerfMode = match util::parse_mode(&self.mode) {
-            Some(x) => x,
-            None => { error!("Invalid mode! Should be 'client' or 'server'"); return None; },
-        };
-    
         let ipv4 = match net::parse_ipv4(&self.ip) {
             Ok(x) => x,
             Err(_) => { error!("Invalid IPv4 address!"); return None; },
         };
     
-        let (exchange_function, packet_buffer_size) = if self.with_msg {
-            (ExchangeFunction::Msg, 1)
-        } else if self.with_mmsg {
-            (ExchangeFunction::Mmsg, self.with_mmsg_amount)
-        } else {
-            (ExchangeFunction::Normal, 1)
+        let packet_buffer_size = match self.exchange_function {
+            ExchangeFunction::Mmsg => self.with_mmsg_amount,
+            _ => 1,
         };
-        info!("Exchange function used: {:?}", exchange_function);
+
+        info!("Exchange function used: {:?}", self.exchange_function);
         
         let mss = if self.with_gsro {
             info!("GSO/GRO enabled with buffer size {}", self.with_gso_buffer);
@@ -241,33 +234,28 @@ impl nPerf {
             self.with_mss
         };
         info!("MSS used: {}", mss);
-    
-        let io_model = match self.io_model.as_str() {
-            "busy-waiting" => util::IOModel::BusyWaiting,
-            "select" => util::IOModel::Select,
-            "poll" =>util::IOModel::Poll,
-            _ => { error!("Invalid IO model! Should be 'busy-waiting', 'select' or 'poll'"); return None; },
-        };
-        info!("IO model used: {:?}", io_model);
-        info!("Output format: {}", if self.json {"json"} else {"text"});
+        info!("IO model used: {:?}", self.io_model);
+        info!("Output format: {:?}", self.output_format);
         info!("UDP datagram size used: {}", self.datagram_size);
 
-        let socket_options = self.parse_socket_options(mode);
+        let socket_options = self.parse_socket_options(self.mode);
 
         Some(util::statistic::Parameter::new(
-            mode, 
+            self.mode, 
             ipv4, 
             self.parallel,
             if self.port == 45001 { self.parallel } else { 1 },
-            if self.json {util::statistic::OutputFormat::Json} else {util::statistic::OutputFormat::Text}, 
-            io_model, 
+            self.output_format, 
+            self.io_model, 
             self.time, 
             mss, 
             self.datagram_size, 
             packet_buffer_size, 
             socket_options, 
-            exchange_function,
-            self.single_socket
+            self.exchange_function,
+            self.multiplex_port,
+            self.multiplex_port_server,
+            self.simulate_connection
         ))
     }
 
@@ -277,12 +265,7 @@ impl nPerf {
             return false;
         }
 
-        if self.with_reuseport && self.single_socket {
-            error!("Reuseport and single socket option can't be used simultaneously!");
-            return false;
-        }
-
-        if self.with_reuseport && parameter.mode == util::NPerfMode::Server {
+        if self.multiplex_port == MultiplexPort::Sharding && parameter.mode == util::NPerfMode::Server {
             error!("Reuseport option is enabled, but it is only available for client mode!");
         }
 
@@ -309,7 +292,7 @@ impl nPerf {
         SocketOptions::new(
             !self.without_non_blocking, 
             self.with_ip_frag, 
-            self.with_reuseport,
+            if self.multiplex_port == MultiplexPort::Sharding { true } else { false },
             gso, 
             gro, 
             recv_buffer_size, 

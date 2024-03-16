@@ -157,7 +157,7 @@ impl Node for Client {
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.add_message_headers();
 
-        if !self.statistic.parameter.single_socket {
+        if self.statistic.parameter.multiplex_port != MultiplexPort::Sharing {
             self.socket.connect().expect("Error connecting to remote host"); 
         }
 
