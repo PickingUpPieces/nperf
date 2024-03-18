@@ -57,7 +57,7 @@ def parse_config_file(json_file_path):
 def run_test(run_config):
     logging.debug('Running test with config: %s', run_config)
 
-    server_command = [PATH_TO_NPERF_BIN, 'server', '--json']
+    server_command = [PATH_TO_NPERF_BIN, 'server', '--output-format=json']
     
     for k, v in run_config["server"].items():
         if v != False:
@@ -74,7 +74,7 @@ def run_test(run_config):
     time.sleep(1)
 
     # Build client command
-    client_command = [PATH_TO_NPERF_BIN, 'client', '--json']
+    client_command = [PATH_TO_NPERF_BIN, 'client', '--output-format=json']
     
     for k, v in run_config["client"].items():
         if v != False:
@@ -122,7 +122,7 @@ def run_test(run_config):
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'reuseport', 'gso', 'gro', 'single-socket', 'receive_buffer_size', 'send_buffer_size']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -161,10 +161,11 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'packet_loss': server_result['packet_loss'],
                 'nonblocking': server_result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
-                'reuseport': server_result['parameter']['socket_options']['reuseport'],
+                'multiplex_port_client': client_result['parameter']['multiplex_port'],
+                'multiplex_port_server': server_result['parameter']['multiplex_port'],
+                'simulate_connection': client_result['parameter']['simulate_connection'],
                 'gso': client_result['parameter']['socket_options']['gso'],
                 'gro': server_result['parameter']['socket_options']['gro'],
-                'single-socket': server_result['parameter']['single_socket'],
                 'receive_buffer_size': server_result['parameter']['socket_options']['recv_buffer_size'],
                 'send_buffer_size': server_result['parameter']['socket_options']['send_buffer_size']
             }

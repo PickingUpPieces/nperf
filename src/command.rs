@@ -121,8 +121,8 @@ impl nPerf {
             let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
             let (tx, rx) = mpsc::channel();
     
-            // If single-connection, creating the socket and bind to port/connect must happen before the threads are spawned
-            let socket = if self.multiplex_port == MultiplexPort::Sharing {
+            // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
+            let socket = if self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port_server == MultiplexPort::Sharing {
                 if parameter.mode == util::NPerfMode::Client {
                     let socket = Socket::new(parameter.ip, None, Some(self.port), parameter.socket_options).expect("Error creating socket");
                     socket.connect().expect("Error connecting to remote host");
@@ -132,29 +132,30 @@ impl nPerf {
                     socket.bind().expect("Error binding to local port");
                     Some(socket)
                 }
-            } else { 
+            } else {
                 None 
             };
 
-            let local_port_client: Option<u16> = if self.multiplex_port == MultiplexPort::Sharding { Some(DEFAULT_CLIENT_PORT) } else { None };
-
             for i in 0..self.parallel {
                 let tx: Sender<_> = tx.clone();
-                let port = if self.port != 45001 || self.multiplex_port == MultiplexPort::Sharing {
-                    info!("Port is set to different port than 45001 or single socket mode is enabled. Incrementing port number is disabled.");
+                let server_port = if self.multiplex_port_server != MultiplexPort::Individual {
+                    info!("Server port is shared/sharded. Incrementing port number is disabled.");
                     self.port
                 } else {
                     self.port + i
                 };
 
-                // Use same test id for all threads
-                let i = if self.multiplex_port == MultiplexPort::Sharing { 0 } else { i };
+                // Use same test id for all threads if one connection is simulated
+                let i = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
 
                 fetch_handle.push(thread::spawn(move || {
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
-                        Box::new(Client::new(i as u64, parameter.ip, local_port_client, port, socket, parameter))
+                        // Set local port for client if sharding is enabled
+                        let local_port_client: Option<u16> = if self.multiplex_port == MultiplexPort::Sharding { Some(DEFAULT_CLIENT_PORT) } else { None };
+
+                        Box::new(Client::new(i, parameter.ip, local_port_client, server_port, socket, parameter))
                     } else {
-                        Box::new(Server::new(parameter.ip, port, socket, parameter))
+                        Box::new(Server::new(parameter.ip, server_port, socket, parameter))
                     };
     
                     match node.run(parameter.io_model) {
@@ -202,12 +203,14 @@ impl nPerf {
         }
     }
 
+
     pub fn set_args(self, args: Vec<&str>) -> Self {
         let mut args = args;
         args.insert(0, "nPerf");
         let args: Vec<String> = args.iter().map(|x| x.to_string()).collect();
         nPerf::parse_from(args)
     }
+
 
     fn parse_args(&self) -> Option<util::statistic::Parameter> {
         if self.markdown_help {
@@ -225,14 +228,38 @@ impl nPerf {
             _ => 1,
         };
 
-        info!("Exchange function used: {:?}", self.exchange_function);
-        
         let mss = if self.with_gsro {
             info!("GSO/GRO enabled with buffer size {}", self.with_gso_buffer);
             self.with_gso_buffer
         } else {
             self.with_mss
         };
+
+        // Setting simulate_connection to the currently supported values -> quite ugly 
+        let simulate_connection = match self.mode {
+            NPerfMode::Client => {
+                match self.multiplex_port {
+                    MultiplexPort::Individual => {
+                        match self.multiplex_port_server {
+                            MultiplexPort::Individual => SimulateConnection::Multiple,
+                            _ => SimulateConnection::Single
+                        }},
+                    MultiplexPort::Sharing => SimulateConnection::Single,
+                    MultiplexPort::Sharding => {
+                        match self.multiplex_port_server {
+                            MultiplexPort::Individual => SimulateConnection::Multiple,
+                            _ => SimulateConnection::Single
+                        }
+                    }
+                }
+            },
+            NPerfMode::Server => {
+                if self.multiplex_port_server == MultiplexPort::Individual { SimulateConnection::Multiple } else { SimulateConnection::Single }
+            }
+        };
+
+        info!("Simulate connection: {:?}", simulate_connection);
+        info!("Exchange function used: {:?}", self.exchange_function);
         info!("MSS used: {}", mss);
         info!("IO model used: {:?}", self.io_model);
         info!("Output format: {:?}", self.output_format);
@@ -255,7 +282,7 @@ impl nPerf {
             self.exchange_function,
             self.multiplex_port,
             self.multiplex_port_server,
-            self.simulate_connection
+            simulate_connection
         ))
     }
 
@@ -265,8 +292,15 @@ impl nPerf {
             return false;
         }
 
-        if self.multiplex_port == MultiplexPort::Sharding && parameter.mode == util::NPerfMode::Server {
-            error!("Reuseport option is enabled, but it is only available for client mode!");
+        if parameter.mode == util::NPerfMode::Client { 
+            if self.multiplex_port == MultiplexPort::Sharing && self.multiplex_port_server == MultiplexPort::Individual {
+                error!("Sharing on client side is only available if server side is also set to sharing or sharding (uses one port)!");
+                return false;
+            }
+            if ( self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) && self.multiplex_port_server == MultiplexPort::Sharding {
+                error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
+                return false;
+            }
         }
 
         true
