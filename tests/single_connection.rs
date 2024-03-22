@@ -18,7 +18,7 @@ fn test_client_reuseport() -> Result<(), Box<dyn std::error::Error>>{
 fn multiple_clients_multiple_server_single_socket() -> Result<(), Box<dyn std::error::Error>>{
     let handle = common::start_nperf_server(Some(vec!["--port=45003".to_string(), "--parallel=2".to_string(), "--multiplex-port-server=sharing".to_string()]));
 
-    let args = vec!["client",  "--parallel=2", "--port=45003", "--multiplex-port=sharing", "--multiplex-port-server=sharing"];
+    let args = vec!["client",  "--parallel=2", "--port=45003", "--client-port=47001", "--multiplex-port=sharing", "--multiplex-port-server=sharing"];
     if let Some(x) = nperf::nPerf::new().set_args(args).exec() {
         assert!(x.amount_datagrams > 10000);
     };

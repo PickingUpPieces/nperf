@@ -1,9 +1,9 @@
 use clap::Parser;
 use log::{debug, error, info};
 
-use std::{cmp::max, sync::mpsc::{self, Sender}, thread};
+use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
 
-use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::{statistic::{MultiplexPort, OutputFormat, SimulateConnection}, IOModel, NPerfMode}, DEFAULT_CLIENT_PORT};
+use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::{statistic::{MultiplexPort, OutputFormat, SimulateConnection}, IOModel, NPerfMode}, DEFAULT_CLIENT_IP};
 use crate::net::{self, socket_options::SocketOptions};
 use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
@@ -19,9 +19,13 @@ pub struct nPerf {
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
-    /// Port number to measure against/listen on. If port is defined with parallel mode, all client threads will measure against the same port. 
+    /// Port number to measure against, server listen on.
     #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
     port: u16,
+
+    /// Port number clients send from.
+    #[arg(short, long, default_value_t = crate::DEFAULT_CLIENT_PORT)]
+    client_port: u16,
 
     /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
     #[arg(long, default_value_t = 1)]
@@ -122,19 +126,27 @@ impl nPerf {
             let (tx, rx) = mpsc::channel();
     
             // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
-            let socket = if self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port_server == MultiplexPort::Sharing {
-                if parameter.mode == util::NPerfMode::Client {
-                    let socket = Socket::new(parameter.ip, None, Some(self.port), parameter.socket_options).expect("Error creating socket");
-                    socket.connect().expect("Error connecting to remote host");
+            let socket = if parameter.mode == NPerfMode::Client && self.multiplex_port == MultiplexPort::Sharing {
+                    let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
+                    let sock_address_in = SocketAddrV4::new(DEFAULT_CLIENT_IP, self.client_port);
+
+                    socket.bind(sock_address_in).expect("Error binding to local port");
+
+                    // connect (includes bind) to specific 4-tuple, since every thread sends to same port on the server side
+                    if self.multiplex_port_server != MultiplexPort::Individual {
+                        let sock_address_out = SocketAddrV4::new(parameter.ip, self.port);
+                        socket.connect(sock_address_out).expect("Error connecting to remote host");
+                    }
+
+                    Some(socket)
+                } else if parameter.mode == NPerfMode::Server && self.multiplex_port_server == MultiplexPort::Sharing {
+                    let sock_address_in = SocketAddrV4::new(parameter.ip, self.port);
+                    let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
+                    socket.bind(sock_address_in).expect("Error binding to local port");
                     Some(socket)
                 } else {
-                    let socket = Socket::new(parameter.ip, Some(self.port), None, parameter.socket_options).expect("Error creating socket");
-                    socket.bind().expect("Error binding to local port");
-                    Some(socket)
-                }
-            } else {
-                None 
-            };
+                    None
+                };
 
             for i in 0..self.parallel {
                 let tx: Sender<_> = tx.clone();
@@ -149,13 +161,13 @@ impl nPerf {
                 let i = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
 
                 fetch_handle.push(thread::spawn(move || {
+                    let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
                     let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
                         // Set local port for client if sharding is enabled
-                        let local_port_client: Option<u16> = if self.multiplex_port == MultiplexPort::Sharding { Some(DEFAULT_CLIENT_PORT) } else { None };
-
-                        Box::new(Client::new(i, parameter.ip, local_port_client, server_port, socket, parameter))
+                        let local_port_client: Option<u16> = if self.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
+                        Box::new(Client::new(i, local_port_client, sock_address_server, socket, parameter))
                     } else {
-                        Box::new(Server::new(parameter.ip, server_port, socket, parameter))
+                        Box::new(Server::new(sock_address_server, socket, parameter))
                     };
     
                     match node.run(parameter.io_model) {
@@ -271,7 +283,6 @@ impl nPerf {
             self.mode, 
             ipv4, 
             self.parallel,
-            if self.port == 45001 { self.parallel } else { 1 },
             self.output_format, 
             self.io_model, 
             self.time, 
@@ -301,6 +312,11 @@ impl nPerf {
                 error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
                 return false;
             }
+        }
+
+        if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
+            error!("Can't set client multiplexing on server side!");
+            return false;
         }
 
         true

@@ -55,7 +55,7 @@
                 "RUST_LOG": "INFO",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["client", "--exchange-function", "msg"],
+            "args": ["client", "--exchange-function", "msg", "--multiplex-port=sharding"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
             "preLaunchTask": "delay"

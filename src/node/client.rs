@@ -1,8 +1,10 @@
-use std::{net::Ipv4Addr, thread::sleep, time::Instant};
+use std::net::SocketAddrV4;
+use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
 use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
+use crate::DEFAULT_CLIENT_IP;
 use super::Node;
 
 pub struct Client {
@@ -16,9 +18,21 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u64, ip: Ipv4Addr, local_port: Option<u16>, remote_port: u16, socket: Option<Socket>, parameter: Parameter) -> Self {
-        let socket: Socket = socket.unwrap_or_else(|| Socket::new(ip, local_port, Some(remote_port), parameter.socket_options).expect("Error creating socket"));
-        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", ip, remote_port, ip, local_port.unwrap_or_default(), test_id, socket.get_socket_id());
+    pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Self {
+        let socket = if socket.is_none() {
+            let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
+            if local_port.is_some() {
+                socket.bind(SocketAddrV4::new(DEFAULT_CLIENT_IP, local_port.unwrap())).expect("Error binding socket");
+            }
+            socket.connect(sock_address_out).expect("Error connecting to remote host");
+            socket
+        } else {
+            let mut socket = socket.unwrap();
+            socket.set_sock_addr_out(sock_address_out); // Set socket address out for the remote host
+            socket
+        };
+
+        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
@@ -156,10 +170,6 @@ impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.add_message_headers();
-
-        if self.statistic.parameter.multiplex_port != MultiplexPort::Sharing {
-            self.socket.connect().expect("Error connecting to remote host"); 
-        }
 
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);

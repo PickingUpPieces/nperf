@@ -122,7 +122,7 @@ def run_test(run_config):
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'amount_used_ports_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -143,7 +143,6 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'run_name': server_result['run_name'],
                 'amount_threads_client': client_result['parameter']['amount_threads'],
                 'amount_threads_server': server_result['parameter']['amount_threads'],
-                'amount_used_ports_server': server_result['parameter']['amount_ports'],
                 'test_runtime_length': server_result['parameter']['test_runtime_length'],
                 'datagram_size': server_result['parameter']['datagram_size'],
                 'packet_buffer_size': server_result['parameter']['packet_buffer_size'],

@@ -1,5 +1,6 @@
 
-use std::{net::Ipv4Addr, time::Instant, collections::HashMap};
+use std::net::SocketAddrV4;
+use std::{time::Instant, collections::HashMap};
 use log::{debug, error, info, trace};
 
 use crate::net::{socket::Socket, MessageHeader, MessageType};
@@ -16,9 +17,16 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(ip: Ipv4Addr, local_port: u16, socket: Option<Socket>, parameter: Parameter) -> Server {
-        let socket = socket.unwrap_or_else(|| Socket::new(ip, Some(local_port), None, parameter.socket_options).expect("Error creating socket"));
-        info!("Current mode 'server' listening on {}:{} with socketID {}", ip, local_port, socket.get_socket_id());
+    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Server {
+        let socket = if socket.is_none() {
+            let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
+            socket.bind(sock_address_in).expect("Error binding to local port");
+            socket
+        } else {
+            socket.unwrap()
+        };
+
+        info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Server {
@@ -161,10 +169,6 @@ impl Server {
 
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
-        if self.parameter.multiplex_port_server != MultiplexPort::Sharing {
-            self.socket.bind().expect("Error binding to local port");
-        }
-
         info!("Start server loop...");
         let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
