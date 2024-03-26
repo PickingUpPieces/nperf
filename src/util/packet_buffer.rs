@@ -7,6 +7,8 @@ pub struct PacketBuffer {
     buffer: Vec<u8>,
     iov: libc::iovec,
     msg_control: [u8; LENGTH_CONTROL_MESSAGE_BUFFER],
+    msghdr: libc::msghdr,
+    sockaddr: libc::sockaddr_in,
     datagram_size: u32,
     _last_packet_size: u32,
     packets_amount: usize,
@@ -14,7 +16,6 @@ pub struct PacketBuffer {
 
 impl PacketBuffer {
     pub fn new(mss: u32, datagram_size: u32) -> Option<Self> {
-        let mut buffer = vec![0; mss as usize];
 
         let rest_of_buffer = mss % datagram_size;
         let _last_packet_size = if rest_of_buffer == 0 {
@@ -28,27 +29,34 @@ impl PacketBuffer {
         let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
         debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
 
-        let iov = libc::iovec {
+        let mut buffer = vec![0; mss as usize];
+        let mut iov = libc::iovec {
             iov_base: buffer.as_mut_ptr() as *mut _,
             iov_len: buffer.len(),
         };
 
+        let msg_control = [0; LENGTH_CONTROL_MESSAGE_BUFFER];
+        let msghdr = Self::create_msghdr(&mut iov);
+        let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+
         Some(PacketBuffer {
             buffer,
             iov,
-            msg_control: [0; LENGTH_CONTROL_MESSAGE_BUFFER],
+            msg_control,
+            msghdr,
+            sockaddr,
             datagram_size,
             _last_packet_size,
             packets_amount,
         })
     }
 
-    pub fn create_msghdr(&mut self) -> libc::msghdr {
+    fn create_msghdr(iov: &mut libc::iovec) -> libc::msghdr {
         let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
         
         msghdr.msg_name = std::ptr::null_mut();
         msghdr.msg_namelen = 0;
-        msghdr.msg_iov = (&mut self.iov) as *mut _;
+        msghdr.msg_iov = iov as *mut _;
         msghdr.msg_iovlen = 1;
         msghdr.msg_control = std::ptr::null_mut();
         msghdr.msg_controllen = 0;
@@ -56,11 +64,25 @@ impl PacketBuffer {
         msghdr
     }
 
-    pub fn add_cmsg_buffer(&mut self, msghdr: &mut libc::msghdr) {
-        // TODO: Check if this is necessary
-        // self.msg_control = unsafe { std::mem::zeroed() };
-        msghdr.msg_control = (&mut self.msg_control) as *mut _ as *mut libc::c_void;
-        msghdr.msg_controllen = self.msg_control.len();
+    fn set_msghdr_iov(&mut self) {
+        self.msghdr.msg_iov = &mut self.iov as *mut _;
+    }
+
+    pub fn set_address(&mut self, address: libc::sockaddr_in) {
+        self.sockaddr = address;
+        self.msghdr.msg_name = (&mut self.sockaddr) as *mut _ as *mut libc::c_void;
+        self.msghdr.msg_namelen = std::mem::size_of::<libc::sockaddr_in>() as u32;
+    }
+
+    pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
+        // Re-set iov pointer, since it could have been reallocated
+        self.set_msghdr_iov();
+        &mut self.msghdr
+    }
+
+    pub fn add_cmsg_buffer(&mut self) {
+        self.msghdr.msg_control = (&mut self.msg_control) as *mut _ as *mut libc::c_void;
+        self.msghdr.msg_controllen = self.msg_control.len();
     }
 
     // Similar to iperf3's fill_with_repeating_pattern
@@ -75,7 +97,7 @@ impl PacketBuffer {
                 counter += 1;
             }
         }
-
+        
         debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
     }
 
@@ -112,6 +134,15 @@ impl PacketBuffer {
 
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
         &mut self.buffer
+    }
+
+    pub fn set_buffer(&mut self, buffer: Vec<u8>) {
+        self.buffer = buffer;
+        let iov = libc::iovec {
+            iov_base: self.buffer.as_mut_ptr() as *mut _,
+            iov_len: self.buffer.len(),
+        };
+        self.iov = iov;
     }
 
     pub fn get_buffer_length(&self) -> usize {

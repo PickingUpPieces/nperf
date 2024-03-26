@@ -27,7 +27,8 @@ impl Server {
         };
 
         info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
-        let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
+        let mut packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
+        packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.add_cmsg_buffer());
 
         Server {
             packet_buffer,
@@ -48,7 +49,10 @@ impl Server {
     }
 
     fn recv(&mut self) -> Result<(), &'static str> {
-        match self.socket.recv(self.packet_buffer[0].get_buffer_pointer()) {
+        // Only one buffer is used, so we can directly access the first element
+        let buffer_pointer = self.packet_buffer[0].get_buffer_pointer();
+
+        match self.socket.recv(buffer_pointer) {
             Ok(amount_received_bytes) => {
                 let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer());
                 let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
@@ -69,19 +73,20 @@ impl Server {
     }
 
     fn recvmsg(&mut self) -> Result<(), &'static str> {
-        let mut msghdr = self.packet_buffer[0].create_msghdr();
-        self.packet_buffer[0].add_cmsg_buffer(&mut msghdr);
+        // Only one buffer is used, so we can directly access the first element
+        let msghdr = self.packet_buffer[0].get_msghdr();
 
-        match self.socket.recvmsg(&mut msghdr) {
+        match self.socket.recvmsg(msghdr) {
             Ok(amount_received_bytes) => {
                 let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer());
                 let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
 
                 self.parse_message_type(mtype, test_id)?;
 
+                let msghdr = self.packet_buffer[0].get_msghdr();
                 let statistic = &mut self.measurements.get_mut(&test_id).expect("Error getting statistic: test id not found").statistic;
                 let absolut_packets_received;
-                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(&mut msghdr, amount_received_bytes, self.next_packet_id, statistic);
+                (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes, self.next_packet_id, statistic);
                 statistic.amount_datagrams += absolut_packets_received;
                 statistic.amount_data_bytes += amount_received_bytes;
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
@@ -93,7 +98,6 @@ impl Server {
     }
 
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
-        // TODO: Create vector once and reuse it
         let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer, true);
 
         match self.socket.recvmmsg(&mut mmsghdr_vec) {
@@ -170,10 +174,10 @@ impl Server {
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
         info!("Start server loop...");
+        let mut statistic = Statistic::new(self.parameter);
+
         let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
         self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
-
-        let mut statistic = Statistic::new(self.parameter);
 
         'outer: loop {
             match self.recv_messages() {

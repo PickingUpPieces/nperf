@@ -250,19 +250,9 @@ impl nPerf {
         // Setting simulate_connection to the currently supported values -> quite ugly 
         let simulate_connection = match self.mode {
             NPerfMode::Client => {
-                match self.multiplex_port {
-                    MultiplexPort::Individual => {
-                        match self.multiplex_port_server {
-                            MultiplexPort::Individual => SimulateConnection::Multiple,
-                            _ => SimulateConnection::Single
-                        }},
-                    MultiplexPort::Sharing => SimulateConnection::Single,
-                    MultiplexPort::Sharding => {
-                        match self.multiplex_port_server {
-                            MultiplexPort::Individual => SimulateConnection::Multiple,
-                            _ => SimulateConnection::Single
-                        }
-                    }
+                match self.multiplex_port_server {
+                    MultiplexPort::Individual => SimulateConnection::Multiple,
+                    _ => SimulateConnection::Single
                 }
             },
             NPerfMode::Server => {
@@ -304,10 +294,6 @@ impl nPerf {
         }
 
         if parameter.mode == util::NPerfMode::Client { 
-            if self.multiplex_port == MultiplexPort::Sharing && self.multiplex_port_server == MultiplexPort::Individual {
-                error!("Sharing on client side is only available if server side is also set to sharing or sharding (uses one port)!");
-                return false;
-            }
             if ( self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) && self.multiplex_port_server == MultiplexPort::Sharding {
                 error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
                 return false;

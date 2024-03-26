@@ -48,11 +48,23 @@ impl Client {
 
     fn send_control_message(&mut self, mtype: MessageType) -> Result<(), &'static str> {
         let header = MessageHeader::new(mtype, self.test_id, 0);
-        debug!("Coordination message send: {:?}", header);
-        match self.socket.send(header.serialize(), header.len()) {
-            Ok(_) => { Ok(()) },
-            Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
-            Err(x) => Err(x)
+        debug!("Coordination message: {:?}", header);
+
+        let buffer = PacketBuffer::new(header.len() as u32, header.len() as u32);
+
+        if let Some(mut buffer) = buffer {
+            buffer.set_buffer(header.serialize().to_vec());
+            let sockaddr = self.socket.get_sockaddr_out().unwrap();
+            buffer.set_address(sockaddr);
+            let msghdr = buffer.get_msghdr();
+
+            match self.socket.sendmsg(msghdr) {
+                Ok(_) => { Ok(()) },
+                Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+                Err(x) => Err(x)
+            }
+        } else {
+            Err("Error creating buffer")
         }
     }
 
@@ -66,9 +78,12 @@ impl Client {
 
     fn send(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.add_packet_ids()?;
-        let buffer_length = self.packet_buffer[0].get_buffer_length();
 
-        match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
+        // Only one buffer is used, so we can directly access the first element
+        let buffer_length = self.packet_buffer[0].get_buffer_length();
+        let buffer_pointer = self.packet_buffer[0].get_buffer_pointer();
+
+        match self.socket.send(buffer_pointer , buffer_length) {
             Ok(amount_send_bytes) => {
                 // For UDP, either the whole datagram is sent or nothing (due to an error e.g. full buffer). So we can assume that the whole datagram was sent.
                 self.statistic.amount_datagrams += amount_datagrams;
@@ -88,9 +103,11 @@ impl Client {
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.add_packet_ids()?;
-        let msghdr = self.packet_buffer[0].create_msghdr();
 
-        match self.socket.sendmsg(&msghdr) {
+        // Only one buffer is used, so we can directly access the first element
+        let msghdr = self.packet_buffer[0].get_msghdr();
+
+        match self.socket.sendmsg(msghdr) {
             Ok(amount_sent_bytes) => {
                 // Since we are using UDP, we can assume that the whole datagram was sent like in send().
                 self.statistic.amount_datagrams += amount_datagrams;
@@ -170,6 +187,14 @@ impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.add_message_headers();
+        
+        if self.statistic.parameter.multiplex_port == MultiplexPort::Sharing && self.statistic.parameter.multiplex_port_server == MultiplexPort::Individual {
+            if let Some(sockaddr) = self.socket.get_sockaddr_out() {
+                self.packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.set_address(sockaddr));
+            } else {
+                return Err("No socket address out set on socket! Aborting measurement...");
+            }
+        }
 
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);

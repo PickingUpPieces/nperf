@@ -129,11 +129,12 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
 pub fn create_mmsghdr_vec(packet_buffer_vec: &mut [PacketBuffer], with_cmsg: bool) -> Vec<libc::mmsghdr> {
     let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
     for packet_buffer in packet_buffer_vec.iter_mut() {
-        let mut msghdr = packet_buffer.create_msghdr();
-
         if with_cmsg {
-            packet_buffer.add_cmsg_buffer(&mut msghdr);
+            packet_buffer.add_cmsg_buffer();
         }
+
+        // We can't use a reference of msghdr, since we need to move it into the mmsghdr struct
+        let msghdr = packet_buffer.get_msghdr().clone();
 
         let mmsghdr = create_mmsghdr(msghdr);
         mmsghdr_vec.push(mmsghdr);

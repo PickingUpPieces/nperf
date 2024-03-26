@@ -40,7 +40,7 @@ impl Socket {
 
     pub fn connect(&mut self, sock_address: SocketAddrV4) -> Result<(), &'static str> {
         self.sock_addr_out = Some(sock_address);
-        let sockaddr = Self::create_sockaddr(self.sock_addr_out.expect("Outgoing socket address not set!"));
+        let sockaddr = Self::create_sockaddr(&self.sock_addr_out.expect("Outgoing socket address not set!"));
  
         let connect_result = unsafe {
             libc::connect(
@@ -60,7 +60,7 @@ impl Socket {
 
     pub fn bind(&mut self, sock_address: SocketAddrV4) -> Result<(), &'static str> {
         self.sock_addr_in = Some(sock_address);
-        let sockaddr = Self::create_sockaddr(self.sock_addr_in.expect("Outgoing socket address not set!"));
+        let sockaddr = Self::create_sockaddr(&self.sock_addr_in.expect("Outgoing socket address not set!"));
     
         let bind_result = unsafe {
             libc::bind(
@@ -306,8 +306,10 @@ impl Socket {
         self.sock_addr_out = Some(sock_address);
     }
 
-    fn create_sockaddr(sock_address: SocketAddrV4) -> libc::sockaddr_in {
-        let addr_u32: u32 = sock_address.ip().clone().into(); 
+    fn create_sockaddr(sock_address: &SocketAddrV4) -> libc::sockaddr_in {
+        // Convert Ipv4Addr to libc::in_addr
+        let addr = sock_address.ip().clone(); 
+        let addr_u32 = u32::from_be_bytes(addr.octets());
     
         #[cfg(target_os = "linux")]
         libc::sockaddr_in {
@@ -318,8 +320,16 @@ impl Socket {
         }
     }
 
+    pub fn get_sockaddr_out(&self) -> Option<libc::sockaddr_in> {
+        if let Some(sock_addr) = &self.sock_addr_out {
+            Some(Self::create_sockaddr(sock_addr))
+        } else {
+            None
+        }
+    }
+
     pub unsafe fn create_fdset(&self) -> libc::fd_set {
-        let mut fd_set: libc::fd_set =std::mem::zeroed();
+        let mut fd_set: libc::fd_set = std::mem::zeroed();
         libc::FD_ZERO(&mut fd_set); 
         libc::FD_SET(self.socket, &mut fd_set);
         fd_set
