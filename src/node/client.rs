@@ -21,8 +21,8 @@ impl Client {
     pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Self {
         let socket = if socket.is_none() {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
-            if local_port.is_some() {
-                socket.bind(SocketAddrV4::new(DEFAULT_CLIENT_IP, local_port.unwrap())).expect("Error binding socket");
+            if let Some(port) = local_port {
+                socket.bind(SocketAddrV4::new(DEFAULT_CLIENT_IP, port)).expect("Error binding socket");
             }
             socket.connect(sock_address_out).expect("Error connecting to remote host");
             socket

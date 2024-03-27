@@ -134,7 +134,7 @@ pub fn create_mmsghdr_vec(packet_buffer_vec: &mut [PacketBuffer], with_cmsg: boo
         }
 
         // We can't use a reference of msghdr, since we need to move it into the mmsghdr struct
-        let msghdr = packet_buffer.get_msghdr().clone();
+        let msghdr = *packet_buffer.get_msghdr();
 
         let mmsghdr = create_mmsghdr(msghdr);
         mmsghdr_vec.push(mmsghdr);

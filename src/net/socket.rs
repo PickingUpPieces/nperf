@@ -308,7 +308,7 @@ impl Socket {
 
     fn create_sockaddr(sock_address: &SocketAddrV4) -> libc::sockaddr_in {
         // Convert Ipv4Addr to libc::in_addr
-        let addr = sock_address.ip().clone(); 
+        let addr = sock_address.ip(); 
         let addr_u32 = u32::from_be_bytes(addr.octets());
     
         #[cfg(target_os = "linux")]
@@ -320,6 +320,7 @@ impl Socket {
         }
     }
 
+    #[allow(clippy::manual_map)]
     pub fn get_sockaddr_out(&self) -> Option<libc::sockaddr_in> {
         if let Some(sock_addr) = &self.sock_addr_out {
             Some(Self::create_sockaddr(sock_addr))

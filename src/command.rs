@@ -185,11 +185,9 @@ impl nPerf {
             return false;
         }
 
-        if parameter.mode == util::NPerfMode::Client { 
-            if ( self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) && self.multiplex_port_server == MultiplexPort::Sharding {
-                error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
-                return false;
-            }
+        if parameter.mode == util::NPerfMode::Client && self.multiplex_port_server == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
+            error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
+            return false;
         }
 
         if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
@@ -220,7 +218,7 @@ impl nPerf {
         SocketOptions::new(
             !self.without_non_blocking, 
             self.with_ip_frag, 
-            if self.multiplex_port == MultiplexPort::Sharding { true } else { false },
+            self.multiplex_port == MultiplexPort::Sharding,
             gso, 
             gro, 
             recv_buffer_size, 

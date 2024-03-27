@@ -18,12 +18,12 @@ pub struct Server {
 
 impl Server {
     pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Server {
-        let socket = if socket.is_none() {
+        let socket = if let Some(socket) = socket {
+            socket
+        } else {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             socket.bind(sock_address_in).expect("Error binding to local port");
             socket
-        } else {
-            socket.unwrap()
         };
 
         info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
