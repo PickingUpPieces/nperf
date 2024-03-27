@@ -18,14 +18,20 @@ A network performance measurement tool
 
   Default value: `server`
 
+  Possible values: `server`, `client`
+
+
 ###### **Options:**
 
 * `-a`, `--ip <IP>` — IP address to measure against/listen on
 
   Default value: `0.0.0.0`
-* `-p`, `--port <PORT>` — Port number to measure against/listen on. If port is defined with parallel mode, all client threads will measure against the same port
+* `-p`, `--port <PORT>` — Port number to measure against, server listen on
 
   Default value: `45001`
+* `-c`, `--client-port <CLIENT_PORT>` — Port number clients send from
+
+  Default value: `46001`
 * `--parallel <PARALLEL>` — Start multiple client/server threads in parallel. The port number will be incremented automatically
 
   Default value: `1`
@@ -59,49 +65,58 @@ A network performance measurement tool
 
   Possible values: `true`, `false`
 
-* `--with-msg` — Use sendmsg/recvmsg method for sending data
-
-  Default value: `false`
-
-  Possible values: `true`, `false`
-
-* `--with-mmsg` — Use sendmmsg/recvmmsg method for sending data
-
-  Default value: `false`
-
-  Possible values: `true`, `false`
-
-* `--with-mmsg-amount <WITH_MMSG_AMOUNT>` — Amount of message packs of gso_buffers to send when using sendmmsg
-
-  Default value: `1024`
-* `--with-socket-buffer` — Enable setting udp socket buffer size
-
-  Default value: `false`
-
-  Possible values: `true`, `false`
-
 * `--without-non-blocking` — Disable non-blocking socket
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
+* `--with-socket-buffer` — Enable setting udp socket buffer size
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
+* `--exchange-function <EXCHANGE_FUNCTION>` — Exchange function to use: normal (send/recv), sendmsg/recvmsg, sendmmsg/recvmmsg
+
+  Default value: `msg`
+
+  Possible values: `normal`, `msg`, `mmsg`
+
+* `--with-mmsg-amount <WITH_MMSG_AMOUNT>` — Amount of message packs of gso_buffers to send when using sendmmsg
+
+  Default value: `1`
 * `--io-model <IO_MODEL>` — Select the IO model to use: busy-waiting, select, poll
 
-  Default value: `select`
-* `--json` — Enable json output of statistics
+  Default value: `poll`
 
-  Default value: `false`
+  Possible values: `poll`, `busy-waiting`, `select`
 
-  Possible values: `true`, `false`
+* `--output-format <OUTPUT_FORMAT>` — Define the data structure type the output
 
-* `--single-connection` — Only one socket descriptor is used for all threads
+  Default value: `text`
 
-  Default value: `false`
+  Possible values: `text`, `json`
 
-  Possible values: `true`, `false`
+* `--multiplex-port <MULTIPLEX_PORT>` — Use different port number for each client thread, share a single port or shard a single port with reuseport
 
-* `--markdown-help`
+  Default value: `individual`
+
+  Possible values: `individual`, `sharing`, `sharding`
+
+* `--multiplex-port-server <MULTIPLEX_PORT_SERVER>` — Same as for multiplex_port, but for the server
+
+  Default value: `individual`
+
+  Possible values: `individual`, `sharing`, `sharding`
+
+* `--simulate-connection <SIMULATE_CONNECTION>` — CURRENTLY IGNORED. Simulate a single QUIC connection or one QUIC connection per thread
+
+  Default value: `multiple`
+
+  Possible values: `single`, `multiple`
+
+* `--markdown-help` — Show help in markdown format
 
   Possible values: `true`, `false`
 
