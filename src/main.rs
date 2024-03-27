@@ -1,5 +1,12 @@
 use nperf::nPerf;
 
 fn main() {
-    nPerf::new().exec();
+    let nperf = nPerf::new();
+
+    let parameter = match nperf.parse_parameter() {
+        Some(x) => x,
+        None => { return },
+    };
+
+    nperf.exec(parameter);
 }

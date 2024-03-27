@@ -1,8 +1,10 @@
-use std::{net::Ipv4Addr, thread::sleep, time::Instant};
+use std::net::SocketAddrV4;
+use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
 use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
+use crate::DEFAULT_CLIENT_IP;
 use super::Node;
 
 pub struct Client {
@@ -16,9 +18,21 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u64, ip: Ipv4Addr, local_port: Option<u16>, remote_port: u16, socket: Option<Socket>, parameter: Parameter) -> Self {
-        let socket: Socket = socket.unwrap_or_else(|| Socket::new(ip, local_port, Some(remote_port), parameter.socket_options).expect("Error creating socket"));
-        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", ip, remote_port, ip, local_port.unwrap_or_default(), test_id, socket.get_socket_id());
+    pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Self {
+        let socket = if socket.is_none() {
+            let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
+            if let Some(port) = local_port {
+                socket.bind(SocketAddrV4::new(DEFAULT_CLIENT_IP, port)).expect("Error binding socket");
+            }
+            socket.connect(sock_address_out).expect("Error connecting to remote host");
+            socket
+        } else {
+            let mut socket = socket.unwrap();
+            socket.set_sock_addr_out(sock_address_out); // Set socket address out for the remote host
+            socket
+        };
+
+        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
         let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
 
         Client {
@@ -34,11 +48,23 @@ impl Client {
 
     fn send_control_message(&mut self, mtype: MessageType) -> Result<(), &'static str> {
         let header = MessageHeader::new(mtype, self.test_id, 0);
-        debug!("Coordination message send: {:?}", header);
-        match self.socket.send(header.serialize(), header.len()) {
-            Ok(_) => { Ok(()) },
-            Err("ECONNREFUSED") => Err("Server not reachable! Abort measurement..."),
-            Err(x) => Err(x)
+        debug!("Coordination message: {:?}", header);
+
+        let buffer = PacketBuffer::new(header.len() as u32, header.len() as u32);
+
+        if let Some(mut buffer) = buffer {
+            buffer.set_buffer(header.serialize().to_vec());
+            let sockaddr = self.socket.get_sockaddr_out().unwrap();
+            buffer.set_address(sockaddr);
+            let msghdr = buffer.get_msghdr();
+
+            match self.socket.sendmsg(msghdr) {
+                Ok(_) => { Ok(()) },
+                Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+                Err(x) => Err(x)
+            }
+        } else {
+            Err("Error creating buffer")
         }
     }
 
@@ -52,9 +78,12 @@ impl Client {
 
     fn send(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.add_packet_ids()?;
-        let buffer_length = self.packet_buffer[0].get_buffer_length();
 
-        match self.socket.send(self.packet_buffer[0].get_buffer_pointer() , buffer_length) {
+        // Only one buffer is used, so we can directly access the first element
+        let buffer_length = self.packet_buffer[0].get_buffer_length();
+        let buffer_pointer = self.packet_buffer[0].get_buffer_pointer();
+
+        match self.socket.send(buffer_pointer , buffer_length) {
             Ok(amount_send_bytes) => {
                 // For UDP, either the whole datagram is sent or nothing (due to an error e.g. full buffer). So we can assume that the whole datagram was sent.
                 self.statistic.amount_datagrams += amount_datagrams;
@@ -74,9 +103,11 @@ impl Client {
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.add_packet_ids()?;
-        let msghdr = self.packet_buffer[0].create_msghdr();
 
-        match self.socket.sendmsg(&msghdr) {
+        // Only one buffer is used, so we can directly access the first element
+        let msghdr = self.packet_buffer[0].get_msghdr();
+
+        match self.socket.sendmsg(msghdr) {
             Ok(amount_sent_bytes) => {
                 // Since we are using UDP, we can assume that the whole datagram was sent like in send().
                 self.statistic.amount_datagrams += amount_datagrams;
@@ -156,9 +187,13 @@ impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         self.fill_packet_buffers_with_repeating_pattern(); 
         self.add_message_headers();
-
-        if !self.statistic.parameter.single_socket {
-            self.socket.connect().expect("Error connecting to remote host"); 
+        
+        if self.statistic.parameter.multiplex_port == MultiplexPort::Sharing && self.statistic.parameter.multiplex_port_server == MultiplexPort::Individual {
+            if let Some(sockaddr) = self.socket.get_sockaddr_out() {
+                self.packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.set_address(sockaddr));
+            } else {
+                return Err("No socket address out set on socket! Aborting measurement...");
+            }
         }
 
         if let Ok(mss) = self.socket.get_mss() {

@@ -1,28 +1,26 @@
 
 use log::{debug, error, info, trace, warn};
-use std::{self, net::Ipv4Addr, io::Error};
+use std::{self, io::Error, net::SocketAddrV4};
 
 use super::socket_options::{self, SocketOptions};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Socket {
-    ip: Ipv4Addr,
-    local_port: Option<u16>,
-    remote_port: Option<u16>,
+    sock_addr_in: Option<SocketAddrV4>,
+    sock_addr_out: Option<SocketAddrV4>,
     socket: i32,
     sendmmsg_econnrefused_counter: u16
 } 
 
 impl Socket {
-    pub fn new(ip: Ipv4Addr, local_port: Option<u16>, remote_port: Option<u16>, mut socket_options: SocketOptions) -> Option<Socket> {
+    pub fn new(mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
         socket_options.set_socket_options(socket).expect("Error updating socket options");
 
         Some(Socket {
-            ip,
-            local_port,
-            remote_port,
+            sock_addr_in: None,
+            sock_addr_out: None,
             socket,
             sendmmsg_econnrefused_counter: 0
         })
@@ -40,13 +38,10 @@ impl Socket {
     }
 
 
-    pub fn connect(&self) -> Result<(), &'static str> {
-        if self.local_port.is_some() {
-            self.bind()?;
-        }
-
-        let sockaddr = Self::create_sockaddr(self.ip, self.remote_port.unwrap());
-    
+    pub fn connect(&mut self, sock_address: SocketAddrV4) -> Result<(), &'static str> {
+        self.sock_addr_out = Some(sock_address);
+        let sockaddr = Self::create_sockaddr(&self.sock_addr_out.expect("Outgoing socket address not set!"));
+ 
         let connect_result = unsafe {
             libc::connect(
                 self.socket,
@@ -63,8 +58,9 @@ impl Socket {
         Ok(())
     }
 
-    pub fn bind(&self) -> Result<(), &'static str> {
-        let sockaddr = Self::create_sockaddr(self.ip, self.local_port.unwrap());
+    pub fn bind(&mut self, sock_address: SocketAddrV4) -> Result<(), &'static str> {
+        self.sock_addr_in = Some(sock_address);
+        let sockaddr = Self::create_sockaddr(&self.sock_addr_in.expect("Outgoing socket address not set!"));
     
         let bind_result = unsafe {
             libc::bind(
@@ -302,20 +298,39 @@ impl Socket {
         self.socket
     }
 
-    fn create_sockaddr(address: Ipv4Addr, port: u16) -> libc::sockaddr_in {
-        let addr_u32: u32 = address.into(); 
+    pub fn set_sock_addr_out(&mut self, sock_address: SocketAddrV4) {
+        if self.sock_addr_out.is_some() {
+            warn!("Overwriting existing socket address {} with {} on socket {}!", self.sock_addr_out.unwrap(), sock_address, self.socket);
+        }
+
+        self.sock_addr_out = Some(sock_address);
+    }
+
+    fn create_sockaddr(sock_address: &SocketAddrV4) -> libc::sockaddr_in {
+        // Convert Ipv4Addr to libc::in_addr
+        let addr = sock_address.ip(); 
+        let addr_u32 = u32::from_be_bytes(addr.octets());
     
         #[cfg(target_os = "linux")]
         libc::sockaddr_in {
             sin_family: libc::AF_INET as u16,
-            sin_port: port.to_be(), // Convert to big endian
+            sin_port: sock_address.port().to_be(), // Convert to big endian
             sin_addr: libc::in_addr { s_addr: addr_u32 },
             sin_zero: [0; 8]
         }
     }
 
+    #[allow(clippy::manual_map)]
+    pub fn get_sockaddr_out(&self) -> Option<libc::sockaddr_in> {
+        if let Some(sock_addr) = &self.sock_addr_out {
+            Some(Self::create_sockaddr(sock_addr))
+        } else {
+            None
+        }
+    }
+
     pub unsafe fn create_fdset(&self) -> libc::fd_set {
-        let mut fd_set: libc::fd_set =std::mem::zeroed();
+        let mut fd_set: libc::fd_set = std::mem::zeroed();
         libc::FD_ZERO(&mut fd_set); 
         libc::FD_SET(self.socket, &mut fd_set);
         fd_set

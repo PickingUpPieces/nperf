@@ -91,8 +91,8 @@ fn get_socket_option(socket: i32, level: libc::c_int, name: libc::c_int) -> Resu
     };
 
     if getsockopt_result == -1 {
-        error!("errno when getting send buffer size: {}", Error::last_os_error());
-        Err("Failed to get current socket send buffer size")
+        error!("errno when getting socket option: {}", Error::last_os_error());
+        Err("Failed to get socket option")
     } else {
         debug!("Got socket option on socket: {}", ret);
         Ok(ret)
