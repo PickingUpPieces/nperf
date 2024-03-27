@@ -22,7 +22,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["client", "--exchange-function", "msg"],
+            "args": ["client", "--multiplex-port=sharing", "--multiplex-port-server=individual"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "delay"
         },
@@ -44,7 +44,7 @@
             "env": {
                 "RUST_LOG": "TRACE",
             },
-            "args": ["server", "--exchange-function", "msg"],
+            "args": ["server"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -55,7 +55,7 @@
                 "RUST_LOG": "INFO",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["client", "--exchange-function", "msg", "--multiplex-port=sharding"],
+            "args": ["client"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
             "preLaunchTask": "delay"
@@ -68,7 +68,7 @@
                 "RUST_LOG": "INFO",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["server", "--exchange-function", "msg"],
+            "args": ["server"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
         },

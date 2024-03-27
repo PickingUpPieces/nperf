@@ -2,6 +2,7 @@ mod node;
 mod net;
 mod util;
 mod command;
+mod executor;
 
 use std::net::Ipv4Addr;
 

@@ -1,11 +1,8 @@
 use clap::Parser;
-use log::{debug, error, info};
+use log::{error, info};
 
-use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
-
-use crate::{net::socket::Socket, node::{client::Client, server::Server, Node}, util::{statistic::{MultiplexPort, OutputFormat, SimulateConnection}, IOModel, NPerfMode}, DEFAULT_CLIENT_IP};
+use crate::util::{self, statistic::{MultiplexPort, OutputFormat, SimulateConnection}, IOModel, NPerfMode, ExchangeFunction};
 use crate::net::{self, socket_options::SocketOptions};
-use crate::util::{self, statistic::Statistic, ExchangeFunction};
 
 #[derive(Parser,Default,Debug)]
 #[clap(version, about="A network performance measurement tool")]
@@ -21,11 +18,11 @@ pub struct nPerf {
 
     /// Port number to measure against, server listen on.
     #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
-    port: u16,
+    pub port: u16,
 
     /// Port number clients send from.
     #[arg(short, long, default_value_t = crate::DEFAULT_CLIENT_PORT)]
-    client_port: u16,
+    pub client_port: u16,
 
     /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
     #[arg(long, default_value_t = 1)]
@@ -33,7 +30,7 @@ pub struct nPerf {
 
     /// Don't stop the node after the first measurement
     #[arg(short, long, default_value_t = false)]
-    run_infinite: bool,
+    pub run_infinite: bool,
 
     /// Set length of single datagram (Without IP and UDP headers)
     #[arg(short = 'l', long, default_value_t = crate::DEFAULT_UDP_DATAGRAM_SIZE)]
@@ -106,116 +103,6 @@ impl nPerf {
         nPerf::parse()
     }
 
-    pub fn exec(self) -> Option<Statistic> {
-        info!("Starting nPerf...");
-
-        let parameter = match self.parse_args() {
-            Some(x) => x,
-            None => { error!("Error running app"); return None; },
-        };
-
-        match self.parameter_check(&parameter) {
-            false => { error!("Invalid parameter!"); return None; },
-            true => {}
-        }
-
-        debug!("Running with Parameter: {:?}", parameter);
-
-        loop {
-            let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
-            let (tx, rx) = mpsc::channel();
-    
-            // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
-            let socket = if parameter.mode == NPerfMode::Client && self.multiplex_port == MultiplexPort::Sharing {
-                    let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
-                    let sock_address_in = SocketAddrV4::new(DEFAULT_CLIENT_IP, self.client_port);
-
-                    socket.bind(sock_address_in).expect("Error binding to local port");
-
-                    // connect (includes bind) to specific 4-tuple, since every thread sends to same port on the server side
-                    if self.multiplex_port_server != MultiplexPort::Individual {
-                        let sock_address_out = SocketAddrV4::new(parameter.ip, self.port);
-                        socket.connect(sock_address_out).expect("Error connecting to remote host");
-                    }
-
-                    Some(socket)
-                } else if parameter.mode == NPerfMode::Server && self.multiplex_port_server == MultiplexPort::Sharing {
-                    let sock_address_in = SocketAddrV4::new(parameter.ip, self.port);
-                    let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
-                    socket.bind(sock_address_in).expect("Error binding to local port");
-                    Some(socket)
-                } else {
-                    None
-                };
-
-            for i in 0..self.parallel {
-                let tx: Sender<_> = tx.clone();
-                let server_port = if self.multiplex_port_server != MultiplexPort::Individual {
-                    info!("Server port is shared/sharded. Incrementing port number is disabled.");
-                    self.port
-                } else {
-                    self.port + i
-                };
-
-                // Use same test id for all threads if one connection is simulated
-                let i = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
-
-                fetch_handle.push(thread::spawn(move || {
-                    let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
-                    let mut node:Box<dyn Node> = if parameter.mode == util::NPerfMode::Client {
-                        // Set local port for client if sharding is enabled
-                        let local_port_client: Option<u16> = if self.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
-                        Box::new(Client::new(i, local_port_client, sock_address_server, socket, parameter))
-                    } else {
-                        Box::new(Server::new(sock_address_server, socket, parameter))
-                    };
-    
-                    match node.run(parameter.io_model) {
-                        Ok(statistic) => { 
-                            info!("Finished measurement!");
-                            tx.send(Some(statistic)).unwrap();
-                        },
-                        Err(x) => {
-                            error!("Error running app: {}", x);
-                            tx.send(None).unwrap();
-                        }
-                    }
-                }));
-            }
-    
-            info!("Waiting for all threads to finish...");
-            let mut statistic = fetch_handle.into_iter().fold(Statistic::new(parameter), |acc: Statistic, handle| { 
-                let stat = acc + match rx.recv_timeout(std::time::Duration::from_secs(max(parameter.test_runtime_length * 2, 120))) {
-                    Ok(x) => {
-                        match x {
-                        Some(x) => x,
-                        None => Statistic::new(parameter)
-                        }
-                    },
-                    Err(_) => Statistic::new(parameter)
-                };
-                    
-                handle.join().unwrap(); 
-                stat 
-            });
-
-            info!("All threads finished!");
-            if let Some(socket) = socket {
-                socket.close().expect("Error closing socket");
-            }
-    
-            if statistic.amount_datagrams != 0 {
-                statistic.calculate_statistics();
-                statistic.print(parameter.output_format);
-            }
-
-            if !(self.run_infinite && parameter.mode == util::NPerfMode::Server) {
-                return Some(statistic);
-            }
-        }
-    }
-
-
     pub fn set_args(self, args: Vec<&str>) -> Self {
         let mut args = args;
         args.insert(0, "nPerf");
@@ -223,8 +110,7 @@ impl nPerf {
         nPerf::parse_from(args)
     }
 
-
-    fn parse_args(&self) -> Option<util::statistic::Parameter> {
+    pub fn parse_parameter(&self) -> Option<util::statistic::Parameter> {
         if self.markdown_help {
             clap_markdown::print_help_markdown::<nPerf>();
             return None;
@@ -269,7 +155,8 @@ impl nPerf {
 
         let socket_options = self.parse_socket_options(self.mode);
 
-        Some(util::statistic::Parameter::new(
+
+        let parameter = util::statistic::Parameter::new(
             self.mode, 
             ipv4, 
             self.parallel,
@@ -284,7 +171,12 @@ impl nPerf {
             self.multiplex_port,
             self.multiplex_port_server,
             simulate_connection
-        ))
+        );
+
+        match self.parameter_check(&parameter) {
+            false => { error!("Invalid parameter!"); None },
+            true => { Some(parameter) }
+        }
     }
 
     fn parameter_check(&self, parameter: &util::statistic::Parameter)-> bool {
