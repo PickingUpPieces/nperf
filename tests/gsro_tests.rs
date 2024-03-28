@@ -18,9 +18,9 @@ fn gro_no_gso() -> Result<(), Box<dyn std::error::Error>>{
 
 #[test]
 fn gso_no_gro() -> Result<(), Box<dyn std::error::Error>>{
-    let handle = common::start_nperf_server(Some(vec!["--port=45002".to_string()]));
+    let handle = common::start_nperf_server(Some(vec!["--port=45101".to_string()]));
 
-    let args = vec!["client", "--with-gsro", "--port=45002"];
+    let args = vec!["client", "--with-gsro", "--port=45101"];
     let nperf = nperf::nPerf::new().set_args(args);
     let arguments = nperf.parse_parameter().unwrap();
     if let Some(x) = nperf.exec(arguments) {
@@ -33,9 +33,9 @@ fn gso_no_gro() -> Result<(), Box<dyn std::error::Error>>{
 
 #[test]
 fn gso_gro() -> Result<(), Box<dyn std::error::Error>>{
-    let handle = common::start_nperf_server(Some(vec!["--with-gsro".to_string(), "--port=45003".to_string()]));
+    let handle = common::start_nperf_server(Some(vec!["--with-gsro".to_string(), "--port=45201".to_string()]));
 
-    let args = vec!["client", "--with-gsro", "--port=45003"];
+    let args = vec!["client", "--with-gsro", "--port=45201"];
     let nperf = nperf::nPerf::new().set_args(args);
     let arguments = nperf.parse_parameter().unwrap();
     if let Some(x) = nperf.exec(arguments) {

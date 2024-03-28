@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info};
 
-use crate::util::{self, statistic::{MultiplexPort, OutputFormat, SimulateConnection}, IOModel, NPerfMode, ExchangeFunction};
+use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection}, ExchangeFunction, IOModel, NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
@@ -133,17 +133,9 @@ impl nPerf {
             self.with_mss
         };
 
-        // Setting simulate_connection to the currently supported values -> quite ugly 
-        let simulate_connection = match self.mode {
-            NPerfMode::Client => {
-                match self.multiplex_port_server {
-                    MultiplexPort::Individual => SimulateConnection::Multiple,
-                    _ => SimulateConnection::Single
-                }
-            },
-            NPerfMode::Server => {
-                if self.multiplex_port_server == MultiplexPort::Individual { SimulateConnection::Multiple } else { SimulateConnection::Single }
-            }
+        let simulate_connection = match self.multiplex_port_server {
+            MultiplexPort::Sharing => SimulateConnection::Single,
+            _ => SimulateConnection::Multiple
         };
 
         info!("Simulate connection: {:?}", simulate_connection);
@@ -154,7 +146,6 @@ impl nPerf {
         info!("UDP datagram size used: {}", self.datagram_size);
 
         let socket_options = self.parse_socket_options(self.mode);
-
 
         let parameter = util::statistic::Parameter::new(
             self.mode, 
@@ -173,29 +164,26 @@ impl nPerf {
             simulate_connection
         );
 
-        match self.parameter_check(&parameter) {
-            false => { error!("Invalid parameter!"); None },
-            true => { Some(parameter) }
-        }
+        self.parameter_check(parameter) 
     }
 
-    fn parameter_check(&self, parameter: &util::statistic::Parameter)-> bool {
+    fn parameter_check(&self, parameter: util::statistic::Parameter)-> Option<Parameter> {
         if parameter.datagram_size > crate::MAX_UDP_DATAGRAM_SIZE {
             error!("UDP datagram size is too big! Maximum is {}", crate::MAX_UDP_DATAGRAM_SIZE);
-            return false;
+            return None;
         }
 
         if parameter.mode == util::NPerfMode::Client && self.multiplex_port_server == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
             error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
-            return false;
+            return None;
         }
 
         if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
             error!("Can't set client multiplexing on server side!");
-            return false;
+            return None;
         }
 
-        true
+        Some(parameter)
     }
 
     fn parse_socket_options(&self, mode: NPerfMode) -> SocketOptions {
@@ -214,11 +202,16 @@ impl nPerf {
         };
 
         let gro = mode == util::NPerfMode::Server && self.with_gsro;
+
+        let reuseport = match mode {
+            NPerfMode::Client => self.multiplex_port == MultiplexPort::Sharding,
+            NPerfMode::Server => self.multiplex_port_server == MultiplexPort::Sharding,
+        };
         
         SocketOptions::new(
             !self.without_non_blocking, 
             self.with_ip_frag, 
-            self.multiplex_port == MultiplexPort::Sharding,
+            reuseport,
             gso, 
             gro, 
             recv_buffer_size, 
