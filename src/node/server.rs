@@ -1,11 +1,14 @@
 
 use std::net::SocketAddrV4;
-use std::{time::Instant, collections::HashMap};
+use std::time::Instant;
 use log::{debug, error, info, trace};
 
 use crate::net::{socket::Socket, MessageHeader, MessageType};
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
 use super::Node;
+
+const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
+const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 500; // in milliseconds
 
 pub struct Server {
     packet_buffer: Vec<PacketBuffer>,
@@ -176,19 +179,39 @@ impl Node for Server {
         info!("Start server loop...");
         let mut statistic = Statistic::new(self.parameter);
 
-        let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
-        self.socket.select(Some(&mut read_fds), None).expect("Error waiting for data");
+        let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
+        // TODO: Add 10s timeout -> With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.
+        match self.socket.poll(&mut pollfd, INITIAL_POLL_TIMEOUT) {
+            Ok(_) => {},
+            Err("TIMEOUT") => {
+                error!("Timeout waiting for client to send first packet!");
+                return Ok(statistic);
+            },
+            Err(x) => {
+                error!("Error polling socket: {}", x);
+                return Err(x);
+            }
+        };
 
         'outer: loop {
             match self.recv_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
                     statistic.amount_io_model_syscalls += 1;
-                    match io_model {
+                    match match io_model {
                         IOModel::BusyWaiting => Ok(()),
                         IOModel::Select => self.loop_select(),
                         IOModel::Poll => self.loop_poll(),
-                    }?;
+                    } {
+                        Ok(_) => {},
+                        Err("TIMEOUT") => {
+                            error!("Timeout waiting for client to send packet!");
+                            break 'outer;
+                        },
+                        Err(x) => {
+                            return Err(x);
+                        }
+                    }
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
                     for (_, measurement) in self.measurements.iter() {
@@ -227,7 +250,7 @@ impl Node for Server {
 
         // Normally we would need to iterate over FDs and check which socket is ready
         // Since we only have one socket, we directly call recv_messages 
-        self.socket.select(Some(&mut read_fds), None)
+        self.socket.select(Some(&mut read_fds), None, IN_MEASUREMENT_POLL_TIMEOUT)
     }
 
     fn loop_poll(&mut self) -> Result<(), &'static str> {
@@ -235,6 +258,6 @@ impl Node for Server {
 
         // Normally we would need to iterate over FDs and check which socket is ready
         // Since we only have one socket, we directly call recv_messages 
-        self.socket.poll(&mut pollfd)
+        self.socket.poll(&mut pollfd, IN_MEASUREMENT_POLL_TIMEOUT)
     }
 }

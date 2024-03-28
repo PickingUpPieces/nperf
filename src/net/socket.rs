@@ -345,34 +345,55 @@ impl Socket {
         pollfd_vec
     }
 
-    pub fn poll(&self, pollfd: &mut [libc::pollfd]) -> Result<(), &'static str> {
+    pub fn poll(&self, pollfd: &mut [libc::pollfd], timeout: i32) -> Result<(), &'static str> {
         let poll_result = unsafe {
             libc::poll(
                 pollfd.as_mut_ptr(),
                 pollfd.len() as u64,
-                -1
+                timeout 
             )
         };
 
         if poll_result == -1 {
             error!("Error calling poll: {}", Error::last_os_error());
             Err("Error calling poll")
+        } else if poll_result == 0 {
+            // Poll returned due to timeout
+            trace!("Poll returned due to timeout");
+            Err("TIMEOUT")
         } else {
             trace!("Poll returned with result: {}", poll_result);
             Ok(())
         }
     }
 
-    pub fn select(&self, read_fds: Option<*mut libc::fd_set>, write_fds: Option<*mut libc::fd_set>) -> Result<(), &'static str> {
+    pub fn select(&self, read_fds: Option<*mut libc::fd_set>, write_fds: Option<*mut libc::fd_set>, timeout: i32) -> Result<(), &'static str> {
         let nfds = self.socket + 1;
-        let result = unsafe { libc::select(nfds, read_fds.unwrap_or(std::ptr::null_mut()), write_fds.unwrap_or(std::ptr::null_mut()), std::ptr::null_mut(), std::ptr::null_mut()) };
-        
+        let timeval =
+            libc::timeval {
+                tv_sec: timeout as i64 / 1000,
+                tv_usec: (timeout as i64 % 1000) * 1000,
+            };
+
+        let result = unsafe { 
+            libc::select(
+                nfds, 
+                read_fds.unwrap_or(std::ptr::null_mut()), 
+                write_fds.unwrap_or(std::ptr::null_mut()), 
+                std::ptr::null_mut(), 
+                if timeout == -1 { std::ptr::null_mut() } else { &timeval as *const _ as *mut _ }
+            ) 
+        };
         if result == -1 {
             error!("Error calling select: {}", Error::last_os_error());
             Err("Error calling select")
+        } else if result == 0 {
+            debug!("Select returned due to timeout");
+            Err("TIMEOUT")
         } else {
             debug!("Select returned with result: {}", result);
             Ok(())
         }
     }
+
 }

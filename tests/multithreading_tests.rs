@@ -4,7 +4,7 @@ mod common;
 fn multiple_clients_one_server() -> Result<(), Box<dyn std::error::Error>>{
     let handle = common::start_nperf_server(Some(vec!["--port=45001".to_string()]));
 
-    let args = vec!["client", "--parallel=2", "--port=45001"];
+    let args = vec!["client", "--parallel=2", "--port=45001", "--multiplex-port-server=sharding"];
     let nperf = nperf::nPerf::new().set_args(args);
     let arguments = nperf.parse_parameter().unwrap();
     if let Some(x) = nperf.exec(arguments) {
