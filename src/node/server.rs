@@ -232,7 +232,7 @@ impl Node for Server {
                     break 'outer;
                 },
                 Err("INIT_MESSAGE_RECEIVED") => {
-                    continue;
+                    continue 'outer;
                 },
                 Err(x) => {
                     error!("Error receiving message! Aborting measurement...");

@@ -94,9 +94,8 @@ pub fn get_gso_size_from_cmsg(msghdr: &mut libc::msghdr) -> Option<u32> {
     None
 }
 
-pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: usize, next_packet_id: u64, statistic: &mut Statistic) -> (u64, u64) {
+pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: usize, mut next_packet_id: u64, statistic: &mut Statistic) -> (u64, u64) {
     let mut absolut_packets_received = 0;
-    let mut next_packet_id = next_packet_id;
     let single_packet_size = match get_gso_size_from_cmsg(msghdr) {
         Some(gso_size) => gso_size,
         None => {

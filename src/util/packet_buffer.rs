@@ -6,6 +6,7 @@ const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
 pub struct PacketBuffer {
     buffer: Vec<u8>,
     iov: libc::iovec,
+    with_cmsg: bool,
     msg_control: [u8; LENGTH_CONTROL_MESSAGE_BUFFER],
     msghdr: libc::msghdr,
     sockaddr: libc::sockaddr_in,
@@ -42,6 +43,7 @@ impl PacketBuffer {
         Some(PacketBuffer {
             buffer,
             iov,
+            with_cmsg: false,
             msg_control,
             msghdr,
             sockaddr,
@@ -77,10 +79,14 @@ impl PacketBuffer {
     pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
         // Re-set iov pointer, since it could have been reallocated
         self.set_msghdr_iov();
+        if self.with_cmsg {
+            self.add_cmsg_buffer();
+        }
         &mut self.msghdr
     }
 
     pub fn add_cmsg_buffer(&mut self) {
+        self.with_cmsg = true;
         self.msghdr.msg_control = (&mut self.msg_control) as *mut _ as *mut libc::c_void;
         self.msghdr.msg_controllen = self.msg_control.len();
     }
