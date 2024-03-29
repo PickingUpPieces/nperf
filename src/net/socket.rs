@@ -355,11 +355,11 @@ impl Socket {
         };
 
         if poll_result == -1 {
-            error!("Error calling poll: {}", Error::last_os_error());
-            Err("Error calling poll")
+            error!("Error occured executing poll(): {}", Error::last_os_error());
+            Err("Error occured executing poll()")
         } else if poll_result == 0 {
             // Poll returned due to timeout
-            trace!("Poll returned due to timeout");
+            warn!("Poll returned due to timeout");
             Err("TIMEOUT")
         } else {
             trace!("Poll returned with result: {}", poll_result);
