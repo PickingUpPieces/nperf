@@ -1,5 +1,6 @@
 
 use std::net::SocketAddrV4;
+use std::thread::{self, sleep};
 use std::time::Instant;
 use log::{debug, error, info, trace};
 
@@ -8,7 +9,7 @@ use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::
 use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
-const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 500; // in milliseconds
+const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 
 pub struct Server {
     packet_buffer: Vec<PacketBuffer>,
@@ -143,7 +144,7 @@ impl Server {
     fn parse_message_type(&mut self, mtype: MessageType, test_id: usize) -> Result<(), &'static str> {
         match mtype {
             MessageType::INIT => {
-                info!("INIT packet received from test {}!", test_id);
+                info!("INIT packet received from test {} on thread {:?}!", test_id, thread::current().id());
                 if self.measurements.len() <= test_id {
                     self.measurements.resize(test_id + 1, Measurement::new(self.parameter));
                 }
@@ -159,14 +160,14 @@ impl Server {
                     self.measurements.get_mut(test_id).expect("Error getting statistic in measurement message: test id not found")
                 };
                 if !measurement.first_packet_received {
-                    info!("First packet received from test {}!", test_id);
+                    info!("First packet received from test {} on thread {:?}!", test_id, thread::current().id());
                     measurement.start_time = Instant::now();
                     measurement.first_packet_received = true;
                 }
                 Ok(())
             },
             MessageType::LAST => {
-                info!("LAST packet received from test {}!", test_id);
+                info!("LAST packet received from test {} on thread {:?}!", test_id, thread::current().id());
                 let measurement = self.measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
                 let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
                 measurement.last_packet_received = true;
@@ -237,7 +238,14 @@ impl Node for Server {
             statistic.amount_syscalls += 1;
         }
 
+
         if self.parameter.multiplex_port_server != MultiplexPort::Sharing {
+            // If a thread finishes (closes the socket) before the others, the hash mapping of SO_REUSEPORT changes. 
+            // Then all threads would receive packets from other connections (test_ids).
+            // Therefore, we need to wait a bit, until a thread closes its socket.
+            if self.parameter.multiplex_port_server == MultiplexPort::Sharding {
+                sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE * 2));
+            }
             self.socket.close()?;
         }
 
