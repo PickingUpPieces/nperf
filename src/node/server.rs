@@ -144,7 +144,7 @@ impl Server {
     fn parse_message_type(&mut self, mtype: MessageType, test_id: usize) -> Result<(), &'static str> {
         match mtype {
             MessageType::INIT => {
-                info!("INIT packet received from test {} on thread {:?}!", test_id, thread::current().id());
+                info!("{:?}: INIT packet received from test {}!", thread::current().id(), test_id);
                 if self.measurements.len() <= test_id {
                     self.measurements.resize(test_id + 1, Measurement::new(self.parameter));
                 }
@@ -160,14 +160,14 @@ impl Server {
                     self.measurements.get_mut(test_id).expect("Error getting statistic in measurement message: test id not found")
                 };
                 if !measurement.first_packet_received {
-                    info!("First packet received from test {} on thread {:?}!", test_id, thread::current().id());
+                    info!("{:?}: First packet received from test {}!", thread::current().id(), test_id);
                     measurement.start_time = Instant::now();
                     measurement.first_packet_received = true;
                 }
                 Ok(())
             },
             MessageType::LAST => {
-                info!("LAST packet received from test {} on thread {:?}!", test_id, thread::current().id());
+                info!("{:?}: LAST packet received from test {}!", thread::current().id(), test_id);
                 let measurement = self.measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
                 let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
                 measurement.last_packet_received = true;
@@ -189,7 +189,9 @@ impl Node for Server {
         match self.socket.poll(&mut pollfd, INITIAL_POLL_TIMEOUT) {
             Ok(_) => {},
             Err("TIMEOUT") => {
-                error!("Timeout waiting for client to send first packet!");
+                // If port sharding is used, not every server thread gets packets due to the load balancing of REUSEPORT.
+                // To avoid that the thread waits forever, we need to return here.
+                error!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
                 return Ok(statistic);
             },
             Err(x) => {
@@ -209,7 +211,9 @@ impl Node for Server {
                     } {
                         Ok(_) => {},
                         Err("TIMEOUT") => {
-                            error!("Timeout waiting for a subsequent packet from the client!");
+                            // If port sharing is used, or single connection not every thread receives the LAST message. 
+                            // To avoid that the thread waits forever, we need to return here.
+                            error!("{:?}: Timeout waiting for a subsequent packet from the client!", thread::current().id());
                             break 'outer;
                         },
                         Err(x) => {
@@ -220,11 +224,11 @@ impl Node for Server {
                 Err("LAST_MESSAGE_RECEIVED") => {
                     for measurement in self.measurements.iter() {
                         if !measurement.last_packet_received && measurement.first_packet_received {
-                            debug!("Last message received, but not all measurements are finished!");
+                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
                             continue 'outer;
                         } 
                     };
-                    info!("Last message received and all measurements are finished!");
+                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
                     break 'outer;
                 },
                 Err("INIT_MESSAGE_RECEIVED") => {
@@ -249,7 +253,7 @@ impl Node for Server {
             self.socket.close()?;
         }
 
-        debug!("Finished receiving data from remote host");
+        debug!("{:?}: Finished receiving data from remote host", thread::current().id());
         // Fold over all statistics, and calculate the final statistic
         let statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic);
         Ok(statistic)
