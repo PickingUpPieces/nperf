@@ -230,6 +230,7 @@ impl Node for Client {
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         self.send_control_message(MessageType::LAST)?;
+
         let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
         self.statistic.set_test_duration(start_time, end_time);
@@ -243,7 +244,7 @@ impl Node for Client {
 
         // Normally we would need to iterate over FDs and check which socket is ready
         // Since we only have one socket, we directly call recv_messages 
-        self.socket.select(None, Some(&mut write_fds))
+        self.socket.select(None, Some(&mut write_fds), -1)
     }
 
     fn loop_poll(&mut self) -> Result<(), &'static str> {
@@ -251,6 +252,6 @@ impl Node for Client {
 
         // Normally we would need to iterate over FDs and check which socket is ready
         // Since we only have one socket, we directly call recv_messages 
-        self.socket.poll(&mut pollfd)
+        self.socket.poll(&mut pollfd, -1)
     }
 }
