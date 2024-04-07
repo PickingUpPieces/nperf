@@ -5,12 +5,16 @@ use crate::net::socket::Socket;
 use crate::node::{client::Client, server::Server, Node};
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::{Statistic, DEFAULT_CLIENT_IP};
+
 use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
+extern crate core_affinity;
 
 impl nPerf {
     pub fn exec(self, parameter: Parameter) -> Option<Statistic> {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
+
+        Self::get_core_id();
 
         loop {
             let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
@@ -56,6 +60,7 @@ impl nPerf {
     }
 
     fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, server_port: u16, client_port: Option<u16>, test_id: u64) {
+        Self::get_core_id();
         let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
         
         let mut node:Box<dyn Node> = if parameter.mode == NPerfMode::Client {
@@ -115,5 +120,12 @@ impl nPerf {
         } else {
             None
         }
+    }
+
+    fn get_core_id() -> usize {
+        let core_ids = core_affinity::get_core_ids().unwrap();
+        info!("enumerated CPU cores: {:?}", core_ids.iter().map(|c| c.id).collect::<Vec<usize>>());
+        error!("{:?}", core_ids);
+        0
     }
 }
