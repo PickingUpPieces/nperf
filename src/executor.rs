@@ -129,11 +129,4 @@ impl nPerf {
             None
         }
     }
-
-    fn get_core_id() -> usize {
-        let core_ids = core_affinity::get_core_ids().unwrap();
-        info!("enumerated CPU cores: {:?}", core_ids.iter().map(|c| c.id).collect::<Vec<usize>>());
-        error!("{:?}", core_ids);
-        0
-    }
 }

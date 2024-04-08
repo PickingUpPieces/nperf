@@ -22,7 +22,7 @@ impl CoreAffinityManager {
     pub fn set_affinity(&mut self) -> Result<(), &'static str> {
         let core_id = self.get_core_id()?;
 
-        if core_affinity::set_for_current(core_id) == true {
+        if core_affinity::set_for_current(core_id) {
             info!("{:?}: Setting CPU affinity to core number {} (of {} total cores)", thread::current().id(), core_id.id, self.core_ids.len());
             Ok(())
         } else {
@@ -30,12 +30,13 @@ impl CoreAffinityManager {
         }
     }
     
-    pub fn get_core_id(&mut self) -> Result<core_affinity::CoreId, &'static str> {
-        if self.core_ids.len() <= 0 {
+    fn get_core_id(&mut self) -> Result<core_affinity::CoreId, &'static str> {
+        if self.core_ids.is_empty() {
             return Err("No core IDs available! CPU affinity is not configured correctly.");
         }
 
         //cycle to the next core ID in a (reverse) round-robin order
+        #[allow(clippy::collapsible_else_if)]
         if self.inverse_round_robin {
             if self.last_core_id == 0 {
                 self.last_core_id = self.core_ids.len() - 1;
