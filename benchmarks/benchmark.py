@@ -161,7 +161,7 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'nonblocking': server_result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
                 'multiplex_port_client': client_result['parameter']['multiplex_port'],
-                'multiplex_port_server': server_result['parameter']['multiplex_port'],
+                'multiplex_port_server': server_result['parameter']['multiplex_port_server'],
                 'simulate_connection': client_result['parameter']['simulate_connection'],
                 'gso': client_result['parameter']['socket_options']['gso'],
                 'gro': server_result['parameter']['socket_options']['gro'],
