@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::{error, info};
+use log::{error, info, warn};
 
 use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection}, ExchangeFunction, IOModel, NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
@@ -39,6 +39,10 @@ pub struct nPerf {
     /// Time to run the test
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
+
+    /// Pin each thread to an individual core
+    #[arg(long, default_value_t = false)]
+    with_core_affinity: bool,
 
     /// Enable GSO/GRO on socket
     #[arg(long, default_value_t = false)]
@@ -161,7 +165,8 @@ impl nPerf {
             self.exchange_function,
             self.multiplex_port,
             self.multiplex_port_server,
-            simulate_connection
+            simulate_connection,
+            self.with_core_affinity
         );
 
         self.parameter_check(parameter) 
@@ -181,6 +186,17 @@ impl nPerf {
         if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
             error!("Can't set client multiplexing on server side!");
             return None;
+        }
+
+        let cores_amount = core_affinity::get_core_ids().unwrap_or_default().len();
+        if parameter.amount_threads > cores_amount as u16 {
+            warn!("Amount of threads is bigger than available cores! Multiple threads are going to run on the same core! Available cores: {}", cores_amount);
+        } else if parameter.amount_threads * 2 > cores_amount as u16 {
+            warn!("If server/client is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
+        }
+
+        if parameter.mode == util::NPerfMode::Server && self.time != crate::DEFAULT_DURATION {
+            warn!("Time is ignored in server mode!");
         }
 
         Some(parameter)
