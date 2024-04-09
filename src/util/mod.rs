@@ -1,5 +1,6 @@
 pub mod statistic;
 pub mod packet_buffer;
+pub mod core_affinity_manager;
 
 use std::io::IoSlice;
 use libc::mmsghdr;

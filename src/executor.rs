@@ -3,14 +3,23 @@ use log::{debug, error, info};
 use crate::command::nPerf;
 use crate::net::socket::Socket;
 use crate::node::{client::Client, server::Server, Node};
+use crate::util::core_affinity_manager::CoreAffinityManager;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::{Statistic, DEFAULT_CLIENT_IP};
+
+use std::sync::{Arc, Mutex};
 use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
+extern crate core_affinity;
 
 impl nPerf {
     pub fn exec(self, parameter: Parameter) -> Option<Statistic> {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
+
+        let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode == NPerfMode::Server)));
+        if parameter.core_affinity {
+            core_affinity_manager.lock().unwrap().set_affinity().expect("Error setting core affinity");
+        }
 
         loop {
             let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
@@ -18,6 +27,7 @@ impl nPerf {
     
             // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
             let socket = self.create_socket(parameter);
+
 
             for i in 0..parameter.amount_threads {
                 let tx: Sender<_> = tx.clone();
@@ -29,11 +39,13 @@ impl nPerf {
                     self.port + i
                 };
 
+                // Get instance of core affinity manager
+                let core_affinity = Arc::clone(&core_affinity_manager);
                 // Use same test id for all threads if one connection is simulated
                 let test_id = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
                 let local_port_client: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
 
-                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, server_port, local_port_client, test_id)));
+                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, server_port, local_port_client, test_id, core_affinity)));
             }
     
             info!("Waiting for all threads to finish...");
@@ -55,8 +67,12 @@ impl nPerf {
         }
     }
 
-    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, server_port: u16, client_port: Option<u16>, test_id: u64) {
+    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) {
         let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
+
+        if parameter.core_affinity {
+            core_affinity_manager.lock().unwrap().set_affinity().unwrap();
+        }
         
         let mut node:Box<dyn Node> = if parameter.mode == NPerfMode::Client {
             Box::new(Client::new(test_id, client_port, sock_address_server, socket, parameter))
