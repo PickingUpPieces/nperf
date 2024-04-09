@@ -17,6 +17,9 @@ impl nPerf {
         debug!("Running with Parameter: {:?}", parameter);
 
         let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode == NPerfMode::Server)));
+        if parameter.core_affinity {
+            core_affinity_manager.lock().unwrap().set_affinity().expect("Error setting core affinity");
+        }
 
         loop {
             let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();

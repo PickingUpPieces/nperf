@@ -5,7 +5,7 @@ use log::info;
 
 pub struct CoreAffinityManager {
     core_ids: Vec<core_affinity::CoreId>,
-    last_core_id: usize,
+    next_core_id: usize,
     inverse_round_robin: bool, // Server uses inverse round robin
 }
 
@@ -14,7 +14,7 @@ impl CoreAffinityManager {
         let core_ids = core_affinity::get_core_ids().unwrap_or_default();
         CoreAffinityManager {
             core_ids,
-            last_core_id: 0,
+            next_core_id: 0,
             inverse_round_robin,
         }
     }
@@ -35,22 +35,24 @@ impl CoreAffinityManager {
             return Err("No core IDs available! CPU affinity is not configured correctly.");
         }
 
+        let ret = self.next_core_id;
+
         //cycle to the next core ID in a (reverse) round-robin order
         #[allow(clippy::collapsible_else_if)]
         if self.inverse_round_robin {
-            if self.last_core_id == 0 {
-                self.last_core_id = self.core_ids.len() - 1;
+            if self.next_core_id == 0 {
+                self.next_core_id = self.core_ids.len() - 1;
             } else {
-                self.last_core_id -= 1;
+                self.next_core_id -= 1;
             }
         } else {
-            if self.last_core_id == self.core_ids.len() - 1 {
-                self.last_core_id = 0;
+            if self.next_core_id == self.core_ids.len() - 1 {
+                self.next_core_id = 0;
             } else {
-                self.last_core_id += 1;
+                self.next_core_id += 1;
             }
         }
 
-        Ok(self.core_ids[self.last_core_id]) 
+        Ok(self.core_ids[ret]) 
     }
 }
