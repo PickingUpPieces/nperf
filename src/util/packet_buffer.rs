@@ -7,7 +7,6 @@ pub struct PacketBuffer {
     buffer_length: usize,
     msghdr: libc::msghdr,
     with_cmsg: bool,
-    msg_control: [u8; LENGTH_CONTROL_MESSAGE_BUFFER],
     sockaddr: libc::sockaddr_in,
     datagram_size: u32,
     _last_packet_size: u32,
@@ -31,7 +30,6 @@ impl PacketBuffer {
 
         let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice());
         let iov = Self::create_iovec(buffer);
-        let msg_control = [0; LENGTH_CONTROL_MESSAGE_BUFFER];
 
         let msghdr = Self::create_msghdr(iov);
         let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
@@ -40,7 +38,6 @@ impl PacketBuffer {
             buffer_length: mss as usize,
             msghdr,
             with_cmsg: false,
-            msg_control,
             sockaddr,
             datagram_size,
             _last_packet_size,
@@ -115,11 +112,9 @@ impl PacketBuffer {
 
     pub fn add_cmsg_buffer(&mut self) {
         self.with_cmsg = true;
-        //let msg_control = Box::leak(Box::new([0_u8; LENGTH_CONTROL_MESSAGE_BUFFER]));
-        //self.msghdr.msg_control = msg_control as *mut _ as *mut libc::c_void;
-        //self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
-        self.msghdr.msg_control = (&mut self.msg_control) as *mut _ as *mut libc::c_void;
-        self.msghdr.msg_controllen = self.msg_control.len();
+        let msg_control = Box::leak(Box::new([0_u8; LENGTH_CONTROL_MESSAGE_BUFFER]));
+        self.msghdr.msg_control = msg_control as *mut _ as *mut libc::c_void;
+        self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
     }
 
     fn create_iovec(buffer: &mut [u8]) -> &mut libc::iovec {
@@ -133,7 +128,7 @@ impl PacketBuffer {
         if buffer.len() <= self.buffer_length {
             self.buffer_length = buffer.len();
             let buf = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
-            // Copy buffer into buf
+            // Copy buffer into msghdr iovec
             unsafe { buf.copy_from(buffer.as_ptr(), buffer.len()) };
         }
     }
@@ -141,8 +136,9 @@ impl PacketBuffer {
     pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
         // Re-set iov pointer, since it could have been reallocated
         if self.with_cmsg {
-            self.add_cmsg_buffer();
-            // Has to be set, since recvmsg overwrites this value: self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
+            //self.add_cmsg_buffer();
+            // Has to be set, since recvmsg overwrites this value 
+            self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
         }
         &mut self.msghdr
     }
