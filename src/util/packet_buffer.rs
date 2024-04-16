@@ -1,14 +1,13 @@
-use log::debug;
+use log::{debug, trace};
 use crate::net::{MessageHeader, MessageType};
 
 const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
 
 pub struct PacketBuffer {
-    buffer: Vec<u8>,
-    iov: libc::iovec,
+    buffer_length: usize,
+    msghdr: libc::msghdr,
     with_cmsg: bool,
     msg_control: [u8; LENGTH_CONTROL_MESSAGE_BUFFER],
-    msghdr: libc::msghdr,
     sockaddr: libc::sockaddr_in,
     datagram_size: u32,
     _last_packet_size: u32,
@@ -30,22 +29,18 @@ impl PacketBuffer {
         let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
         debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
 
-        let mut buffer = vec![0; mss as usize];
-        let mut iov = libc::iovec {
-            iov_base: buffer.as_mut_ptr() as *mut _,
-            iov_len: buffer.len(),
-        };
-
+        let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice());
+        let iov = Self::create_iovec(buffer);
         let msg_control = [0; LENGTH_CONTROL_MESSAGE_BUFFER];
-        let msghdr = Self::create_msghdr(&mut iov);
+
+        let msghdr = Self::create_msghdr(iov);
         let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
 
         Some(PacketBuffer {
-            buffer,
-            iov,
+            buffer_length: mss as usize,
+            msghdr,
             with_cmsg: false,
             msg_control,
-            msghdr,
             sockaddr,
             datagram_size,
             _last_packet_size,
@@ -66,9 +61,6 @@ impl PacketBuffer {
         msghdr
     }
 
-    fn set_msghdr_iov(&mut self) {
-        self.msghdr.msg_iov = &mut self.iov as *mut _;
-    }
 
     pub fn set_address(&mut self, address: libc::sockaddr_in) {
         self.sockaddr = address;
@@ -78,7 +70,6 @@ impl PacketBuffer {
 
     pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
         // Re-set iov pointer, since it could have been reallocated
-        self.set_msghdr_iov();
         if self.with_cmsg {
             self.add_cmsg_buffer();
         }
@@ -104,7 +95,6 @@ impl PacketBuffer {
             }
         }
         
-        debug!("Filled buffer of size {} with repeating pattern", self.buffer.len());
     }
 
     pub fn add_message_header(&mut self, test_id: u64, packet_id: u64) -> Result<u64, &'static str> {
@@ -115,7 +105,8 @@ impl PacketBuffer {
             let start_of_packet = i * self.datagram_size as usize;
             header.set_packet_id(packet_id + amount_used_packet_ids);
             let serialized_header = header.serialize();
-            self.buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(serialized_header);
+            let buffer = self.get_buffer_pointer();
+            buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(serialized_header);
             amount_used_packet_ids += 1;
         }
         debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
@@ -128,7 +119,8 @@ impl PacketBuffer {
 
         for i in 0..self.packets_amount {
             let start_of_packet = i * self.datagram_size as usize;
-            MessageHeader::set_packet_id_raw(&mut self.buffer[start_of_packet..], packet_id + amount_used_packet_ids);
+            let buffer = self.get_buffer_pointer();
+            MessageHeader::set_packet_id_raw(&mut buffer[start_of_packet..], packet_id + amount_used_packet_ids);
             amount_used_packet_ids += 1;
         }
 
@@ -139,20 +131,30 @@ impl PacketBuffer {
 
 
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
-        &mut self.buffer
+        let iov_base = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
+        let iov_len = unsafe { (*self.msghdr.msg_iov).iov_len };
+        trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts_mut(iov_base, iov_len) });
+        unsafe { std::slice::from_raw_parts_mut(iov_base, iov_len) }
     }
 
-    pub fn set_buffer(&mut self, buffer: Vec<u8>) {
-        self.buffer = buffer;
-        let iov = libc::iovec {
-            iov_base: self.buffer.as_mut_ptr() as *mut _,
-            iov_len: self.buffer.len(),
-        };
-        self.iov = iov;
+    fn create_iovec(buffer: &mut [u8]) -> &mut libc::iovec {
+        Box::leak(Box::new(libc::iovec {
+            iov_base: buffer.as_mut_ptr() as *mut _,
+            iov_len: buffer.len(),
+        }))
+    }
+
+    pub fn copy_buffer(&mut self, buffer: &[u8]) {
+        if buffer.len() <= self.buffer_length {
+            self.buffer_length = buffer.len();
+            let buf = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
+            // Copy buffer into buf
+            unsafe { buf.copy_from(buffer.as_ptr(), buffer.len()) };
+        }
     }
 
     pub fn get_buffer_length(&self) -> usize {
-        self.buffer.len()
+        self.buffer_length
     }
 
     pub fn get_packet_amount(&self) -> usize {

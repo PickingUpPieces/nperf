@@ -50,13 +50,13 @@ impl Client {
         let header = MessageHeader::new(mtype, self.test_id, 0);
         debug!("Coordination message: {:?}", header);
 
-        let buffer = PacketBuffer::new(header.len() as u32, header.len() as u32);
+        let packet_buffer = PacketBuffer::new(header.len() as u32, header.len() as u32);
 
-        if let Some(mut buffer) = buffer {
-            buffer.set_buffer(header.serialize().to_vec());
+        if let Some(mut packet_buffer) = packet_buffer {
+            packet_buffer.copy_buffer(header.serialize());
             let sockaddr = self.socket.get_sockaddr_out().unwrap();
-            buffer.set_address(sockaddr);
-            let msghdr = buffer.get_msghdr();
+            packet_buffer.set_address(sockaddr);
+            let msghdr = packet_buffer.get_msghdr();
 
             match self.socket.sendmsg(msghdr) {
                 Ok(_) => { Ok(()) },
