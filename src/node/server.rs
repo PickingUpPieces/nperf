@@ -31,7 +31,9 @@ impl Server {
         };
 
         info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
+        // Create packet buffer
         let mut packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
+        // Add cmsg buffer to each packet buffer
         packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.add_cmsg_buffer());
 
         Server {
