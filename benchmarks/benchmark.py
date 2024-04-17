@@ -208,6 +208,9 @@ def get_median_result(results):
     return results[median_index]
 
 def find_closest_to_median_index(arr):
+    # Check if array is empty; Otherwise argmin fails
+    if not arr:
+        return None
     # Calculate the median and find the index of the closest value
     closest_index = np.argmin(np.abs(np.array(arr) - np.median(arr)))
     return closest_index
