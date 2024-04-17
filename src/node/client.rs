@@ -33,7 +33,9 @@ impl Client {
         };
 
         info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
-        let packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
+        let mut packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
+        Self::fill_packet_buffers_with_repeating_pattern(&mut packet_buffer); 
+        Self::add_message_headers(&mut packet_buffer, test_id);
 
         Client {
             test_id,
@@ -127,7 +129,7 @@ impl Client {
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.add_packet_ids()?;
-        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer, false);
+        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer);
 
         match self.socket.sendmmsg(&mut mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
@@ -169,14 +171,14 @@ impl Client {
         Ok(total_amount_used_packet_ids)
     }
 
-    fn add_message_headers(&mut self) {
-        for packet_buffer in self.packet_buffer.iter_mut() {
-            packet_buffer.add_message_header(self.test_id, 0).expect("Error adding message header");
+    fn add_message_headers(packet_buffer: &mut Vec<PacketBuffer>, test_id: u64) {
+        for packet_buffer in packet_buffer.iter_mut() {
+            packet_buffer.add_message_header(test_id, 0).expect("Error adding message header");
         }
     }
 
-    fn fill_packet_buffers_with_repeating_pattern(&mut self) {
-        for packet_buffer in self.packet_buffer.iter_mut() {
+    fn fill_packet_buffers_with_repeating_pattern(packet_buffer: &mut Vec<PacketBuffer>) {
+        for packet_buffer in packet_buffer.iter_mut() {
             packet_buffer.fill_with_repeating_pattern();
         }
     }
@@ -185,9 +187,7 @@ impl Client {
 
 impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
-        self.fill_packet_buffers_with_repeating_pattern(); 
-        self.add_message_headers();
-        
+        // Set outgoing address for individual multiplexing
         if self.statistic.parameter.multiplex_port == MultiplexPort::Sharing && self.statistic.parameter.multiplex_port_server == MultiplexPort::Individual {
             if let Some(sockaddr) = self.socket.get_sockaddr_out() {
                 self.packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.set_address(sockaddr));

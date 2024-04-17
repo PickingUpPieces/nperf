@@ -104,7 +104,7 @@ impl Server {
     }
 
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
-        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer, true);
+        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer);
 
         match self.socket.recvmmsg(&mut mmsghdr_vec) {
             Ok(amount_received_mmsghdr) => { 

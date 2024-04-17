@@ -1,5 +1,6 @@
 pub mod statistic;
 pub mod packet_buffer;
+pub mod mmsghdr_vec;
 pub mod core_affinity_manager;
 
 use std::io::IoSlice;
@@ -126,14 +127,10 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
     (next_packet_id, absolut_packets_received)
 } 
 
-pub fn create_mmsghdr_vec(packet_buffer_vec: &mut [PacketBuffer], with_cmsg: bool) -> Vec<libc::mmsghdr> {
+pub fn create_mmsghdr_vec(packet_buffer_vec: &mut [PacketBuffer]) -> Vec<libc::mmsghdr> {
     let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
     for packet_buffer in packet_buffer_vec.iter_mut() {
-        if with_cmsg {
-            packet_buffer.add_cmsg_buffer();
-        }
-
-        // We can't use a reference of msghdr, since we need to move it into the mmsghdr struct
+        // We can't use a reference of msghdr, since we need to move (I think in this case the value is copied) it into the mmsghdr struct
         let msghdr = *packet_buffer.get_msghdr();
 
         let mmsghdr = create_mmsghdr(msghdr);
