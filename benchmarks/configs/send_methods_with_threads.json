@@ -8,7 +8,7 @@
         "with-gso-buffer": 65507,
         "with-mss": 1472,
         "with-gsro": true,
-        "with-mmsg-amount": 20,
+        "with-mmsg-amount": 15,
         "with-ip-frag": false,
         "without-non-blocking": false,
         "multiplex-port": "sharding",
