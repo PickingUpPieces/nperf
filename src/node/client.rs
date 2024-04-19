@@ -3,6 +3,7 @@ use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
 use crate::net::{MessageHeader, MessageType, socket::Socket};
+use crate::util::mmsghdr_vec::MmsghdrVec;
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
 use crate::DEFAULT_CLIENT_IP;
 use super::Node;
@@ -10,6 +11,7 @@ use super::Node;
 pub struct Client {
     test_id: u64,
     packet_buffer: Vec<PacketBuffer>,
+    packet_buffer_sendmmsg: MmsghdrVec,
     socket: Socket,
     statistic: Statistic,
     run_time_length: u64,
@@ -33,13 +35,13 @@ impl Client {
         };
 
         info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
-        let mut packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| PacketBuffer::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
-        Self::fill_packet_buffers_with_repeating_pattern(&mut packet_buffer); 
-        Self::add_message_headers(&mut packet_buffer, test_id);
+
+        let packet_buffer = Self::create_packet_buffer(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size, test_id); 
 
         Client {
             test_id,
             packet_buffer,
+            packet_buffer_sendmmsg: MmsghdrVec::new(Vec::new()),
             socket,
             statistic: Statistic::new(parameter),
             run_time_length: parameter.test_runtime_length,
@@ -128,21 +130,21 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.add_packet_ids()?;
-        let mut mmsghdr_vec = util::create_mmsghdr_vec(&mut self.packet_buffer);
+        let amount_datagrams = self.packet_buffer_sendmmsg.add_packet_ids(self.next_packet_id)?;
 
-        match self.socket.sendmmsg(&mut mmsghdr_vec) {
+        match self.socket.sendmmsg(&mut self.packet_buffer_sendmmsg.mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
-                if amount_sent_mmsghdr != self.packet_buffer.len() {
+                let amount_packets_per_msghdr = self.packet_buffer_sendmmsg.packets_amount_per_msghdr();
+
+                if amount_sent_mmsghdr != self.packet_buffer_sendmmsg.mmsghdr_vec.len() {
                     // Check until which index the packets were sent. Either all packets in a msghdr are sent or none.
                     // Reset self.next_packet_id to the last packet_id that was sent
                     warn!("Not all packets were sent! Sent: {}, Expected: {}", amount_sent_mmsghdr, amount_datagrams);
-                    let packet_amount_per_msghdr = self.packet_buffer[0].get_packet_amount();
-                    let amount_not_sent_packets = (self.packet_buffer.len() - amount_sent_mmsghdr) * packet_amount_per_msghdr;
+                    let amount_not_sent_packets = (self.packet_buffer_sendmmsg.mmsghdr_vec.len() - amount_sent_mmsghdr) * amount_packets_per_msghdr;
                     self.next_packet_id -= amount_not_sent_packets as u64;
                 }
-                self.statistic.amount_datagrams += (amount_sent_mmsghdr * self.packet_buffer[0].get_packet_amount()) as u64;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&mmsghdr_vec, amount_sent_mmsghdr);
+                self.statistic.amount_datagrams += (amount_sent_mmsghdr * amount_packets_per_msghdr) as u64;
+                self.statistic.amount_data_bytes += util::get_total_bytes(&self.packet_buffer_sendmmsg.mmsghdr_vec, amount_sent_mmsghdr);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
@@ -171,16 +173,24 @@ impl Client {
         Ok(total_amount_used_packet_ids)
     }
 
-    fn add_message_headers(packet_buffer: &mut Vec<PacketBuffer>, test_id: u64) {
+    fn add_message_headers(packet_buffer: &mut [PacketBuffer], test_id: u64) {
         for packet_buffer in packet_buffer.iter_mut() {
             packet_buffer.add_message_header(test_id, 0).expect("Error adding message header");
         }
     }
 
-    fn fill_packet_buffers_with_repeating_pattern(packet_buffer: &mut Vec<PacketBuffer>) {
+    fn fill_packet_buffers_with_repeating_pattern(packet_buffer: &mut [PacketBuffer]) {
         for packet_buffer in packet_buffer.iter_mut() {
             packet_buffer.fill_with_repeating_pattern();
         }
+    }
+
+    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32, test_id: u64) -> Vec<PacketBuffer> {
+        let mut packet_buffer = Vec::from_iter((0..size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
+        Self::fill_packet_buffers_with_repeating_pattern(&mut packet_buffer); 
+        Self::add_message_headers(&mut packet_buffer, test_id);
+
+        packet_buffer
     }
 }
 
@@ -194,6 +204,10 @@ impl Node for Client {
             } else {
                 return Err("No socket address out set on socket! Aborting measurement...");
             }
+        }
+
+        if self.statistic.parameter.exchange_function == ExchangeFunction::Mmsg {
+            self.packet_buffer_sendmmsg = MmsghdrVec::new(Self::create_packet_buffer(self.statistic.parameter.packet_buffer_size, self.statistic.parameter.mss, self.statistic.parameter.datagram_size, self.test_id));
         }
 
         if let Ok(mss) = self.socket.get_mss() {

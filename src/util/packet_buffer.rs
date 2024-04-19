@@ -1,4 +1,4 @@
-use log::{debug, trace};
+use log::debug;
 use crate::net::{MessageHeader, MessageType};
 
 const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
@@ -8,9 +8,9 @@ pub struct PacketBuffer {
     msghdr: libc::msghdr,
     with_cmsg: bool,
     sockaddr: libc::sockaddr_in,
-    datagram_size: u32,
+    pub datagram_size: u32,
     _last_packet_size: u32,
-    packets_amount: usize,
+    pub packets_amount: usize,
 }
 
 impl PacketBuffer {
@@ -136,17 +136,24 @@ impl PacketBuffer {
     pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
         // Re-set iov pointer, since it could have been reallocated
         if self.with_cmsg {
-            //self.add_cmsg_buffer();
             // Has to be set, since recvmsg overwrites this value 
             self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
         }
         &mut self.msghdr
     }
 
+    pub fn move_msghdr(mut self) -> libc::msghdr {
+        // Re-set iov pointer, since it could have been reallocated
+        if self.with_cmsg {
+            // Has to be set, since recvmsg overwrites this value 
+            self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
+        }
+        self.msghdr
+    }
+
     pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
         let iov_base = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
         let iov_len = unsafe { (*self.msghdr.msg_iov).iov_len };
-        trace!("Get pointer length {}", iov_len);
         unsafe { std::slice::from_raw_parts_mut(iov_base, iov_len) }
     }
 

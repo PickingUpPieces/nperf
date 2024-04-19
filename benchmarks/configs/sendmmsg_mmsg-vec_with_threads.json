@@ -1,19 +1,19 @@
 {
     "parameters": {
-        "repetitions": 5,
+        "repetitions": 3,
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
         "time": 30,
         "with-gso-buffer": 65507,
         "with-mss": 1472,
-        "with-msg": false,
-        "with-mmsg": true,
+        "multiplex-port": "individual",
+        "multiplex-port-server": "individual",
+        "exchange-function": "mmsg",
         "with-gsro": true,
         "with-ip-frag": false,
         "without-non-blocking": false,
-        "with-reuseport": false,
-        "io-model": "select"
+        "io-model": "poll"
     },
     "|mmsg-vec| 1": {
         "1": {
