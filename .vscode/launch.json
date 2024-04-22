@@ -20,9 +20,9 @@
                 }
             },
             "env": {
-                "RUST_LOG": "TRACE",
+                "RUST_LOG": "DEBUG",
             },
-            "args": ["client", "--multiplex-port=sharing", "--multiplex-port-server=individual"],
+            "args": ["client", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "delay"
         },
@@ -42,9 +42,9 @@
                 }
             },
             "env": {
-                "RUST_LOG": "TRACE",
+                "RUST_LOG": "DEBUG",
             },
-            "args": ["server"],
+            "args": ["server", "--with-gsro"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -52,10 +52,10 @@
             "request": "launch",
             "name": "Run client",
             "env": {
-                "RUST_LOG": "INFO",
+                "RUST_LOG": "DEBUG",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["client"],
+            "args": ["client", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
             "preLaunchTask": "delay"
@@ -65,10 +65,10 @@
             "request": "launch",
             "name": "Run server",
             "env": {
-                "RUST_LOG": "INFO",
+                "RUST_LOG": "DEBUG",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["server"],
+            "args": ["server", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
         },

@@ -4,7 +4,7 @@
     {
         "label": "delay",
         "type": "shell",
-        "command": "sleep 1"
+        "command": "sleep 3"
     }
     ]
 }

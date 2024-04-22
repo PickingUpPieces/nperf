@@ -1,585 +1,131 @@
 {
-    "One server": {
+    "parameters": {
+        "repetitions": 3,
+        "ip": "0.0.0.0",
+        "port": 45001,
+        "datagram-size": 1472,
+        "time": 30,
+        "with-gso-buffer": 65507,
+        "with-mss": 1472,
+        "with-gsro": true,
+        "with-mmsg-amount": 20,
+        "with-ip-frag": false,
+        "without-non-blocking": false,
+        "exchange-function": "msg",
+        "multiplex-port": "individual",
+        "multiplex-port-server": "individual",
+        "io-model": "poll"
+    },
+    "one server": {
         "1": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         },
         "2": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 2,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
-        },
-        "3": {
-            "repetitions": 1,
-            "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 3,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         },
         "4": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 4,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
-        },
-        "5": {
-            "repetitions": 1,
-            "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 5,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         },
         "6": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 6,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         },
         "8": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 8,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         },
         "10": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 10,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         },
         "12": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 12,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharding"
             },
-            "server": {
-                "ip": "0.0.0.0",
-                "port": 45000,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
-            }
+            "server": {}
         }
     },
-    "1o1": {
+    "one client": {
         "1": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             }
         },
         "2": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 2,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 2,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             }
         },
         "4": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 4,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 4,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             }
         },
         "6": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 6,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 6,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             }
         },
         "8": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 8,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 8,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             }
         },
         "10": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 10,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 10, 
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "parallel": 10,
+                "multiplex-port-server": "sharing"
             }
         },
         "12": {
-            "repetitions": 1,
             "client": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
-                "parallel": 12,
-                "with-gso": true,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": false,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             },
             "server": {
-                "ip": "0.0.0.0",
-                "port": 45001,
-                "datagram-size": 1472,
-                "time": 30,
                 "parallel": 12,
-                "with-gso": false,
-                "with-gso-buffer": 65507,
-                "with-mss": 1472,
-                "with-gro": true,
-                "with-ip-frag": false,
-                "with-msg": false,
-                "with-mmsg": true,
-                "with-mmsg-amount": 20,
-                "without-non-blocking": false,
-                "io-model": "select"
+                "multiplex-port-server": "sharing"
             }
         }
     }

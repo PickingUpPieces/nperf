@@ -9,7 +9,7 @@ pub struct SocketOptions {
     ip_fragmentation: bool,
     reuseport: bool,
     gso: Option<u32>,
-    gro: bool,
+    pub gro: bool,
     recv_buffer_size: Option<u32>,
     send_buffer_size: Option<u32>,
 }

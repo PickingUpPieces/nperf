@@ -74,7 +74,7 @@ impl nPerf {
             core_affinity_manager.lock().unwrap().set_affinity().unwrap();
         }
         
-        let mut node:Box<dyn Node> = if parameter.mode == NPerfMode::Client {
+        let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
             Box::new(Client::new(test_id, client_port, sock_address_server, socket, parameter))
         } else {
             Box::new(Server::new(sock_address_server, socket, parameter))
