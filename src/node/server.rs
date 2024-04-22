@@ -2,19 +2,18 @@
 use std::net::SocketAddrV4;
 use std::thread::{self, sleep};
 use std::time::Instant;
-use crate::util::mmsghdr_vec::MmsghdrVec;
+use crate::util::packet_buffer::PacketBuffer;
 use log::{debug, error, info, trace};
 
 use crate::net::{socket::Socket, MessageHeader, MessageType};
-use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
 use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 
 pub struct Server {
-    packet_buffer: Vec<PacketBuffer>,
-    packet_buffer_sendmmsg: MmsghdrVec,
+    packet_buffer: PacketBuffer,
     socket: Socket,
     next_packet_id: u64,
     parameter: Parameter,
@@ -37,7 +36,6 @@ impl Server {
 
         Server {
             packet_buffer,
-            packet_buffer_sendmmsg: MmsghdrVec::new(Vec::new()),
             socket,
             next_packet_id: 0,
             parameter,
@@ -56,19 +54,19 @@ impl Server {
 
     fn recv(&mut self) -> Result<(), &'static str> {
         // Only one buffer is used, so we can directly access the first element
-        let buffer_pointer = self.packet_buffer[0].get_buffer_pointer();
+        let buffer_pointer = self.packet_buffer.get_buffer_pointer_from_index(0).unwrap();
 
         match self.socket.recv(buffer_pointer) {
             Ok(amount_received_bytes) => {
-                let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer()) as usize;
-                let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
+                let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
+                let mtype = MessageHeader::get_message_type(buffer_pointer);
                 debug!("Received packet with test id: {}", test_id);
 
                 self.parse_message_type(mtype, test_id)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
-                let datagram_size = self.packet_buffer[0].get_datagram_size() as usize;
-                let amount_received_packets = util::process_packet_buffer(self.packet_buffer[0].get_buffer_pointer(), datagram_size, self.next_packet_id, statistic);
+                let datagram_size = self.packet_buffer.datagram_size() as usize;
+                let amount_received_packets = util::process_packet_buffer(self.packet_buffer.get_buffer_pointer_from_index(0).unwrap(), datagram_size, self.next_packet_id, statistic);
                 self.next_packet_id += amount_received_packets;
                 statistic.amount_datagrams += amount_received_packets;
                 statistic.amount_data_bytes += amount_received_bytes;
@@ -80,16 +78,17 @@ impl Server {
 
     fn recvmsg(&mut self) -> Result<(), &'static str> {
         // Only one buffer is used, so we can directly access the first element
-        let msghdr = self.packet_buffer[0].get_msghdr();
+        let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
 
         match self.socket.recvmsg(msghdr) {
             Ok(amount_received_bytes) => {
-                let test_id = MessageHeader::get_test_id(self.packet_buffer[0].get_buffer_pointer()) as usize;
-                let mtype = MessageHeader::get_message_type(self.packet_buffer[0].get_buffer_pointer());
+                let buffer_pointer = self.packet_buffer.get_buffer_pointer_from_index(0).unwrap();
+                let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
+                let mtype = MessageHeader::get_message_type(buffer_pointer);
 
                 self.parse_message_type(mtype, test_id)?;
 
-                let msghdr = self.packet_buffer[0].get_msghdr();
+                let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let absolut_packets_received;
                 (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes, self.next_packet_id, statistic);
@@ -105,23 +104,23 @@ impl Server {
 
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
 
-        match self.socket.recvmmsg(&mut self.packet_buffer_sendmmsg.mmsghdr_vec) {
+        match self.socket.recvmmsg(&mut self.packet_buffer.mmsghdr_vec) {
             Ok(amount_received_mmsghdr) => { 
                 if amount_received_mmsghdr == 0 {
                     debug!("No packets received during this recvmmsg call");
                     return Ok(());
                 }
 
-                let test_id = MessageHeader::get_test_id(self.packet_buffer_sendmmsg.get_buffer_pointer_from_index(0).unwrap()) as usize;
-                let mtype = MessageHeader::get_message_type(self.packet_buffer_sendmmsg.get_buffer_pointer_from_index(0).unwrap());
-                let amount_received_bytes = util::get_total_bytes(&self.packet_buffer_sendmmsg.mmsghdr_vec, amount_received_mmsghdr);
+                let test_id = MessageHeader::get_test_id(self.packet_buffer.get_buffer_pointer_from_index(0).unwrap()) as usize;
+                let mtype = MessageHeader::get_message_type(self.packet_buffer.get_buffer_pointer_from_index(0).unwrap());
+                let amount_received_bytes = util::get_total_bytes(&self.packet_buffer.mmsghdr_vec, amount_received_mmsghdr);
 
                 self.parse_message_type(mtype, test_id)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
 
-                for (index, mmsghdr) in self.packet_buffer_sendmmsg.mmsghdr_vec.iter_mut().enumerate() {
+                for (index, mmsghdr) in self.packet_buffer.mmsghdr_vec.iter_mut().enumerate() {
                     if index >= amount_received_mmsghdr {
                         break;
                     }
@@ -179,13 +178,13 @@ impl Server {
         }
     }
 
-    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32) -> Vec<PacketBuffer> {
-        let mut packet_buffer = Vec::from_iter((0..size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
+    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32) -> PacketBuffer {
+        let mut packet_buffer = Vec::from_iter((0..size).map(|_| WrapperMsghdr::new(mss, datagram_size).expect("Error creating packet buffer")));
 
         // Add cmsg buffer to each packet buffer
         packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.add_cmsg_buffer());
 
-        packet_buffer
+        PacketBuffer::new(packet_buffer)
     }
 }
 
@@ -193,10 +192,6 @@ impl Node for Server {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
         info!("Start server loop...");
         let mut statistic = Statistic::new(self.parameter);
-
-        if self.parameter.exchange_function == ExchangeFunction::Mmsg {
-            self.packet_buffer_sendmmsg = MmsghdrVec::new(Self::create_packet_buffer(self.parameter.packet_buffer_size, self.parameter.mss, self.parameter.datagram_size));
-        }
 
         let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
         // TODO: Add 10s timeout -> With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.

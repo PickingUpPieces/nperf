@@ -3,15 +3,15 @@ use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
 use crate::net::{MessageHeader, MessageType, socket::Socket};
-use crate::util::mmsghdr_vec::MmsghdrVec;
-use crate::util::{self, ExchangeFunction, IOModel, statistic::*, packet_buffer::PacketBuffer};
+use crate::util::packet_buffer::PacketBuffer;
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
 use crate::DEFAULT_CLIENT_IP;
 use super::Node;
 
 pub struct Client {
     test_id: u64,
-    packet_buffer: Vec<PacketBuffer>,
-    packet_buffer_sendmmsg: MmsghdrVec,
+    packet_buffer: Vec<WrapperMsghdr>,
+    packet_buffer_sendmmsg: PacketBuffer,
     socket: Socket,
     statistic: Statistic,
     run_time_length: u64,
@@ -41,7 +41,7 @@ impl Client {
         Client {
             test_id,
             packet_buffer,
-            packet_buffer_sendmmsg: MmsghdrVec::new(Vec::new()),
+            packet_buffer_sendmmsg: PacketBuffer::new(Vec::new()),
             socket,
             statistic: Statistic::new(parameter),
             run_time_length: parameter.test_runtime_length,
@@ -54,7 +54,7 @@ impl Client {
         let header = MessageHeader::new(mtype, self.test_id, 0);
         debug!("Coordination message: {:?}", header);
 
-        let packet_buffer = PacketBuffer::new(header.len() as u32, header.len() as u32);
+        let packet_buffer = WrapperMsghdr::new(header.len() as u32, header.len() as u32);
 
         if let Some(mut packet_buffer) = packet_buffer {
             packet_buffer.copy_buffer(header.serialize());
@@ -173,20 +173,20 @@ impl Client {
         Ok(total_amount_used_packet_ids)
     }
 
-    fn add_message_headers(packet_buffer: &mut [PacketBuffer], test_id: u64) {
+    fn add_message_headers(packet_buffer: &mut [WrapperMsghdr], test_id: u64) {
         for packet_buffer in packet_buffer.iter_mut() {
             packet_buffer.add_message_header(test_id, 0).expect("Error adding message header");
         }
     }
 
-    fn fill_packet_buffers_with_repeating_pattern(packet_buffer: &mut [PacketBuffer]) {
+    fn fill_packet_buffers_with_repeating_pattern(packet_buffer: &mut [WrapperMsghdr]) {
         for packet_buffer in packet_buffer.iter_mut() {
             packet_buffer.fill_with_repeating_pattern();
         }
     }
 
-    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32, test_id: u64) -> Vec<PacketBuffer> {
-        let mut packet_buffer = Vec::from_iter((0..size).map(|_| PacketBuffer::new(mss, datagram_size).expect("Error creating packet buffer")));
+    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32, test_id: u64) -> Vec<WrapperMsghdr> {
+        let mut packet_buffer = Vec::from_iter((0..size).map(|_| WrapperMsghdr::new(mss, datagram_size).expect("Error creating packet buffer")));
         Self::fill_packet_buffers_with_repeating_pattern(&mut packet_buffer); 
         Self::add_message_headers(&mut packet_buffer, test_id);
 
@@ -207,7 +207,7 @@ impl Node for Client {
         }
 
         if self.statistic.parameter.exchange_function == ExchangeFunction::Mmsg {
-            self.packet_buffer_sendmmsg = MmsghdrVec::new(Self::create_packet_buffer(self.statistic.parameter.packet_buffer_size, self.statistic.parameter.mss, self.statistic.parameter.datagram_size, self.test_id));
+            self.packet_buffer_sendmmsg = PacketBuffer::new(Self::create_packet_buffer(self.statistic.parameter.packet_buffer_size, self.statistic.parameter.mss, self.statistic.parameter.datagram_size, self.test_id));
         }
 
         if let Ok(mss) = self.socket.get_mss() {

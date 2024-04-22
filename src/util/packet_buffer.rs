@@ -1,171 +1,85 @@
 use log::debug;
-use crate::net::{MessageHeader, MessageType};
 
-const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
+use crate::net::MessageHeader;
+use super::msghdr::WrapperMsghdr;
 
 pub struct PacketBuffer {
-    buffer_length: usize,
-    msghdr: libc::msghdr,
-    with_cmsg: bool,
-    sockaddr: libc::sockaddr_in,
-    pub datagram_size: u32,
-    _last_packet_size: u32,
-    pub packets_amount: usize,
+    pub mmsghdr_vec: Vec<libc::mmsghdr>,
+    datagram_size: u32,
+    packets_amount_per_msghdr: usize,
 }
 
 impl PacketBuffer {
-    pub fn new(mss: u32, datagram_size: u32) -> Option<Self> {
+    // Consumes the packet buffer vector and creates a vector of mmsghdr structs
+    pub fn new(packet_buffer_vec: Vec<WrapperMsghdr>) -> PacketBuffer {
+        let mut mmsghdr_vec = Vec::with_capacity(packet_buffer_vec.len());
+        let (mut datagram_size, mut packets_amount_per_msghdr) = (0, 0);
 
-        let rest_of_buffer = mss % datagram_size;
-        let _last_packet_size = if rest_of_buffer == 0 {
-            debug!("Buffer length is a multiple of packet size!");
-            datagram_size
-        } else {
-            debug!("Buffer length is not a multiple of packet size! Last packet size is: {}", rest_of_buffer);
-            rest_of_buffer
-        };
+        for packet_buffer in packet_buffer_vec {
+            datagram_size = packet_buffer.datagram_size; // ASSUMPTION: It's the same for all packet buffers
+            packets_amount_per_msghdr = packet_buffer.packets_amount; // ASSUMPTION: It's the same for all packet buffers
 
-        let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
-        debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
+            let msghdr = packet_buffer.move_msghdr();
+            let mmsghdr = libc::mmsghdr {
+                msg_hdr: msghdr,
+                msg_len: 0,
+            };
+            mmsghdr_vec.push(mmsghdr);
+        }
 
-        let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice());
-        let iov = Self::create_iovec(buffer);
-
-        let msghdr = Self::create_msghdr(iov);
-        let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
-
-        Some(PacketBuffer {
-            buffer_length: mss as usize,
-            msghdr,
-            with_cmsg: false,
-            sockaddr,
+        PacketBuffer {
+            mmsghdr_vec,
             datagram_size,
-            _last_packet_size,
-            packets_amount,
-        })
-    }
-
-    // Similar to iperf3's fill_with_repeating_pattern
-    pub fn fill_with_repeating_pattern(&mut self) {
-        let mut counter: u8 = 0;
-        for i in self.get_buffer_pointer().iter_mut() {
-            *i = (48 + counter).to_ascii_lowercase();
-
-            if counter > 9 {
-                counter = 0;
-            } else {
-                counter += 1;
-            }
+            packets_amount_per_msghdr,
         }
     }
 
-    pub fn add_message_header(&mut self, test_id: u64, packet_id: u64) -> Result<u64, &'static str> {
-        let mut amount_used_packet_ids: u64 = 0;
-        let mut header = MessageHeader::new(MessageType::MEASUREMENT, test_id, packet_id);
-
-        for i in 0..self.packets_amount {
-            let start_of_packet = i * self.datagram_size as usize;
-            header.set_packet_id(packet_id + amount_used_packet_ids);
-            let serialized_header = header.serialize();
-            let buffer = self.get_buffer_pointer();
-            buffer[start_of_packet..(start_of_packet + serialized_header.len())].copy_from_slice(serialized_header);
-            amount_used_packet_ids += 1;
+    pub fn get_buffer_pointer_from_index(&mut self, index: usize) -> Result<&mut [u8], &'static str> {
+        if let Some(mmsghdr) = self.mmsghdr_vec.get_mut(index) {
+            Ok(Self::get_buffer_pointer_from_mmsghdr(mmsghdr))
+        } else {
+            Err("Getting buffer pointer of msghdr is out of bounds!")
         }
-        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
-        // Return amount of used packet IDs
-        Ok(amount_used_packet_ids)
+    }
+
+    pub fn get_buffer_pointer_from_mmsghdr(mmsghdr: &mut libc::mmsghdr) -> &mut [u8] {
+        let iov_base = unsafe { (*mmsghdr.msg_hdr.msg_iov).iov_base as *mut u8 };
+        let iov_len = unsafe { (*mmsghdr.msg_hdr.msg_iov).iov_len };
+        unsafe { std::slice::from_raw_parts_mut(iov_base, iov_len) }
+    }
+
+    pub fn get_msghdr_from_index(&mut self, index: usize) -> Result<&mut libc::msghdr, &'static str> {
+        if let Some(mmsghdr) = self.mmsghdr_vec.get_mut(index) {
+            Ok(&mut mmsghdr.msg_hdr)
+        } else {
+            Err("Getting msghdr is out of bounds!")
+        }
     }
 
     pub fn add_packet_ids(&mut self, packet_id: u64) -> Result<u64, &'static str> {
         let mut amount_used_packet_ids: u64 = 0;
 
-        for i in 0..self.packets_amount {
-            let start_of_packet = i * self.datagram_size as usize;
-            let buffer = self.get_buffer_pointer();
-            MessageHeader::set_packet_id_raw(&mut buffer[start_of_packet..], packet_id + amount_used_packet_ids);
-            amount_used_packet_ids += 1;
+        // Iterate over all mmsghdr structs
+        for mmsghdr in self.mmsghdr_vec.iter_mut() { 
+            let msghdr_buffer = Self::get_buffer_pointer_from_mmsghdr(mmsghdr);
+
+            for i in 0..self.packets_amount_per_msghdr {
+                let start_of_packet = i * self.datagram_size as usize;
+                MessageHeader::set_packet_id_raw(&mut msghdr_buffer[start_of_packet..], packet_id + amount_used_packet_ids);
+                amount_used_packet_ids += 1;
+            }
         }
 
         debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
         // Return amount of used packet IDs
         Ok(amount_used_packet_ids)
     }
-
-    fn create_msghdr(iov: &mut libc::iovec) -> libc::msghdr {
-        let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
-        
-        msghdr.msg_name = std::ptr::null_mut();
-        msghdr.msg_namelen = 0;
-        msghdr.msg_iov = iov as *mut _;
-        msghdr.msg_iovlen = 1;
-        msghdr.msg_control = std::ptr::null_mut();
-        msghdr.msg_controllen = 0;
     
-        msghdr
+    pub fn packets_amount_per_msghdr(&self) -> usize {
+        self.packets_amount_per_msghdr
     }
 
-    pub fn set_address(&mut self, address: libc::sockaddr_in) {
-        self.sockaddr = address;
-        self.msghdr.msg_name = (&mut self.sockaddr) as *mut _ as *mut libc::c_void;
-        self.msghdr.msg_namelen = std::mem::size_of::<libc::sockaddr_in>() as u32;
-    }
-
-    pub fn add_cmsg_buffer(&mut self) {
-        self.with_cmsg = true;
-        let msg_control = Box::leak(Box::new([0_u8; LENGTH_CONTROL_MESSAGE_BUFFER]));
-        self.msghdr.msg_control = msg_control as *mut _ as *mut libc::c_void;
-        self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
-    }
-
-    fn create_iovec(buffer: &mut [u8]) -> &mut libc::iovec {
-        Box::leak(Box::new(libc::iovec {
-            iov_base: buffer.as_mut_ptr() as *mut _,
-            iov_len: buffer.len(),
-        }))
-    }
-
-    pub fn copy_buffer(&mut self, buffer: &[u8]) {
-        if buffer.len() <= self.buffer_length {
-            self.buffer_length = buffer.len();
-            let buf = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
-            // Copy buffer into msghdr iovec
-            unsafe { buf.copy_from(buffer.as_ptr(), buffer.len()) };
-        }
-    }
-
-    pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
-        // Re-set iov pointer, since it could have been reallocated
-        if self.with_cmsg {
-            // Has to be set, since recvmsg overwrites this value 
-            self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
-        }
-        &mut self.msghdr
-    }
-
-    pub fn move_msghdr(mut self) -> libc::msghdr {
-        // Re-set iov pointer, since it could have been reallocated
-        if self.with_cmsg {
-            // Has to be set, since recvmsg overwrites this value 
-            self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
-        }
-        self.msghdr
-    }
-
-    pub fn get_buffer_pointer(&mut self) -> &mut [u8] {
-        let iov_base = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
-        let iov_len = unsafe { (*self.msghdr.msg_iov).iov_len };
-        unsafe { std::slice::from_raw_parts_mut(iov_base, iov_len) }
-    }
-
-    pub fn get_buffer_length(&self) -> usize {
-        self.buffer_length
-    }
-
-    pub fn get_packet_amount(&self) -> usize {
-        self.packets_amount
-    }
-
-    pub fn get_datagram_size(&self) -> u32 {
+    pub fn datagram_size(&self) -> u32 {
         self.datagram_size
     }
 }
