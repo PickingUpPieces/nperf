@@ -77,21 +77,6 @@ impl WrapperMsghdr {
         Ok(amount_used_packet_ids)
     }
 
-    pub fn add_packet_ids(&mut self, packet_id: u64) -> Result<u64, &'static str> {
-        let mut amount_used_packet_ids: u64 = 0;
-
-        for i in 0..self.packets_amount {
-            let start_of_packet = i * self.datagram_size as usize;
-            let buffer = self.get_buffer_pointer();
-            MessageHeader::set_packet_id_raw(&mut buffer[start_of_packet..], packet_id + amount_used_packet_ids);
-            amount_used_packet_ids += 1;
-        }
-
-        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
-        // Return amount of used packet IDs
-        Ok(amount_used_packet_ids)
-    }
-
     fn create_msghdr(iov: &mut libc::iovec) -> libc::msghdr {
         let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
         
@@ -154,13 +139,5 @@ impl WrapperMsghdr {
         let iov_base = unsafe { (*self.msghdr.msg_iov).iov_base as *mut u8 };
         let iov_len = unsafe { (*self.msghdr.msg_iov).iov_len };
         unsafe { std::slice::from_raw_parts_mut(iov_base, iov_len) }
-    }
-
-    pub fn get_buffer_length(&self) -> usize {
-        self.buffer_length
-    }
-
-    pub fn get_datagram_size(&self) -> u32 {
-        self.datagram_size
     }
 }

@@ -10,8 +10,7 @@ use super::Node;
 
 pub struct Client {
     test_id: u64,
-    packet_buffer: Vec<WrapperMsghdr>,
-    packet_buffer_sendmmsg: PacketBuffer,
+    packet_buffer: PacketBuffer,
     socket: Socket,
     statistic: Statistic,
     run_time_length: u64,
@@ -36,12 +35,11 @@ impl Client {
 
         info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
 
-        let packet_buffer = Self::create_packet_buffer(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size, test_id); 
+        let packet_buffer = Self::create_packet_buffer(&parameter, test_id, &socket); 
 
         Client {
             test_id,
             packet_buffer,
-            packet_buffer_sendmmsg: PacketBuffer::new(Vec::new()),
             socket,
             statistic: Statistic::new(parameter),
             run_time_length: parameter.test_runtime_length,
@@ -81,11 +79,11 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.add_packet_ids()?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
 
         // Only one buffer is used, so we can directly access the first element
-        let buffer_length = self.packet_buffer[0].get_buffer_length();
-        let buffer_pointer = self.packet_buffer[0].get_buffer_pointer();
+        let buffer_length = self.packet_buffer.datagram_size() as usize;
+        let buffer_pointer = self.packet_buffer.get_buffer_pointer_from_index(0).unwrap();
 
         match self.socket.send(buffer_pointer , buffer_length) {
             Ok(amount_send_bytes) => {
@@ -106,10 +104,10 @@ impl Client {
     }
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.add_packet_ids()?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
 
         // Only one buffer is used, so we can directly access the first element
-        let msghdr = self.packet_buffer[0].get_msghdr();
+        let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
 
         match self.socket.sendmsg(msghdr) {
             Ok(amount_sent_bytes) => {
@@ -130,21 +128,21 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer_sendmmsg.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
 
-        match self.socket.sendmmsg(&mut self.packet_buffer_sendmmsg.mmsghdr_vec) {
+        match self.socket.sendmmsg(&mut self.packet_buffer.mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
-                let amount_packets_per_msghdr = self.packet_buffer_sendmmsg.packets_amount_per_msghdr();
+                let amount_packets_per_msghdr = self.packet_buffer.packets_amount_per_msghdr();
 
-                if amount_sent_mmsghdr != self.packet_buffer_sendmmsg.mmsghdr_vec.len() {
+                if amount_sent_mmsghdr != self.packet_buffer.mmsghdr_vec.len() {
                     // Check until which index the packets were sent. Either all packets in a msghdr are sent or none.
                     // Reset self.next_packet_id to the last packet_id that was sent
                     warn!("Not all packets were sent! Sent: {}, Expected: {}", amount_sent_mmsghdr, amount_datagrams);
-                    let amount_not_sent_packets = (self.packet_buffer_sendmmsg.mmsghdr_vec.len() - amount_sent_mmsghdr) * amount_packets_per_msghdr;
+                    let amount_not_sent_packets = (self.packet_buffer.mmsghdr_vec.len() - amount_sent_mmsghdr) * amount_packets_per_msghdr;
                     self.next_packet_id -= amount_not_sent_packets as u64;
                 }
                 self.statistic.amount_datagrams += (amount_sent_mmsghdr * amount_packets_per_msghdr) as u64;
-                self.statistic.amount_data_bytes += util::get_total_bytes(&self.packet_buffer_sendmmsg.mmsghdr_vec, amount_sent_mmsghdr);
+                self.statistic.amount_data_bytes += util::get_total_bytes(&self.packet_buffer.mmsghdr_vec, amount_sent_mmsghdr);
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
@@ -156,21 +154,6 @@ impl Client {
             },
             Err(x) => Err(x)
         }
-    }
-
-
-    fn add_packet_ids(&mut self) -> Result<u64, &'static str> {
-        let mut total_amount_used_packet_ids: u64 = 0;
-
-        for packet_buffer in self.packet_buffer.iter_mut() {
-            let amount_used_packet_ids = packet_buffer.add_packet_ids(self.next_packet_id)?;
-            self.next_packet_id += amount_used_packet_ids;
-            total_amount_used_packet_ids += amount_used_packet_ids;
-        }
-
-        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", total_amount_used_packet_ids, self.next_packet_id);
-        // Return amount of used packet IDs
-        Ok(total_amount_used_packet_ids)
     }
 
     fn add_message_headers(packet_buffer: &mut [WrapperMsghdr], test_id: u64) {
@@ -185,31 +168,24 @@ impl Client {
         }
     }
 
-    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32, test_id: u64) -> Vec<WrapperMsghdr> {
-        let mut packet_buffer = Vec::from_iter((0..size).map(|_| WrapperMsghdr::new(mss, datagram_size).expect("Error creating packet buffer")));
+    fn create_packet_buffer(parameter: &Parameter, test_id: u64, socket: &Socket) -> PacketBuffer {
+        let mut packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| WrapperMsghdr::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
         Self::fill_packet_buffers_with_repeating_pattern(&mut packet_buffer); 
         Self::add_message_headers(&mut packet_buffer, test_id);
 
-        packet_buffer
+        if parameter.multiplex_port == MultiplexPort::Sharing && parameter.multiplex_port_server == MultiplexPort::Individual {
+            if let Some(sockaddr) = socket.get_sockaddr_out() {
+                packet_buffer.iter_mut().for_each(|wrapper_msghdr| wrapper_msghdr.set_address(sockaddr));
+            } 
+        }
+
+        PacketBuffer::new(packet_buffer)
     }
 }
 
 
 impl Node for Client {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
-        // Set outgoing address for individual multiplexing
-        if self.statistic.parameter.multiplex_port == MultiplexPort::Sharing && self.statistic.parameter.multiplex_port_server == MultiplexPort::Individual {
-            if let Some(sockaddr) = self.socket.get_sockaddr_out() {
-                self.packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.set_address(sockaddr));
-            } else {
-                return Err("No socket address out set on socket! Aborting measurement...");
-            }
-        }
-
-        if self.statistic.parameter.exchange_function == ExchangeFunction::Mmsg {
-            self.packet_buffer_sendmmsg = PacketBuffer::new(Self::create_packet_buffer(self.statistic.parameter.packet_buffer_size, self.statistic.parameter.mss, self.statistic.parameter.datagram_size, self.test_id));
-        }
-
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);
         }

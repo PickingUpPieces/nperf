@@ -4,11 +4,10 @@ pub mod packet_buffer;
 pub mod core_affinity_manager;
 
 use std::io::IoSlice;
-use libc::mmsghdr;
 use log::{debug, trace};
 use serde::Serialize;
 
-use {msghdr::WrapperMsghdr, statistic::Statistic};
+use statistic::Statistic;
 use crate::net::MessageHeader;
 
 #[derive(clap::ValueEnum, PartialEq, Default, Debug, Copy, Clone, Serialize)]
@@ -127,24 +126,6 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
     (next_packet_id, absolut_packets_received)
 } 
 
-pub fn create_mmsghdr_vec(packet_buffer_vec: &mut [WrapperMsghdr]) -> Vec<libc::mmsghdr> {
-    let mut mmsghdr_vec: Vec<libc::mmsghdr> = Vec::new();
-    for packet_buffer in packet_buffer_vec.iter_mut() {
-        // We can't use a reference of msghdr, since we need to move (I think in this case the value is copied) it into the mmsghdr struct
-        let msghdr = *packet_buffer.get_msghdr();
-
-        let mmsghdr = create_mmsghdr(msghdr);
-        mmsghdr_vec.push(mmsghdr);
-    }
-    mmsghdr_vec
-}
-
-fn create_mmsghdr(msghdr: libc::msghdr) -> libc::mmsghdr {
-    mmsghdr { 
-        msg_hdr: msghdr, 
-        msg_len: 0 // Is set to transmitted bytes by sendmmsg 
-    }
-}
 
 pub fn get_total_bytes(mmsghdr_vec: &[libc::mmsghdr], amount_msghdr: usize) -> usize {
     let mut amount_bytes = 0;

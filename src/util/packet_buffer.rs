@@ -15,6 +15,9 @@ impl PacketBuffer {
         let mut mmsghdr_vec = Vec::with_capacity(packet_buffer_vec.len());
         let (mut datagram_size, mut packets_amount_per_msghdr) = (0, 0);
 
+        // TODO: Add initialize payload
+        // TODO: Add message_header
+
         for packet_buffer in packet_buffer_vec {
             datagram_size = packet_buffer.datagram_size; // ASSUMPTION: It's the same for all packet buffers
             packets_amount_per_msghdr = packet_buffer.packets_amount; // ASSUMPTION: It's the same for all packet buffers
@@ -74,7 +77,7 @@ impl PacketBuffer {
         // Return amount of used packet IDs
         Ok(amount_used_packet_ids)
     }
-    
+
     pub fn packets_amount_per_msghdr(&self) -> usize {
         self.packets_amount_per_msghdr
     }
