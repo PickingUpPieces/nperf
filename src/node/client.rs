@@ -3,6 +3,7 @@ use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
 use crate::net::{MessageHeader, MessageType, socket::Socket};
+use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
 use crate::DEFAULT_CLIENT_IP;
@@ -80,9 +81,10 @@ impl Client {
 
     fn send(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        self.next_packet_id += amount_datagrams;
 
         // Only one buffer is used, so we can directly access the first element
-        let buffer_length = self.packet_buffer.datagram_size() as usize;
+        let buffer_length = self.packet_buffer.datagram_size();
         let buffer_pointer = self.packet_buffer.get_buffer_pointer_from_index(0).unwrap();
 
         match self.socket.send(buffer_pointer , buffer_length) {
@@ -105,6 +107,7 @@ impl Client {
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        self.next_packet_id += amount_datagrams;
 
         // Only one buffer is used, so we can directly access the first element
         let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
@@ -129,6 +132,7 @@ impl Client {
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
         let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        self.next_packet_id += amount_datagrams;
 
         match self.socket.sendmmsg(&mut self.packet_buffer.mmsghdr_vec) {
             Ok(amount_sent_mmsghdr) => { 
@@ -156,26 +160,12 @@ impl Client {
         }
     }
 
-    fn add_message_headers(packet_buffer: &mut [WrapperMsghdr], test_id: u64) {
-        for packet_buffer in packet_buffer.iter_mut() {
-            packet_buffer.add_message_header(test_id, 0).expect("Error adding message header");
-        }
-    }
-
-    fn fill_packet_buffers_with_repeating_pattern(packet_buffer: &mut [WrapperMsghdr]) {
-        for packet_buffer in packet_buffer.iter_mut() {
-            packet_buffer.fill_with_repeating_pattern();
-        }
-    }
-
     fn create_packet_buffer(parameter: &Parameter, test_id: u64, socket: &Socket) -> PacketBuffer {
-        let mut packet_buffer = Vec::from_iter((0..parameter.packet_buffer_size).map(|_| WrapperMsghdr::new(parameter.mss, parameter.datagram_size).expect("Error creating packet buffer")));
-        Self::fill_packet_buffers_with_repeating_pattern(&mut packet_buffer); 
-        Self::add_message_headers(&mut packet_buffer, test_id);
+        let mut packet_buffer = MsghdrVec::new(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size as usize).with_random_payload().with_message_header(test_id);
 
         if parameter.multiplex_port == MultiplexPort::Sharing && parameter.multiplex_port_server == MultiplexPort::Individual {
             if let Some(sockaddr) = socket.get_sockaddr_out() {
-                packet_buffer.iter_mut().for_each(|wrapper_msghdr| wrapper_msghdr.set_address(sockaddr));
+                packet_buffer = packet_buffer.with_target_address(sockaddr);
             } 
         }
 

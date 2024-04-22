@@ -1,28 +1,23 @@
 use log::debug;
 
 use crate::net::MessageHeader;
-use super::msghdr::WrapperMsghdr;
+use super::msghdr_vec::MsghdrVec;
 
 pub struct PacketBuffer {
     pub mmsghdr_vec: Vec<libc::mmsghdr>,
-    datagram_size: u32,
-    packets_amount_per_msghdr: usize,
+    datagram_size: usize, // ASSUMPTION: It's the same for all msghdrs
+    packets_amount_per_msghdr: usize, // ASSUMPTION: It's the same for all msghdrs
 }
 
 impl PacketBuffer {
     // Consumes the packet buffer vector and creates a vector of mmsghdr structs
-    pub fn new(packet_buffer_vec: Vec<WrapperMsghdr>) -> PacketBuffer {
-        let mut mmsghdr_vec = Vec::with_capacity(packet_buffer_vec.len());
-        let (mut datagram_size, mut packets_amount_per_msghdr) = (0, 0);
+    pub fn new(msghdr_vec: MsghdrVec) -> PacketBuffer {
+        let mut mmsghdr_vec = Vec::with_capacity(msghdr_vec.msghdr_vec.len());
+        let datagram_size = msghdr_vec.datagram_size();
+        let packets_amount_per_msghdr = msghdr_vec.packets_amount_per_msghdr();
 
-        // TODO: Add initialize payload
-        // TODO: Add message_header
-
-        for packet_buffer in packet_buffer_vec {
-            datagram_size = packet_buffer.datagram_size; // ASSUMPTION: It's the same for all packet buffers
-            packets_amount_per_msghdr = packet_buffer.packets_amount; // ASSUMPTION: It's the same for all packet buffers
-
-            let msghdr = packet_buffer.move_msghdr();
+        for wrapper_msghdr in msghdr_vec.msghdr_vec {
+            let msghdr = wrapper_msghdr.move_msghdr();
             let mmsghdr = libc::mmsghdr {
                 msg_hdr: msghdr,
                 msg_len: 0,
@@ -33,7 +28,7 @@ impl PacketBuffer {
         PacketBuffer {
             mmsghdr_vec,
             datagram_size,
-            packets_amount_per_msghdr,
+            packets_amount_per_msghdr
         }
     }
 
@@ -67,7 +62,7 @@ impl PacketBuffer {
             let msghdr_buffer = Self::get_buffer_pointer_from_mmsghdr(mmsghdr);
 
             for i in 0..self.packets_amount_per_msghdr {
-                let start_of_packet = i * self.datagram_size as usize;
+                let start_of_packet = i * self.datagram_size;
                 MessageHeader::set_packet_id_raw(&mut msghdr_buffer[start_of_packet..], packet_id + amount_used_packet_ids);
                 amount_used_packet_ids += 1;
             }
@@ -82,7 +77,7 @@ impl PacketBuffer {
         self.packets_amount_per_msghdr
     }
 
-    pub fn datagram_size(&self) -> u32 {
+    pub fn datagram_size(&self) -> usize {
         self.datagram_size
     }
 }

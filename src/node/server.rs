@@ -2,11 +2,12 @@
 use std::net::SocketAddrV4;
 use std::thread::{self, sleep};
 use std::time::Instant;
+use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use log::{debug, error, info, trace};
 
 use crate::net::{socket::Socket, MessageHeader, MessageType};
-use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
+use crate::util::{self, ExchangeFunction, IOModel, statistic::*};
 use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
@@ -32,7 +33,7 @@ impl Server {
         };
 
         info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
-        let packet_buffer = Self::create_packet_buffer(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size); 
+        let packet_buffer = PacketBuffer::new(MsghdrVec::new(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size as usize).with_cmsg_buffer());
 
         Server {
             packet_buffer,
@@ -65,7 +66,7 @@ impl Server {
                 self.parse_message_type(mtype, test_id)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
-                let datagram_size = self.packet_buffer.datagram_size() as usize;
+                let datagram_size = self.packet_buffer.datagram_size();
                 let amount_received_packets = util::process_packet_buffer(self.packet_buffer.get_buffer_pointer_from_index(0).unwrap(), datagram_size, self.next_packet_id, statistic);
                 self.next_packet_id += amount_received_packets;
                 statistic.amount_datagrams += amount_received_packets;
@@ -177,16 +178,8 @@ impl Server {
             }
         }
     }
-
-    fn create_packet_buffer(size: usize, mss: u32, datagram_size: u32) -> PacketBuffer {
-        let mut packet_buffer = Vec::from_iter((0..size).map(|_| WrapperMsghdr::new(mss, datagram_size).expect("Error creating packet buffer")));
-
-        // Add cmsg buffer to each packet buffer
-        packet_buffer.iter_mut().for_each(|packet_buffer| packet_buffer.add_cmsg_buffer());
-
-        PacketBuffer::new(packet_buffer)
-    }
 }
+
 
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{

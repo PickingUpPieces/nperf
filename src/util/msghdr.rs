@@ -5,12 +5,11 @@ const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
 
 #[allow(non_camel_case_types)]
 pub struct WrapperMsghdr {
-    buffer_length: usize,
     msghdr: libc::msghdr,
+    buffer_length: usize,
     with_cmsg: bool,
     sockaddr: libc::sockaddr_in,
     pub datagram_size: u32,
-    _last_packet_size: u32,
     pub packets_amount: usize,
 }
 
@@ -36,12 +35,11 @@ impl WrapperMsghdr {
         let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
 
         Some(WrapperMsghdr {
-            buffer_length: mss as usize,
             msghdr,
+            buffer_length: mss as usize,
             with_cmsg: false,
             sockaddr,
             datagram_size,
-            _last_packet_size,
             packets_amount,
         })
     }
