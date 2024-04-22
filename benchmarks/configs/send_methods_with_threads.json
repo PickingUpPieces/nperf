@@ -7,13 +7,13 @@
         "time": 30,
         "with-gso-buffer": 65507,
         "with-mss": 1472,
+        "multiplex-port": "individual",
+        "multiplex-port-server": "individual",
         "with-gsro": true,
-        "with-mmsg-amount": 15,
+        "with-mmsg-amount": 10,
         "with-ip-frag": false,
         "without-non-blocking": false,
-        "multiplex-port": "sharding",
-        "multiplex-port-server": "individual",
-        "io-model": "select"
+        "io-model": "poll"
     },
     "sendmmsg": {
         "1": {

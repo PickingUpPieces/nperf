@@ -216,7 +216,7 @@ impl Socket {
                 timeout
             )
         };
-    
+
         if recv_result <= -1 {
             let errno = Error::last_os_error();
             match errno.raw_os_error() {
@@ -228,8 +228,8 @@ impl Socket {
                     return Err("Failed to receive data!");
                 }
             }
-        } 
-    
+        }
+
         debug!("Received {} mmsghdr(s)", recv_result);
         Ok(recv_result as usize)
     }
@@ -262,7 +262,7 @@ impl Socket {
         debug!("Received {} bytes", recv_result);
         Ok(recv_result as usize)
     }
-    
+
     pub fn recv(&self, buffer: &mut [u8]) -> Result<usize, &'static str> {
         let recv_result: isize = unsafe {
             libc::recv(

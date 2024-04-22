@@ -1,7 +1,5 @@
 use log::debug;
-use crate::net::{MessageHeader, MessageType};
-
-const LENGTH_CONTROL_MESSAGE_BUFFER: usize = 100;
+use crate::{net::{MessageHeader, MessageType}, LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER};
 
 #[allow(non_camel_case_types)]
 pub struct WrapperMsghdr {
@@ -96,9 +94,9 @@ impl WrapperMsghdr {
 
     pub fn add_cmsg_buffer(&mut self) {
         self.with_cmsg = true;
-        let msg_control = Box::leak(Box::new([0_u8; LENGTH_CONTROL_MESSAGE_BUFFER]));
+        let msg_control = Box::leak(Box::new([0_u8; LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER]));
         self.msghdr.msg_control = msg_control as *mut _ as *mut libc::c_void;
-        self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
+        self.msghdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
     }
 
     fn create_iovec(buffer: &mut [u8]) -> &mut libc::iovec {
@@ -120,16 +118,20 @@ impl WrapperMsghdr {
     pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
         if self.with_cmsg {
             // Has to be set, since recvmsg overwrites this value 
-            self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
+            self.msghdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
         }
+        self.msghdr.msg_flags = 0;
+
         &mut self.msghdr
     }
 
     pub fn move_msghdr(mut self) -> libc::msghdr {
         if self.with_cmsg {
             // Has to be set, since recvmsg overwrites this value 
-            self.msghdr.msg_controllen = LENGTH_CONTROL_MESSAGE_BUFFER;
+            self.msghdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
         }
+        self.msghdr.msg_flags = 0;
+
         self.msghdr
     }
 

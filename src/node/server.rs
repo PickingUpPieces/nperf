@@ -46,6 +46,15 @@ impl Server {
     }
 
     fn recv_messages(&mut self) -> Result<(), &'static str> {
+        // Normally, we need to reset the msg_controllen field to the buffer size of all msghdr structs, since the kernel overwrites the value on return.
+        // The same applies to the msg_flags field, which is set by the kernel in the msghdr struct.
+        // To safe performance, we don't reset the fields, and ignore the msg_flags.
+        // The msg_controllen field should be the same for all messages, since it should only contain the GRO enabled control message.
+
+        // if self.parameter.socket_options.gro {
+        //     self.packet_buffer.reset_msghdr_fields();
+        // }
+
         match self.exchange_function {
             ExchangeFunction::Normal => self.recv(),
             ExchangeFunction::Msg => self.recvmsg(),
@@ -104,7 +113,6 @@ impl Server {
     }
 
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
-
         match self.socket.recvmmsg(&mut self.packet_buffer.mmsghdr_vec) {
             Ok(amount_received_mmsghdr) => { 
                 if amount_received_mmsghdr == 0 {
