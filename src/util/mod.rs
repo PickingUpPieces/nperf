@@ -32,6 +32,7 @@ pub enum IOModel {
     Poll,
     BusyWaiting,
     Select,
+    IoUring
 }
 
 

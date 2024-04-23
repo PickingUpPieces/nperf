@@ -4,6 +4,7 @@ use std::thread::{self, sleep};
 use std::time::Instant;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
+use io_uring::{opcode, types, IoUring};
 use log::{debug, error, info, trace};
 
 use crate::net::{socket::Socket, MessageHeader, MessageType};
@@ -191,16 +192,125 @@ impl Server {
             }
         }
     }
+    
+    fn io_uring_loop(&mut self) -> Result<(), &'static str> {
+        let mut ring = IoUring::new(256).unwrap();
+        let (submitter, mut sq, mut cq) = ring.split();
+        let mut submission_count = 0;
+        let mut completion_count = 0;
+        let user_data = 42;
+
+        // Use the socket file descripter to receive messages
+        let fd = self.socket.get_socket_id();
+        // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
+
+        'outer: loop {
+            // Use io_uring_prep_recvmsg to receive messages: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsg.html
+            // TODO: Use multishot recv to receive multiple messages at once: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsgMulti.html
+            let sqe = opcode::RecvMsg::new(types::Fd(fd), self.packet_buffer.get_msghdr_from_index(0).unwrap()).build().user_data(user_data);
+            unsafe {
+                if sq.push(&sqe).is_err() {
+                    // TODO: Potentially create either backlog queue or revert packet count to previous, if submitting fails
+                    error!("Error pushing io_uring sqe");
+                    return Err("IO_URING ERROR")
+                }
+            }
+            sq.sync();
+
+            // Submit to kernel and wait for 1 completion event
+            // TODO: Dont wait for 1 completion event but check for timeout. In the case the thread doesn't receive any messages
+            match submitter.submit_and_wait(1) {
+                Ok(_) => {
+                    submission_count += 1;
+                },
+                // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
+                // If this happens, the application must reap events from the CQ ring and attempt the submit again.
+                // Should ONLY appear when using flag IORING_FEAT_NODROP
+                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (), 
+                Err(err) => {
+                    error!("Error submitting io_uring sqe: {}", err);
+                    return Err("IO_URING ERROR")
+                }
+            }
+
+            cq.sync();
+
+            // Drain completion queue events
+            for cqe in &mut cq {
+                let amount_received_bytes = cqe.result();
+                let token_index = cqe.user_data();
+
+                // Temporary check, since user_data is static at the moment
+                if token_index != user_data {
+                    error!("Error: User data does not match!");
+                    continue;
+                }
+
+                if amount_received_bytes < 0 {
+                    error!("Error receiving message: {:?}", std::io::Error::from_raw_os_error(-amount_received_bytes));
+                    continue;
+                }
+
+                // Parse recvmsg msghdr on return
+                // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
+                // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
+                // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
+                match self.handle_recvmsg_return(amount_received_bytes) {
+                    Ok(_) => {},
+                    Err("INIT_MESSAGE_RECEIVED") => break,
+                    Err("LAST_MESSAGE_RECEIVED") => {
+                        for measurement in self.measurements.iter() {
+                            if !measurement.last_packet_received && measurement.first_packet_received {
+                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                                continue 'outer;
+                            } 
+                        };
+                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+                        return Ok(());
+                    },
+                    Err(x) => {
+                        error!("Error receiving message! Aborting measurement...");
+                        return Err(x);
+                    }
+                }
+               
+                // Successful received one message 
+                completion_count += 1;
+            }
+
+            debug!("Submission count: {}, Completion count: {}", submission_count, completion_count);
+        }
+    }
+
+    // TODO: Can be replaces in recvmsg function
+    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32) -> Result<(), &'static str> {
+        let buffer_pointer = self.packet_buffer.get_buffer_pointer_from_index(0).unwrap();
+        let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
+        let mtype = MessageHeader::get_message_type(buffer_pointer);
+
+        self.parse_message_type(mtype, test_id)?;
+
+        let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
+        let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
+        let absolut_packets_received;
+        (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes as usize, self.next_packet_id, statistic);
+        statistic.amount_datagrams += absolut_packets_received;
+        statistic.amount_data_bytes += amount_received_bytes as usize;
+        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
+
+        Ok(())
+    }
 }
 
 
 impl Node for Server { 
-    fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>{
+    fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         info!("Start server loop...");
         let mut statistic = Statistic::new(self.parameter);
 
+        // Timeout waiting for first message 
+        // With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.
         let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
-        // TODO: Add 10s timeout -> With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.
         match self.socket.poll(&mut pollfd, INITIAL_POLL_TIMEOUT) {
             Ok(_) => {},
             Err("TIMEOUT") => {
@@ -213,6 +323,10 @@ impl Node for Server {
                 return Err(x);
             }
         };
+
+        if io_model == IOModel::IoUring {
+            self.io_uring_loop()?;
+        } else {
 
         'outer: loop {
             match self.recv_messages() {
@@ -252,7 +366,8 @@ impl Node for Server {
             }
             statistic.amount_syscalls += 1;
         }
-
+    
+        }
 
         if self.parameter.multiplex_port_server != MultiplexPort::Sharing {
             // If a thread finishes (closes the socket) before the others, the hash mapping of SO_REUSEPORT changes. 
@@ -274,7 +389,6 @@ impl Node for Server {
         // Normally we would need to iterate over FDs and check which socket is ready
         // Since we only have one socket, we directly call recv_messages after io_wait returns
         match io_model {
-            IOModel::BusyWaiting => Ok(()),
             IOModel::Select => {
                 let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
                 self.socket.select(Some(&mut read_fds), None, IN_MEASUREMENT_POLL_TIMEOUT)
@@ -283,7 +397,8 @@ impl Node for Server {
             IOModel::Poll => {
                 let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
                 self.socket.poll(&mut pollfd, IN_MEASUREMENT_POLL_TIMEOUT)
-            }
+            },
+            _ => Ok(())
         }
     }
 }

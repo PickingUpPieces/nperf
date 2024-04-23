@@ -218,7 +218,6 @@ impl Node for Client {
         // Normally we would need to iterate over FDs and check which socket is ready
         // Since we only have one socket, we directly call send_messages after io_wait returns
         match io_model {
-            IOModel::BusyWaiting => Ok(()),
             IOModel::Select => {
                 let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
                 self.socket.select(None, Some(&mut write_fds), -1)
@@ -228,6 +227,7 @@ impl Node for Client {
                 let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
                 self.socket.poll(&mut pollfd, -1)
             }
+            _ => Ok(())
         }
     }
 }
