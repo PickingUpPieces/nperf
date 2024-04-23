@@ -1,4 +1,5 @@
 
+use std::io::Error;
 use std::net::SocketAddrV4;
 use std::thread::{self, sleep};
 use std::time::Instant;
@@ -246,9 +247,18 @@ impl Server {
                     continue;
                 }
 
+                // Same as in socket.recvmsg function
                 if amount_received_bytes < 0 {
-                    error!("Error receiving message: {:?}", std::io::Error::from_raw_os_error(-amount_received_bytes));
-                    continue;
+                    let errno = Error::last_os_error();
+                    match errno.raw_os_error() {
+                        // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                        // From: https://linux.die.net/man/2/recvmsg
+                        Some(libc::EAGAIN) => {},
+                        _ => {
+                            error!("Error receiving message: {}", errno);
+                            return Err("Failed to receive data!");
+                        }
+                    }
                 }
 
                 // Parse recvmsg msghdr on return
