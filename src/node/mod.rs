@@ -5,6 +5,5 @@ pub mod server;
 
 pub trait Node {
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str>;
-    fn loop_select(&mut self) -> Result<(), &'static str>;
-    fn loop_poll(&mut self) -> Result<(), &'static str>;
+    fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str>;
 }

@@ -129,6 +129,7 @@ impl Server {
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
 
+                // Check and calculate the amount of received packets and bytes
                 for (index, mmsghdr) in self.packet_buffer.mmsghdr_vec.iter_mut().enumerate() {
                     if index >= amount_received_mmsghdr {
                         break;
@@ -154,6 +155,7 @@ impl Server {
         match mtype {
             MessageType::INIT => {
                 info!("{:?}: INIT packet received from test {}!", thread::current().id(), test_id);
+                // Resize the vector if neeeded, and create a new measurement struct
                 if self.measurements.len() <= test_id {
                     self.measurements.resize(test_id + 1, Measurement::new(self.parameter));
                 }
@@ -163,11 +165,13 @@ impl Server {
                 let measurement = if let Some(x) = self.measurements.get_mut(test_id) {
                     x
                 } else {
+                    // No INIT message received before, so we need to resize and create/add a new measurement struct
                     if self.measurements.len() <= test_id {
                         self.measurements.resize(test_id + 1, Measurement::new(self.parameter));
                     }
                     self.measurements.get_mut(test_id).expect("Error getting statistic in measurement message: test id not found")
                 };
+                // Start measurement timer with receiving of the first MEASUREMENT message
                 if !measurement.first_packet_received {
                     info!("{:?}: First packet received from test {}!", thread::current().id(), test_id);
                     measurement.start_time = Instant::now();
@@ -177,6 +181,7 @@ impl Server {
             },
             MessageType::LAST => {
                 info!("{:?}: LAST packet received from test {}!", thread::current().id(), test_id);
+                // Not checking for measurement length anymore, since we assume that the thread has received at least one MEASUREMENT message before
                 let measurement = self.measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
                 let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
                 measurement.last_packet_received = true;
@@ -214,11 +219,7 @@ impl Node for Server {
                 Ok(_) => {},
                 Err("EAGAIN") => {
                     statistic.amount_io_model_syscalls += 1;
-                    match match io_model {
-                        IOModel::BusyWaiting => Ok(()),
-                        IOModel::Select => self.loop_select(),
-                        IOModel::Poll => self.loop_poll(),
-                    } {
+                    match self.io_wait(io_model) {
                         Ok(_) => {},
                         Err("TIMEOUT") => {
                             // If port sharing is used, or single connection not every thread receives the LAST message. 
@@ -269,20 +270,20 @@ impl Node for Server {
         Ok(statistic)
     }
 
-
-    fn loop_select(&mut self) -> Result<(), &'static str> {
-        let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
-
+    fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {
         // Normally we would need to iterate over FDs and check which socket is ready
-        // Since we only have one socket, we directly call recv_messages 
-        self.socket.select(Some(&mut read_fds), None, IN_MEASUREMENT_POLL_TIMEOUT)
-    }
+        // Since we only have one socket, we directly call recv_messages after io_wait returns
+        match io_model {
+            IOModel::BusyWaiting => Ok(()),
+            IOModel::Select => {
+                let mut read_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+                self.socket.select(Some(&mut read_fds), None, IN_MEASUREMENT_POLL_TIMEOUT)
 
-    fn loop_poll(&mut self) -> Result<(), &'static str> {
-        let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
-
-        // Normally we would need to iterate over FDs and check which socket is ready
-        // Since we only have one socket, we directly call recv_messages 
-        self.socket.poll(&mut pollfd, IN_MEASUREMENT_POLL_TIMEOUT)
+            },
+            IOModel::Poll => {
+                let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
+                self.socket.poll(&mut pollfd, IN_MEASUREMENT_POLL_TIMEOUT)
+            }
+        }
     }
 }
