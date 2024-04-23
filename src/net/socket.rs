@@ -249,6 +249,8 @@ impl Socket {
         if recv_result <= -1 {
             let errno = Error::last_os_error();
             match errno.raw_os_error() {
+                // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                // From: https://linux.die.net/man/2/recvmsg
                 Some(libc::EAGAIN) => {
                     return Err("EAGAIN");
                 },
