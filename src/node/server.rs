@@ -253,8 +253,8 @@ impl Server {
                     match errno.raw_os_error() {
                         // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
                         // From: https://linux.die.net/man/2/recvmsg
-                        Some(libc::EAGAIN) => {},
-                        Some(libc::EXIT_SUCCESS) => {},
+                        Some(libc::EAGAIN) => { break; },
+                        Some(libc::EXIT_SUCCESS) => { break; }, // TODO: This is the error sometimes
                         _ => {
                             error!("Error receiving message: {}", errno);
                             return Err("Failed to receive data!");
