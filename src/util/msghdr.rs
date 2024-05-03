@@ -26,7 +26,7 @@ impl WrapperMsghdr {
         let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
         debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
 
-        let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice());
+        let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice()); // Could solve using the heap by using always a MAX_PACKET_SIZE buffer (which is 2^16)
         let iov = Self::create_iovec(buffer);
 
         let msghdr = Self::create_msghdr(iov);
