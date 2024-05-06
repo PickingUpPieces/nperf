@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use log::debug;
 use crate::{net::{MessageHeader, MessageType}, LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER};
 
@@ -30,7 +32,7 @@ impl WrapperMsghdr {
         let iov = Self::create_iovec(buffer);
 
         let msghdr = Self::create_msghdr(iov);
-        let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+        let sockaddr: libc::sockaddr_in = unsafe { MaybeUninit::zeroed().assume_init() };
 
         Some(WrapperMsghdr {
             msghdr,
@@ -74,7 +76,7 @@ impl WrapperMsghdr {
     }
 
     fn create_msghdr(iov: &mut libc::iovec) -> libc::msghdr {
-        let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
+        let mut msghdr: libc::msghdr = unsafe { MaybeUninit::zeroed().assume_init() };
         
         msghdr.msg_name = std::ptr::null_mut();
         msghdr.msg_namelen = 0;

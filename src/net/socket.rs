@@ -1,6 +1,6 @@
 
 use log::{debug, error, info, trace, warn};
-use std::{self, io::Error, net::SocketAddrV4};
+use std::{self, io::Error, mem::MaybeUninit, net::SocketAddrV4};
 
 use super::socket_options::{self, SocketOptions};
 
@@ -332,7 +332,7 @@ impl Socket {
     }
 
     pub unsafe fn create_fdset(&self) -> libc::fd_set {
-        let mut fd_set: libc::fd_set = std::mem::zeroed();
+        let mut fd_set: libc::fd_set = MaybeUninit::zeroed().assume_init();
         libc::FD_ZERO(&mut fd_set); 
         libc::FD_SET(self.socket, &mut fd_set);
         fd_set
@@ -340,7 +340,7 @@ impl Socket {
 
     pub fn create_pollfd(&self, event: libc::c_short) -> Vec<libc::pollfd> {
         let mut pollfd_vec: Vec<libc::pollfd> = Vec::new();
-        let mut pollfd: libc::pollfd = unsafe { std::mem::zeroed() };
+        let mut pollfd: libc::pollfd = unsafe { MaybeUninit::zeroed().assume_init() };
         pollfd.fd = self.socket;
         pollfd.events = event;
         pollfd_vec.push(pollfd);
