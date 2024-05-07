@@ -5,6 +5,7 @@ use std::thread::{self, sleep};
 use std::time::Instant;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
+use io_uring::types::{SubmitArgs, Timespec};
 use io_uring::{opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue};
 use log::{debug, error, info, trace, warn};
 use io_uring::buf_ring::BufRingSubmissions;
@@ -269,7 +270,6 @@ impl Server {
                         }
                     }
                 }
-                
             }
 
             // Get specific buffer from the buffer ring
@@ -291,7 +291,6 @@ impl Server {
             //    // The name data is always truncated, but we don't care about the name data, since we identify the tests with the test_id.
             //    //debug!("The name data was truncated");
             //}
-
 
             // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
             let iovec: libc::iovec = libc::iovec {
@@ -353,8 +352,8 @@ impl Server {
 
         let mut bufs = buf_ring.submissions();
         let (submitter, mut sq, mut cq) = ring.split();
-        let mut submission_count = 0;
-        let mut completion_count = 0;
+        let mut submission_count: i32 = 0;
+        let mut completion_count: i32 = 0;
 
         // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
@@ -366,21 +365,28 @@ impl Server {
         };
 
         loop {
-            submission_count += self.io_uring_submit(&mut sq, &mut msghdr)?;
+            // If too many messages are in flight, wait for completions
+            if submission_count <= (completion_count + (URING_BURST_SIZE * 3) as i32) {
+                submission_count += self.io_uring_submit(&mut sq, &mut msghdr)?;
+            }
 
-            // Submit to kernel and wait for 1 completion event
-            // TODO: Dont wait for 1 completion event but check for timeout. In the case the thread doesn't receive any messages
-            match submitter.submit_and_wait(1) {
+            // Submit to kernel and wait for 1 completion event or timeout. In case the thread doesn't receive any messages.
+            let mut args = SubmitArgs::new();
+            let ts = Timespec::new().nsec(100_000_000); 
+            args = args.timespec(&ts);
+            
+            match submitter.submit_with_args(5, &args) {
                 Ok(_) => {},
                 // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
                 // If this happens, the application must reap events from the CQ ring and attempt the submit again.
                 // Should ONLY appear when using flag IORING_FEAT_NODROP
-                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (), 
+                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (),
+                Err(ref err) if err.raw_os_error() == Some(62) => (), // Timeout error
                 Err(err) => {
                     error!("Error submitting io_uring sqe: {}", err);
-                    return Err("IO_URING ERROR")
+                    return Err("IO_URING ERROR");
                 }
-            }
+            };
 
             match self.io_uring_complete(&mut cq, &mut bufs, &mut msghdr) {
                 Ok(x) => completion_count += x,
