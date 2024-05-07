@@ -1,5 +1,7 @@
 use std::{net::Ipv4Addr, str::FromStr};
 
+use log::warn;
+
 pub mod socket;
 pub mod socket_options;
 
@@ -78,5 +80,34 @@ pub fn parse_ipv4(adress: &str) -> Result<Ipv4Addr, &'static str> {
     match Ipv4Addr::from_str(adress) {
         Ok(x) => Ok(x),
         Err(_) => Err("Invalid IPv4 address!"),
+    }
+}
+
+#[allow(dead_code)]
+pub fn parse_msg_flags(msg_flags: i32) {
+    if msg_flags == 0 {
+        return;
+    }
+    // Parse the libc msghdr msg_flags, then we need to handle the flags
+    if msg_flags & libc::MSG_CTRUNC != 0 {
+        warn!("Control data truncated");
+    }
+    if msg_flags & libc::MSG_DONTROUTE != 0 {
+        warn!("Send without using routing tables");
+    }
+    if msg_flags & libc::MSG_EOR != 0 {
+        warn!("Terminates a record (if supported by the protocol)");
+    }
+    if msg_flags & libc::MSG_OOB != 0 {
+        warn!("Out-of-band data");
+    }
+    if msg_flags & libc::MSG_PEEK != 0 {
+        warn!("Leave received data in queue");
+    }
+    if msg_flags & libc::MSG_TRUNC != 0 {
+        warn!("Normal data truncated");
+    }
+    if msg_flags & libc::MSG_WAITALL != 0 {
+        warn!("Attempt to fill the read buffer");
     }
 }
