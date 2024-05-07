@@ -5,6 +5,7 @@ use std::thread::{self, sleep};
 use std::time::Instant;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
+use crate::DEFAULT_URING_BURST_SIZE;
 use io_uring::types::{SubmitArgs, Timespec};
 use io_uring::{opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue};
 use log::{debug, error, info, trace, warn};
@@ -17,7 +18,6 @@ use super::Node;
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 const URING_BGROUP: u16 = 0;
-const URING_BURST_SIZE: u32 = 256;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -208,7 +208,7 @@ impl Server {
 
         // TODO: Use multishot recv to receive multiple messages at once: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsgMulti.html
 
-        for _ in 0..URING_BURST_SIZE {
+        for _ in 0..DEFAULT_URING_BURST_SIZE {
             // Use io_uring_prep_recvmsg to receive messages: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsg.html
             let sqe = opcode::RecvMsg::new(types::Fd(fd), msghdr)
             .buf_group(URING_BGROUP) // TODO: Check for parameter
@@ -341,13 +341,13 @@ impl Server {
         // .setup_sqpoll(2000) 
         // https://docs.rs/io-uring/latest/io_uring/struct.Builder.html#method.setup_sqpoll_cpu
         // .setup_sqpoll_cpu(0) // CPU to run the SQ poll thread on
-        .build(URING_BURST_SIZE * 2).expect("Failed to create io_uring");
+        .build(DEFAULT_URING_BURST_SIZE * 2).expect("Failed to create io_uring");
         // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
 
         // TODO: Register provided buffers with io_uring
         let mut buf_ring = ring
         .submitter()
-        .register_buf_ring(u16::try_from(URING_BURST_SIZE * 4).unwrap(), URING_BGROUP, (self.packet_buffer.single_packet_buffer_size()) as u32)
+        .register_buf_ring(u16::try_from(DEFAULT_URING_BURST_SIZE * 4).unwrap(), URING_BGROUP, (self.packet_buffer.single_packet_buffer_size()) as u32)
         .expect("Creation of BufRing failed.");
 
         let mut bufs = buf_ring.submissions();
@@ -366,7 +366,7 @@ impl Server {
 
         loop {
             // If too many messages are in flight, wait for completions
-            if submission_count <= (completion_count + (URING_BURST_SIZE * 3) as i32) {
+            if submission_count <= (completion_count + (DEFAULT_URING_BURST_SIZE * 3) as i32) {
                 submission_count += self.io_uring_submit(&mut sq, &mut msghdr)?;
             }
 

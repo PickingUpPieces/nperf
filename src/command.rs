@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
 
-use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection}, ExchangeFunction, IOModel, NPerfMode};
+use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter}, ExchangeFunction, IOModel, NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
@@ -96,6 +96,18 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     simulate_connection: SimulateConnection,
 
+    /// io_uring: Use provided buffers for recvmsg
+    #[arg(long, default_value_t = false)]
+    uring_provided_buffer: bool,
+
+    /// io_uring: Use recvmsg multishot
+    #[arg(long, default_value_t = false)]
+    uring_multishot: bool,
+
+    /// io_uring: Amount of recvmsg/sendmsg requests are sent in one go
+    #[arg(long, default_value_t = crate::DEFAULT_URING_BURST_SIZE)]
+    uring_burst_size: u32,
+
     /// Show help in markdown format
     #[arg(long, hide = true)]
     markdown_help: bool,
@@ -151,6 +163,12 @@ impl nPerf {
 
         let socket_options = self.parse_socket_options(self.mode);
 
+        let uring_parameters = UringParameter {
+            provided_buffer: self.uring_provided_buffer,
+            multishot: self.uring_multishot,
+            burst_size: self.uring_burst_size,
+        };
+
         let parameter = util::statistic::Parameter::new(
             self.mode, 
             ipv4, 
@@ -166,7 +184,8 @@ impl nPerf {
             self.multiplex_port,
             self.multiplex_port_server,
             simulate_connection,
-            self.with_core_affinity
+            self.with_core_affinity,
+            uring_parameters
         );
 
         self.parameter_check(parameter) 
@@ -198,6 +217,15 @@ impl nPerf {
         if parameter.mode == util::NPerfMode::Server && self.time != crate::DEFAULT_DURATION {
             warn!("Time is ignored in server mode!");
         }
+
+        if parameter.io_model != IOModel::IoUring && (self.uring_provided_buffer || self.uring_multishot || self.uring_burst_size != crate::DEFAULT_URING_BURST_SIZE) {
+            warn!("Uring specific parameters are only used with io-model io_uring enabled!");
+        }
+
+        if self.uring_multishot && self.uring_burst_size != crate::DEFAULT_URING_BURST_SIZE {
+            warn!("Uring multishot can't be used with burst size together!");
+        }
+
 
         Some(parameter)
     }

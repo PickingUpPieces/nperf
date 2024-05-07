@@ -26,5 +26,6 @@ const WAIT_CONTROL_MESSAGE: u64 = 200; // /* milliseconds */
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1;
 const LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER: usize = 100;
+const DEFAULT_URING_BURST_SIZE: u32 = 256;
 
 pub use command::nPerf;
