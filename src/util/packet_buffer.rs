@@ -89,4 +89,8 @@ impl PacketBuffer {
     pub fn datagram_size(&self) -> usize {
         self.datagram_size
     }
+
+    pub fn single_packet_buffer_size(&self) -> usize {
+        self.datagram_size * self.packets_amount_per_msghdr
+    }
 }
