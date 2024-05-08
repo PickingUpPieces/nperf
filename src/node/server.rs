@@ -5,7 +5,6 @@ use std::thread::{self, sleep};
 use std::time::Instant;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
-use crate::DEFAULT_URING_BURST_SIZE;
 use io_uring::types::{SubmitArgs, Timespec};
 use io_uring::{opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue};
 use log::{debug, error, info, trace, warn};
@@ -117,6 +116,29 @@ impl Server {
         }
     }
 
+    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32, buffer_pointer: &[u8], msghdr: &mut libc::msghdr, user_data: u64) -> Result<(), &'static str> {
+        let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
+        let mtype = MessageHeader::get_message_type(buffer_pointer);
+
+        self.parse_message_type(mtype, test_id)?;
+
+        let msghdr = if self.parameter.uring_parameter.provided_buffer {
+           msghdr
+        } else {
+            self.packet_buffer.get_msghdr_from_index(user_data as usize).unwrap()
+        };
+
+
+        let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
+        let absolut_packets_received;
+        (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes as usize, self.next_packet_id, statistic);
+        statistic.amount_datagrams += absolut_packets_received;
+        statistic.amount_data_bytes += amount_received_bytes as usize;
+        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
+
+        Ok(())
+    }
+
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
         match self.socket.recvmmsg(&mut self.packet_buffer.mmsghdr_vec) {
             Ok(amount_received_mmsghdr) => { 
@@ -197,8 +219,14 @@ impl Server {
         }
     }
 
-    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr) -> Result<i32, &'static str> {
+    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, burst_size: u32) -> Result<i32, &'static str> {
         let mut submission_count = 0;
+        let packet_buffer_index: u64 = 0;
+        let msghdr = if self.parameter.uring_parameter.provided_buffer {
+            msghdr
+        } else {
+            self.packet_buffer.get_msghdr_from_index(packet_buffer_index as usize).unwrap()
+        };
 
         sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
@@ -208,12 +236,12 @@ impl Server {
 
         // TODO: Use multishot recv to receive multiple messages at once: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsgMulti.html
 
-        for _ in 0..DEFAULT_URING_BURST_SIZE {
+        for _ in 0..burst_size {
             // Use io_uring_prep_recvmsg to receive messages: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsg.html
             let sqe = opcode::RecvMsg::new(types::Fd(fd), msghdr)
             .buf_group(URING_BGROUP) // TODO: Check for parameter
             .build()
-            .user_data(self.next_packet_id)
+            .user_data(packet_buffer_index)
             .flags(squeue::Flags::BUFFER_SELECT);
 
             unsafe {
@@ -231,6 +259,7 @@ impl Server {
         Ok(submission_count)
     }
 
+
     fn io_uring_complete(&mut self, cq: &mut CompletionQueue, bufs: &mut BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<i32, &'static str> {
         let mut completion_count = 0;
 
@@ -240,57 +269,42 @@ impl Server {
         // Drain completion queue events
         for cqe in cq {
             let amount_received_bytes = cqe.result();
-            let token_index = cqe.user_data();
-            debug!("Received completion event with user_data: {}, and received bytes: {}", token_index, amount_received_bytes); 
+            let user_data = cqe.user_data();
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
+
+            completion_count += 1;
 
             // Same as in socket.recvmsg function: Check if result is negative, and handle the error
+            // Errors are negated, since a positive amount of bytes received is a success
             match amount_received_bytes {
                 0 => {
                     warn!("Received empty message");
-                    completion_count += 1;
                     continue;
                 },
-                -105 => { // result is -105, ENOBUFS, no buffer space available
+                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
                     warn!("ENOBUFS: No buffer space available, message was truncated");
-                    completion_count += 1;
                     continue;
                 },
-                _ => {
-                    if amount_received_bytes < 0 {
-                        let errno = Error::last_os_error();
-                        match errno.raw_os_error() {
-                            // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
-                            // From: https://linux.die.net/man/2/recvmsg
-                            Some(libc::EAGAIN) => { return Err("EAGAIN"); },
-                            Some(libc::EXIT_SUCCESS) => { break; }, // TODO: This is the error sometimes
-                            _ => {
-                                error!("Error receiving message: {}", errno);
-                                return Err("Failed to receive data!");
-                            } 
-                        }
+                _ if amount_received_bytes < 0 => {
+                    let errno = Error::last_os_error();
+                    match errno.raw_os_error() {
+                        // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                        // From: https://linux.die.net/man/2/recvmsg
+                        Some(libc::EAGAIN) => { return Err("EAGAIN"); },
+                        Some(libc::EXIT_SUCCESS) => { break; }, // TODO: This is the error sometimes
+                        _ => {
+                            error!("Error receiving message: {}", errno);
+                            return Err("Failed to receive data!");
+                        } 
                     }
-                }
+                },
+                _ => {} // Positive amount of bytes received
             }
 
             // Get specific buffer from the buffer ring
             let mut buf = unsafe {
                 bufs.get(cqe.flags(), usize::try_from(cqe.result()).unwrap())
             };
-
-            // https://docs.rs/io-uring/latest/io_uring/types/struct.RecvMsgOut.html
-            // Helps parsing buffer of multishot recvmsg
-            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L211
-            //let msg = io_uring::types::RecvMsgOut::parse(&mut buf, &msghdr).expect("Parsing of RecvMsgOut failed. Didn't allocate large enough buffers");
-            //trace!("Received message: {:?}", msg);
-            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L323C21-L326C22
-            //if msg.is_control_data_truncated() {
-            //    debug!("The control data was truncated");
-            //} else if msg.is_payload_truncated() {
-            //    debug!("The payload was truncated");
-            //} else if msg.is_name_data_truncated() {
-            //    // The name data is always truncated, but we don't care about the name data, since we identify the tests with the test_id.
-            //    //debug!("The name data was truncated");
-            //}
 
             // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
             let iovec: libc::iovec = libc::iovec {
@@ -305,11 +319,26 @@ impl Server {
                 hdr
             };
 
+            // Helps parsing buffer of multishot recvmsg
+            // https://docs.rs/io-uring/latest/io_uring/types/struct.RecvMsgOut.html
+            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L211
+            //let msg = io_uring::types::RecvMsgOut::parse(&mut buf, &msghdr).expect("Parsing of RecvMsgOut failed. Didn't allocate large enough buffers");
+            //trace!("Received message: {:?}", msg);
+            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L323C21-L326C22
+            //if msg.is_control_data_truncated() {
+            //    debug!("The control data was truncated");
+            //} else if msg.is_payload_truncated() {
+            //    debug!("The payload was truncated");
+            //} else if msg.is_name_data_truncated() {
+            //    // The name data is always truncated, but we don't care about the name data, since we identify the tests with the test_id.
+            //    //debug!("The name data was truncated");
+            //}
+
             // Parse recvmsg msghdr on return
             // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
             // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
             // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes, &buf, &mut msghdr) {
+            match self.handle_recvmsg_return(amount_received_bytes, &buf, &mut msghdr, user_data) {
                 Ok(_) => {},
                 Err("INIT_MESSAGE_RECEIVED") => break,
                 Err("LAST_MESSAGE_RECEIVED") => {
@@ -327,37 +356,41 @@ impl Server {
                 }
             }
 
-            // Successful received one message 
-            completion_count += 1;
         }
+
+        debug!("END io_uring_complete: Completed {} io_uring sqe.", completion_count);
         Ok(completion_count)
     }
 
     
     fn io_uring_loop(&mut self) -> Result<(), &'static str> {
+        let uring_burst_size = self.parameter.uring_parameter.burst_size;
+        let uring_buffer_size = uring_burst_size * 4;
+        let mut inflight_count: i32 = 0;
+        info!("Start io_uring loop with burst size: {}, and buffer size: {}", uring_burst_size, uring_buffer_size);
+
         let mut ring = IoUring::<io_uring::squeue::Entry>::builder()
         //.setup_coop_taskrun()
         //.setup_single_issuer()
         // .setup_sqpoll(2000) 
         // https://docs.rs/io-uring/latest/io_uring/struct.Builder.html#method.setup_sqpoll_cpu
         // .setup_sqpoll_cpu(0) // CPU to run the SQ poll thread on
-        .build(DEFAULT_URING_BURST_SIZE * 2).expect("Failed to create io_uring");
+        .build(uring_burst_size * 2).expect("Failed to create io_uring");
         // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
 
-        // TODO: Register provided buffers with io_uring
+        // Register provided buffers with io_uring
         let mut buf_ring = ring
         .submitter()
-        .register_buf_ring(u16::try_from(DEFAULT_URING_BURST_SIZE * 4).unwrap(), URING_BGROUP, (self.packet_buffer.single_packet_buffer_size()) as u32)
+        .register_buf_ring(u16::try_from(uring_buffer_size).unwrap(), URING_BGROUP, (self.packet_buffer.single_packet_buffer_size()) as u32)
         .expect("Creation of BufRing failed.");
-
         let mut bufs = buf_ring.submissions();
-        let (submitter, mut sq, mut cq) = ring.split();
-        let mut submission_count: i32 = 0;
-        let mut completion_count: i32 = 0;
 
+        let (submitter, mut sq, mut cq) = ring.split();
+
+        // TODO: Can be moved to provided buffer
         // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
-        // Only msg_controllen and msg_namelen relevant, when using provided buffers
+        // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
         let mut msghdr = {
             let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
             hdr.msg_controllen = 24;
@@ -366,59 +399,46 @@ impl Server {
 
         loop {
             // If too many messages are in flight, wait for completions
-            if submission_count <= (completion_count + (DEFAULT_URING_BURST_SIZE * 3) as i32) {
-                submission_count += self.io_uring_submit(&mut sq, &mut msghdr)?;
+            if inflight_count <= (uring_buffer_size - uring_burst_size) as i32 {
+                inflight_count += self.io_uring_submit(&mut sq, &mut msghdr, uring_burst_size)?;
             }
 
-            // Submit to kernel and wait for 1 completion event or timeout. In case the thread doesn't receive any messages.
+            // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
+            // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
             let mut args = SubmitArgs::new();
-            let ts = Timespec::new().nsec(100_000_000); 
+            let ts = Timespec::new().nsec(100_000_000);
             args = args.timespec(&ts);
             
-            match submitter.submit_with_args(5, &args) {
-                Ok(_) => {},
+            match submitter.submit_with_args(1, &args) {
+                Ok(submitted) => { debug!("Completion events received: {}", submitted); },
                 // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
                 // If this happens, the application must reap events from the CQ ring and attempt the submit again.
                 // Should ONLY appear when using flag IORING_FEAT_NODROP
-                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => (),
-                Err(ref err) if err.raw_os_error() == Some(62) => (), // Timeout error
+                Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { info!("EBUSY error") },
+                Err(ref err) if err.raw_os_error() == Some(62) => { info!("Timeout error") }, // Timeout error
                 Err(err) => {
                     error!("Error submitting io_uring sqe: {}", err);
                     return Err("IO_URING ERROR");
                 }
             };
-
+            
             match self.io_uring_complete(&mut cq, &mut bufs, &mut msghdr) {
-                Ok(x) => completion_count += x,
+                Ok(completed) =>  inflight_count -= completed,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     return Ok(());
                 },
                 Err(x) => {
+                    error!("Error completing io_uring sqe: {}", x);
                     return Err(x);
                 }
             };
 
             bufs.sync(); // Returns used buffers to the buffer ring
 
-            debug!("Submission count: {}, Completion count: {}", submission_count, completion_count);
+            debug!("Current inflight count {}", inflight_count);
         }
     }
 
-    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32, buffer_pointer: &[u8], msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
-        let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
-        let mtype = MessageHeader::get_message_type(buffer_pointer);
-
-        self.parse_message_type(mtype, test_id)?;
-
-        let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
-        let absolut_packets_received;
-        (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes as usize, self.next_packet_id, statistic);
-        statistic.amount_datagrams += absolut_packets_received;
-        statistic.amount_data_bytes += amount_received_bytes as usize;
-        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
-
-        Ok(())
-    }
 }
 
 
@@ -443,6 +463,7 @@ impl Node for Server {
             }
         };
 
+        // TODO: Very ugly at the moment
         if io_model == IOModel::IoUring {
             self.io_uring_loop()?;
         } else {
