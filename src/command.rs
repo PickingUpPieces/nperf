@@ -191,7 +191,7 @@ impl nPerf {
         self.parameter_check(parameter) 
     }
 
-    fn parameter_check(&self, parameter: util::statistic::Parameter)-> Option<Parameter> {
+    fn parameter_check(&self, mut parameter: util::statistic::Parameter)-> Option<Parameter> {
         if parameter.datagram_size > crate::MAX_UDP_DATAGRAM_SIZE {
             error!("UDP datagram size is too big! Maximum is {}", crate::MAX_UDP_DATAGRAM_SIZE);
             return None;
@@ -226,6 +226,16 @@ impl nPerf {
             warn!("Uring multishot can't be used with burst size together!");
         }
 
+        if !self.uring_burst_size.is_power_of_two() {
+            error!("Uring burst size must be a power of 2!");
+            return None;
+        }
+
+        if self.uring_multishot && !self.uring_provided_buffer {
+            warn!("Uring multishot can't be used without provided buffer!");
+            warn!("Setting provided buffer to true!");
+            parameter.uring_parameter.provided_buffer = true;
+        }
 
         Some(parameter)
     }
