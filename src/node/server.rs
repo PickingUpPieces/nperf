@@ -418,17 +418,16 @@ impl Server {
                     warn!("ENOBUFS: No buffer space available! (Next expected packet ID; {}", self.next_packet_id);
                     continue;
                 },
+                -11 => {
+                    // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                    // From: https://linux.die.net/man/2/recvmsg
+                    // libc::EAGAIN == 11
+                    return Err("EAGAIN");
+                },
                 _ if amount_received_bytes < 0 => {
                     let errno = Error::last_os_error();
-                    match errno.raw_os_error() {
-                        // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
-                        // From: https://linux.die.net/man/2/recvmsg
-                        Some(libc::EAGAIN) => { return Err("EAGAIN"); },
-                        _ => {
-                            error!("Error receiving message: {}", errno);
-                            return Err("Failed to receive data!");
-                        } 
-                    }
+                    error!("Error receiving message: {}", errno);
+                    return Err("Failed to receive data");
                 },
                 _ => {} // Positive amount of bytes received
             }
@@ -518,6 +517,7 @@ impl Server {
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => inflight_count -= completed,
+                Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     return Ok(());
                 },
