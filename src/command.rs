@@ -104,6 +104,14 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     uring_multishot: bool,
 
+    /// io_uring: Use a SQ_POLL thread
+    #[arg(long, default_value_t = false)]
+    uring_sq_poll: bool,
+
+    /// io_uring: Use FAST_POLL feature
+    #[arg(long, default_value_t = false)]
+    uring_fast_poll: bool,
+
     /// io_uring: Amount of recvmsg/sendmsg requests are sent in one go
     #[arg(long, default_value_t = crate::DEFAULT_URING_BURST_SIZE)]
     uring_burst_size: u32,
@@ -167,6 +175,8 @@ impl nPerf {
             provided_buffer: self.uring_provided_buffer,
             multishot: self.uring_multishot,
             burst_size: self.uring_burst_size,
+            sq_poll: self.uring_sq_poll,
+            fast_poll: self.uring_fast_poll
         };
 
         let parameter = util::statistic::Parameter::new(

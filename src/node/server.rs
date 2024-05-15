@@ -17,6 +17,8 @@ const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 const URING_BGROUP: u16 = 0;
 const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
+const URING_SQ_POLL_TIMEOUT: u32 = 2000;
+const URING_TASK_WORK: bool = true;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -590,21 +592,38 @@ impl Server {
         }
     }
 
-    fn io_uring_setup(burst_size: u32, mss: u32) -> Result<(IoUring, BufRing), &'static str> {
+    fn io_uring_setup(burst_size: u32, mss: u32, parameters: UringParameter) -> Result<(IoUring, BufRing), &'static str> {
         let uring_ring_size = burst_size * 2;
         let uring_buffer_size = burst_size * 4;
 
         info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and ring size: {}", burst_size, uring_buffer_size, mss, uring_ring_size);
 
-        let ring = IoUring::<io_uring::squeue::Entry>::builder()
-        //.setup_coop_taskrun()
-        //.setup_single_issuer()
-        // .setup_sqpoll(2000) 
-        // https://docs.rs/io-uring/latest/io_uring/struct.Builder.html#method.setup_sqpoll_cpu
-        // .setup_sqpoll_cpu(0) // CPU to run the SQ poll thread on
-        .build(uring_ring_size).expect("Failed to create io_uring");
+        let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
+
+        //if URING_TASK_WORK {
+        //    ring_builder
+        //    .setup_coop_taskrun()
+        //    .setup_single_issuer()
+        //    .setup_defer_taskrun();
+        //}
+
+        if parameters.sq_poll {
+            info!("Starting uring with SQ_POLL thread");
+            // FIXME: throws error on sq.push
+            ring_builder.setup_sqpoll(URING_SQ_POLL_TIMEOUT);
+            // https://docs.rs/io-uring/latest/io_uring/struct.Builder.html#method.setup_sqpoll_cpu
+            // .setup_sqpoll_cpu(0) // CPU to run the SQ poll thread on
+        };
+
+        let ring = ring_builder.build(uring_ring_size).expect("Failed to create io_uring");
         // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
         debug!("Created io_uring instance successfully");
+
+        if !ring.params().is_feature_fast_poll() {
+            warn!("IORING_FEAT_FAST_POLL not available in the kernel!");
+        } else {
+            info!("IORING_FEAT_FAST_POLL is available!");
+        }
 
         // Register provided buffers with io_uring
         let buf_ring = ring
@@ -620,7 +639,7 @@ impl Server {
 
 
     fn io_uring_loop(&mut self) -> Result<(), &'static str> {
-        let (ring, mut buf_ring) = Self::io_uring_setup(self.parameter.uring_parameter.burst_size, self.parameter.mss)?;
+        let (ring, mut buf_ring) = Self::io_uring_setup(self.parameter.uring_parameter.burst_size, self.parameter.mss, self.parameter.uring_parameter)?;
         let bufs = buf_ring.submissions();
 
         // TODO: Can be moved to provided buffer

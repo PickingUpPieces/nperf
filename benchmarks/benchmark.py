@@ -53,9 +53,16 @@ def parse_config_file(json_file_path):
 
     return test_configs
 
+def load_json(json_str):
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
 
 def run_test(run_config):
     logging.debug('Running test with config: %s', run_config)
+
+    time.sleep(5) # Short timeout to give system some time
 
     server_command = [PATH_TO_NPERF_BIN, 'server', '--output-format=json']
     
@@ -109,8 +116,8 @@ def run_test(run_config):
     if client_error:
         logging.error('Server error: %s', server_error.decode())
 
-    client_results = json.loads(client_output)
-    server_results = json.loads(server_output)
+    client_results = load_json(client_output)
+    server_results = load_json(server_output)
     
     # Add run_name to results
     server_results['run_name'] = run_config['run_name']
