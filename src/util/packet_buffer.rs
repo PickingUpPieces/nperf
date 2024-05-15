@@ -7,6 +7,7 @@ pub struct PacketBuffer {
     pub mmsghdr_vec: Vec<libc::mmsghdr>,
     datagram_size: usize, // ASSUMPTION: It's the same for all msghdrs
     packets_amount_per_msghdr: usize, // ASSUMPTION: It's the same for all msghdrs
+    index_pool: Vec<usize> // When buffers are used for io_uring, we need to know which buffers can be reused 
 }
 
 impl PacketBuffer {
@@ -24,11 +25,13 @@ impl PacketBuffer {
             };
             mmsghdr_vec.push(mmsghdr);
         }
+        let index_pool = Vec::from_iter(0..mmsghdr_vec.len());
 
         PacketBuffer {
             mmsghdr_vec,
             datagram_size,
-            packets_amount_per_msghdr
+            packets_amount_per_msghdr,
+            index_pool
         }
     }
 
@@ -88,5 +91,13 @@ impl PacketBuffer {
 
     pub fn datagram_size(&self) -> usize {
         self.datagram_size
+    }
+
+    pub fn get_buffer_index(&mut self) -> Option<usize> {
+        self.index_pool.pop()
+    }
+
+    pub fn return_buffer_index(&mut self, buf_index: usize) {
+        self.index_pool.push(buf_index)
     }
 }

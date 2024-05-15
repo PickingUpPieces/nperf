@@ -14,9 +14,9 @@
         "with-ip-frag": false,
         "without-non-blocking": false,
         "io-model": "poll",
-        "uring-provided-buffer": true,
+        "uring-provided-buffer": false,
         "uring-multishot": false,
-        "uring-burst-size": 256
+        "uring-burst-size": 64
     },
     "sendmmsg": {
         "1": {
@@ -204,7 +204,9 @@
                 "exchange-function": "msg"
             },
             "server": {
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "2": {
@@ -214,7 +216,9 @@
             },
             "server": {
                 "parallel": 2,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "4": {
@@ -224,7 +228,9 @@
             },
             "server": {
                 "parallel": 4,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "6": {
@@ -234,7 +240,9 @@
             },
             "server": {
                 "parallel": 6,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "8": {
@@ -244,7 +252,9 @@
             },
             "server": {
                 "parallel": 8,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "10": {
@@ -254,7 +264,9 @@
             },
             "server": {
                 "parallel": 10,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "12": {
@@ -264,7 +276,9 @@
             },
             "server": {
                 "parallel": 12,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "14": {
@@ -274,7 +288,9 @@
             },
             "server": {
                 "parallel": 14,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
             }
         },
         "16": {
@@ -284,7 +300,225 @@
             },
             "server": {
                 "parallel": 16,
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-provided-buffer": false,
+                "uring-multishot": false
+            }
+        }
+    },
+    "uring-provided-buffers": {
+        "1": {
+            "client": {
+                "exchange-function": "msg"
+            },
+            "server": {
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 2,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 4,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 6,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "8": {
+            "client": {
+                "parallel": 8,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 8,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "10": {
+            "client": {
+                "parallel": 10,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 10,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "12": {
+            "client": {
+                "parallel": 12,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 12,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "14": {
+            "client": {
+                "parallel": 14,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 14,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        },
+        "16": {
+            "client": {
+                "parallel": 16,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 16,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": false
+            }
+        }
+    },
+    "uring-multishot": {
+        "1": {
+            "client": {
+                "exchange-function": "msg"
+            },
+            "server": {
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 2,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 4,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 6,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "8": {
+            "client": {
+                "parallel": 8,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 8,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "10": {
+            "client": {
+                "parallel": 10,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 10,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "12": {
+            "client": {
+                "parallel": 12,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 12,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "14": {
+            "client": {
+                "parallel": 14,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 14,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
+            }
+        },
+        "16": {
+            "client": {
+                "parallel": 16,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 16,
+                "io-model": "io-uring",
+                "uring-provided-buffer": true,
+                "uring-multishot": true
             }
         }
     }

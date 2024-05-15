@@ -7,7 +7,7 @@ use crate::util::packet_buffer::PacketBuffer;
 use io_uring::types::{SubmitArgs, Timespec};
 use io_uring::{cqueue, opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue, Submitter};
 use log::{debug, error, info, trace, warn};
-use io_uring::buf_ring::{BufRing, BufRingSubmissions};
+use io_uring::buf_ring::{Buf, BufRing, BufRingSubmissions};
 
 use crate::net::{socket::Socket, MessageHeader, MessageType};
 use crate::util::{self, statistic::*, ExchangeFunction, IOModel};
@@ -77,7 +77,7 @@ impl Server {
                 let mtype = MessageHeader::get_message_type(buffer_pointer);
                 debug!("Received packet with test id: {}", test_id);
 
-                self.parse_message_type(mtype, test_id)?;
+                Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let datagram_size = self.packet_buffer.datagram_size();
@@ -101,7 +101,7 @@ impl Server {
                 let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
                 let mtype = MessageHeader::get_message_type(buffer_pointer);
         
-                self.parse_message_type(mtype, test_id)?;
+                Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
         
                 let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
@@ -116,11 +116,22 @@ impl Server {
         }
     }
 
-    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32, buffer_pointer: &[u8], msghdr: &mut libc::msghdr, msghdr_index: u64) -> Result<(), &'static str> {
+    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32,  msghdr: Option<&mut libc::msghdr>, msghdr_index: u64) -> Result<(), &'static str> {
+        let msghdr = match msghdr {
+            Some(msghdr) => msghdr,
+            None => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap()
+        };
+
+        let libc::iovec { iov_base, iov_len } = unsafe {*msghdr.msg_iov};
+        let buffer_pointer = unsafe {
+            // Get buffer from iov_base with type &[u8]
+            std::slice::from_raw_parts(iov_base as *const u8, iov_len )
+        };
+        
         let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
         let mtype = MessageHeader::get_message_type(buffer_pointer);
 
-        self.parse_message_type(mtype, test_id)?;
+        Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
 
         let msghdr = if self.parameter.uring_parameter.provided_buffer {
            msghdr
@@ -151,7 +162,7 @@ impl Server {
                 let mtype = MessageHeader::get_message_type(self.packet_buffer.get_buffer_pointer_from_index(0).unwrap());
                 let amount_received_bytes = util::get_total_bytes(&self.packet_buffer.mmsghdr_vec, amount_received_mmsghdr);
 
-                self.parse_message_type(mtype, test_id)?;
+                Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
@@ -178,25 +189,25 @@ impl Server {
         }
     }
 
-    fn parse_message_type(&mut self, mtype: MessageType, test_id: usize) -> Result<(), &'static str> {
+    fn parse_message_type(mtype: MessageType, test_id: usize, measurements: &mut Vec<Measurement>, parameter: Parameter) -> Result<(), &'static str> {
         match mtype {
             MessageType::INIT => {
                 info!("{:?}: INIT packet received from test {}!", thread::current().id(), test_id);
                 // Resize the vector if neeeded, and create a new measurement struct
-                if self.measurements.len() <= test_id {
-                    self.measurements.resize(test_id + 1, Measurement::new(self.parameter));
+                if measurements.len() <= test_id {
+                    measurements.resize(test_id + 1, Measurement::new(parameter));
                 }
                 Err("INIT_MESSAGE_RECEIVED")
             },
             MessageType::MEASUREMENT => { 
-                let measurement = if let Some(x) = self.measurements.get_mut(test_id) {
+                let measurement = if let Some(x) = measurements.get_mut(test_id) {
                     x
                 } else {
                     // No INIT message received before, so we need to resize and create/add a new measurement struct
-                    if self.measurements.len() <= test_id {
-                        self.measurements.resize(test_id + 1, Measurement::new(self.parameter));
+                    if measurements.len() <= test_id {
+                        measurements.resize(test_id + 1, Measurement::new(parameter));
                     }
-                    self.measurements.get_mut(test_id).expect("Error getting statistic in measurement message: test id not found")
+                    measurements.get_mut(test_id).expect("Error getting statistic in measurement message: test id not found")
                 };
                 // Start measurement timer with receiving of the first MEASUREMENT message
                 if !measurement.first_packet_received {
@@ -209,7 +220,7 @@ impl Server {
             MessageType::LAST => {
                 info!("{:?}: LAST packet received from test {}!", thread::current().id(), test_id);
                 // Not checking for measurement length anymore, since we assume that the thread has received at least one MEASUREMENT message before
-                let measurement = self.measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
+                let measurement = measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
                 let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
                 measurement.last_packet_received = true;
                 measurement.statistic.set_test_duration(measurement.start_time, end_time);
@@ -241,12 +252,6 @@ impl Server {
 
     fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, burst_size: u32) -> Result<i32, &'static str> {
         let mut submission_count = 0;
-        let packet_buffer_index: u64 = 0;
-        let msghdr = if self.parameter.uring_parameter.provided_buffer {
-            msghdr
-        } else {
-            self.packet_buffer.get_msghdr_from_index(packet_buffer_index as usize).unwrap()
-        };
 
         sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
@@ -254,13 +259,28 @@ impl Server {
         // Use the socket file descripter to receive messages
         let fd = self.socket.get_socket_id();
 
-        for _ in 0..burst_size {
-            // Use io_uring_prep_recvmsg to receive messages: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsg.html
-            let sqe = opcode::RecvMsg::new(types::Fd(fd), msghdr)
-            .buf_group(URING_BGROUP) // TODO: Check for parameter
-            .build()
-            .user_data(packet_buffer_index)
-            .flags(squeue::Flags::BUFFER_SELECT);
+        for i in 0..burst_size {
+            let sqe = if self.parameter.uring_parameter.provided_buffer {
+                opcode::RecvMsg::new(types::Fd(fd), msghdr)
+                .buf_group(URING_BGROUP) 
+                .build()
+                .flags(squeue::Flags::BUFFER_SELECT)
+            } else {
+                let packet_buffer_index = match self.packet_buffer.get_buffer_index() {
+                    Some(index) => {
+                        trace!("Burst number {}/{}: Used buffer index {}", i, burst_size, index);
+                        index
+                    },
+                    None => {
+                        warn!("No buffers left in packet_buffer");
+                        break;
+                    }
+                };
+                // Use io_uring_prep_recvmsg to receive messages: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsg.html
+                opcode::RecvMsg::new(types::Fd(fd), self.packet_buffer.get_msghdr_from_index(packet_buffer_index)?)
+                .build()
+                .user_data(packet_buffer_index as u64)
+            };
 
             unsafe {
                 if sq.push(&sqe).is_err() {
@@ -367,7 +387,7 @@ impl Server {
             // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
             // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
             // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes - URING_ADDITIONAL_BUFFER_LENGTH, msg.payload_data(), &mut msghdr, 0) {
+            match self.handle_recvmsg_return(amount_received_bytes - URING_ADDITIONAL_BUFFER_LENGTH,  Some(&mut msghdr), 0) {
                 Ok(_) => {},
                 Err("INIT_MESSAGE_RECEIVED") => break,
                 Err("LAST_MESSAGE_RECEIVED") => {
@@ -392,7 +412,6 @@ impl Server {
     }
 
 
-    // FIXME: msghdr argument only needed for multishot recvmsg
     fn io_uring_complete(&mut self, cq: &mut CompletionQueue, bufs: &mut BufRingSubmissions) -> Result<i32, &'static str> {
         let mut completion_count = 0;
 
@@ -432,29 +451,39 @@ impl Server {
                 _ => {} // Positive amount of bytes received
             }
 
-            // Get specific buffer from the buffer ring
-            let mut buf = unsafe {
-                bufs.get(cqe.flags(), usize::try_from(amount_received_bytes).unwrap())
-            };
+            let iovec: libc::iovec;
+            let mut msghdr: libc::msghdr;
+            let mut buf: Buf; 
 
-            // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
-            let iovec: libc::iovec = libc::iovec {
-                iov_base: buf.as_mut_ptr() as *mut libc::c_void,
-                iov_len: amount_received_bytes as usize
-            };
+            let pmsghdr  = if self.parameter.uring_parameter.provided_buffer {
+                // Following lines are only provided buffers specific
+                // Get specific buffer from the buffer ring
+                buf = unsafe {
+                    bufs.get(cqe.flags(), usize::try_from(amount_received_bytes).unwrap())
+                };
 
-            let mut msghdr: libc::msghdr = {
-                let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-                hdr.msg_iov = &iovec as *const _ as *mut _;
-                hdr.msg_iovlen = 1;
-                hdr
+                // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
+                iovec = libc::iovec {
+                    iov_base: buf.as_mut_ptr() as *mut libc::c_void,
+                    iov_len: amount_received_bytes as usize
+                };
+
+                msghdr = {
+                    let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
+                    hdr.msg_iov = &iovec as *const _ as *mut _;
+                    hdr.msg_iovlen = 1;
+                    hdr
+                };
+                Some(&mut msghdr)
+            } else {
+                None
             };
 
             // Parse recvmsg msghdr on return
             // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
             // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
             // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes, &buf, &mut msghdr, user_data) {
+            match self.handle_recvmsg_return(amount_received_bytes, pmsghdr, user_data) {
                 Ok(_) => {},
                 Err("INIT_MESSAGE_RECEIVED") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
@@ -471,6 +500,8 @@ impl Server {
                     return Err(x);
                 }
             }
+
+            self.packet_buffer.return_buffer_index(user_data as usize);
         }
 
         bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.

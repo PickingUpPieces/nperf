@@ -237,6 +237,11 @@ impl nPerf {
             parameter.uring_parameter.provided_buffer = true;
         }
 
+        if self.io_model == IOModel::IoUring && !self.uring_provided_buffer {
+            warn!("Setting packet_buffer_size to burst_size * 4!");
+            parameter.packet_buffer_size = (parameter.uring_parameter.burst_size * 4) as usize;
+        }
+
         Some(parameter)
     }
 
