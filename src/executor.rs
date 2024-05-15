@@ -82,11 +82,11 @@ impl nPerf {
 
         match node.run(parameter.io_model) {
             Ok(statistic) => { 
-                info!("Finished measurement!");
+                info!("{:?}: Finished measurement!", thread::current().id());
                 tx.send(Some(statistic)).unwrap();
             },
             Err(x) => {
-                error!("Error running app: {}", x);
+                error!("{:?}: Error running app: {}", thread::current().id(), x);
                 tx.send(None).unwrap();
             }
         }
