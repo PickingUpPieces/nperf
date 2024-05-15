@@ -257,12 +257,13 @@ def main():
             run_results = []
             for i in range(run["repetitions"]):
                 logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
-                for _ in range(0,2): # Retries, in case of an error
+                for _ in range(0,3): # Retries, in case of an error
                     result = run_test(run)
                     if result is not None: 
                         run_results.append(result)
                         break
-            test_results.append(get_median_result(run_results))
+            if len(run_results) != 0:
+                test_results.append(get_median_result(run_results))
 
         logging.info('Writing results to CSV file: %s', csv_file_name)
         write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)
