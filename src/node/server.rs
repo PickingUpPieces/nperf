@@ -620,9 +620,9 @@ impl Server {
         debug!("Created io_uring instance successfully");
 
         if !ring.params().is_feature_fast_poll() {
-            warn!("IORING_FEAT_FAST_POLL not available in the kernel!");
+            warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
         } else {
-            info!("IORING_FEAT_FAST_POLL is available!");
+            info!("IORING_FEAT_FAST_POLL is available and used!");
         }
 
         // Register provided buffers with io_uring
