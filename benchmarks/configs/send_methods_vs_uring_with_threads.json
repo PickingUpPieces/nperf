@@ -9,7 +9,7 @@
         "with-mss": 1472,
         "multiplex-port": "individual",
         "multiplex-port-server": "individual",
-        "with-gsro": false,
+        "with-gsro": true,
         "with-mmsg-amount": 10,
         "with-ip-frag": false,
         "without-non-blocking": false,
@@ -206,7 +206,8 @@
             "server": {
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "2": {
@@ -218,7 +219,8 @@
                 "parallel": 2,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "4": {
@@ -230,7 +232,8 @@
                 "parallel": 4,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "6": {
@@ -242,7 +245,8 @@
                 "parallel": 6,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "8": {
@@ -254,7 +258,8 @@
                 "parallel": 8,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "10": {
@@ -266,7 +271,8 @@
                 "parallel": 10,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "12": {
@@ -278,7 +284,8 @@
                 "parallel": 12,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "14": {
@@ -290,7 +297,8 @@
                 "parallel": 14,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "16": {
@@ -302,7 +310,8 @@
                 "parallel": 16,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         }
     },
@@ -326,7 +335,8 @@
                 "parallel": 2,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "4": {
@@ -338,7 +348,8 @@
                 "parallel": 4,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "6": {
@@ -350,7 +361,8 @@
                 "parallel": 6,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "8": {
@@ -362,7 +374,8 @@
                 "parallel": 8,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "10": {
@@ -374,7 +387,8 @@
                 "parallel": 10,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "12": {
@@ -386,7 +400,8 @@
                 "parallel": 12,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "14": {
@@ -398,7 +413,8 @@
                 "parallel": 14,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         },
         "16": {
@@ -410,7 +426,8 @@
                 "parallel": 16,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false
+                "uring-multishot": false,
+                "uring-burst-size": 16
             }
         }
     },

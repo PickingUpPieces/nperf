@@ -19,7 +19,7 @@ const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 const URING_BGROUP: u16 = 0;
 const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_SQ_POLL_TIMEOUT: u32 = 2000;
-const URING_ENTER_TIMEOUT: u32 = 200_000_000;
+const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 const URING_TASK_WORK: bool = true;
 
 pub struct Server {
@@ -257,7 +257,7 @@ impl Server {
     fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, burst_size: u32) -> Result<i32, &'static str> {
         let mut submission_count = 0;
 
-        sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
+        //sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
         // Use the socket file descripter to receive messages
@@ -514,46 +514,57 @@ impl Server {
     }
 
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32) -> Result<(), &'static str> {
+    fn io_uring_enter(submitter: &mut Submitter, timeout: u32) -> Result<usize, &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
         let ts = Timespec::new().nsec(timeout);
         args = args.timespec(&ts);
+
+        let mut zero_submitted_counter: usize = 0;
         
         match submitter.submit_with_args(1, &args) {
-            Ok(submitted) => { debug!("Completion events received: {}", submitted) },
+            Ok(0) => { 
+                zero_submitted_counter += 1; 
+                debug!("Zero completion events received from submit_with_args");
+            },
+            Ok(submitted) => { debug!("Completion events received from submit_with_args: {}", submitted) },
             // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
             // If this happens, the application must reap events from the CQ ring and attempt the submit again.
             // Should ONLY appear when using flag IORING_FEAT_NODROP
             Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { info!("submit_with_args: EBUSY error") },
-            Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") }, // Timeout error
+            Err(ref err) if err.raw_os_error() == Some(62) => { warn!("submit_with_args: Timeout error") },
             Err(err) => {
                 error!("Error submitting io_uring sqe: {}", err);
                 return Err("IO_URING ERROR")
             }
         }
 
-        Ok(())
+        Ok(zero_submitted_counter)
     }
 
     fn io_uring_loop_normal(&mut self, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
         let uring_burst_size = self.parameter.uring_parameter.burst_size;
         let uring_buffer_size = uring_burst_size * 4;
         let mut inflight_count: i32 = 0;
+        let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
             if inflight_count < (uring_buffer_size - uring_burst_size) as i32 {
                 inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
             };
+            //if inflight_count < uring_burst_size as i32 {
+            //    inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
+            //};
 
-            Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => inflight_count -= completed,
                 Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
+                    warn!("Zero submitted counter: {}", zero_submitted_counter);
                     return Ok(());
                 },
                 Err(x) => {
@@ -562,7 +573,9 @@ impl Server {
                 }
             };
 
-            bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.
+            if self.parameter.uring_parameter.provided_buffer {
+                bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.
+            }
             debug!("Current inflight count {}", inflight_count);
         }
     }
@@ -570,6 +583,7 @@ impl Server {
     fn io_uring_loop_multishot(&mut self, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
         // Indicator if multishot request is still armed
         let mut armed = false;
+        let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
@@ -577,11 +591,12 @@ impl Server {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
 
-            Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
                 Ok(multishot_armed) => armed = multishot_armed,
                 Err("LAST_MESSAGE_RECEIVED") => {
+                    warn!("Zero submitted counter: {}", zero_submitted_counter);
                     return Ok(());
                 },
                 Err(x) => {
@@ -602,16 +617,15 @@ impl Server {
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
 
-        //if URING_TASK_WORK {
-        //    ring_builder
-        //    .setup_coop_taskrun()
-        //    .setup_single_issuer()
-        //    .setup_defer_taskrun();
-        //}
+        if URING_TASK_WORK {
+            ring_builder
+            .setup_coop_taskrun()
+            .setup_single_issuer()
+            .setup_defer_taskrun();
+        }
 
         if parameters.sq_poll {
             info!("Starting uring with SQ_POLL thread");
-            // FIXME: throws error on sq.push
             ring_builder.setup_sqpoll(URING_SQ_POLL_TIMEOUT);
             // https://docs.rs/io-uring/latest/io_uring/struct.Builder.html#method.setup_sqpoll_cpu
             // .setup_sqpoll_cpu(0) // CPU to run the SQ poll thread on
@@ -738,7 +752,7 @@ impl Node for Server {
             self.socket.close()?;
         }
 
-         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
+        debug!("{:?}: Finished receiving data from remote host", thread::current().id());
         // Fold over all statistics, and calculate the final statistic
         let statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic);
         Ok(statistic)

@@ -232,10 +232,6 @@ impl nPerf {
             warn!("Uring specific parameters are only used with io-model io_uring enabled!");
         }
 
-        if self.uring_multishot && self.uring_burst_size != crate::DEFAULT_URING_BURST_SIZE {
-            warn!("Uring multishot can't be used with burst size together!");
-        }
-
         if !self.uring_burst_size.is_power_of_two() {
             error!("Uring burst size must be a power of 2!");
             return None;
