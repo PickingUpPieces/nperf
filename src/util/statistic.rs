@@ -233,6 +233,5 @@ pub struct UringParameter {
     pub provided_buffer: bool,
     pub multishot: bool,
     pub burst_size: u32,
-    pub sq_poll: bool,
-    pub fast_poll: bool
+    pub sq_poll: bool
 }

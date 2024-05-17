@@ -635,11 +635,11 @@ impl Server {
         // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
         debug!("Created io_uring instance successfully");
 
-        //if !ring.params().is_feature_fast_poll() {
-        //    warn!("IORING_FEAT_FAST_POLL not available in the kernel!");
-        //} else {
-        //    info!("IORING_FEAT_FAST_POLL is available!");
-        //}
+        if !ring.params().is_feature_fast_poll() {
+            warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
+        } else {
+            info!("IORING_FEAT_FAST_POLL is available and used!");
+        }
 
         // Register provided buffers with io_uring
         let buf_ring = ring
