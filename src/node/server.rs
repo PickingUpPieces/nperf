@@ -15,9 +15,11 @@ use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
+
 const URING_BGROUP: u16 = 0;
 const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_SQ_POLL_TIMEOUT: u32 = 2000;
+const URING_ENTER_TIMEOUT: u32 = 200_000_000;
 const URING_TASK_WORK: bool = true;
 
 pub struct Server {
@@ -330,7 +332,7 @@ impl Server {
                     continue;
                 },
                 -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
-                    warn!("ENOBUFS: No buffer space available! Next expected packet ID; {}", self.next_packet_id);
+                    debug!("ENOBUFS: No buffer space available! Next expected packet ID: {}", self.next_packet_id);
                     return Ok(Self::io_uring_check_multishot(cqe.flags()));
                 },
                 _ if amount_received_bytes < 0 => {
@@ -542,11 +544,11 @@ impl Server {
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
-            if inflight_count <= (uring_buffer_size - uring_burst_size) as i32 {
+            if inflight_count < (uring_buffer_size - uring_burst_size) as i32 {
                 inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
             };
 
-            Self::io_uring_enter(&mut submitter, 100_000_000)?;
+            Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => inflight_count -= completed,
@@ -575,7 +577,7 @@ impl Server {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
 
-            Self::io_uring_enter(&mut submitter, 100_000_000)?;
+            Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
                 Ok(multishot_armed) => armed = multishot_armed,
