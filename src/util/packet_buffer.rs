@@ -100,4 +100,8 @@ impl PacketBuffer {
     pub fn return_buffer_index(&mut self, buf_index: usize) {
         self.index_pool.push(buf_index)
     }
+
+    pub fn get_amount_buffers_left(&self) -> usize {
+        self.index_pool.len()
+    }
 }

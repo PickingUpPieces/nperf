@@ -254,7 +254,7 @@ impl Server {
         Ok(())
     }
 
-    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, burst_size: u32) -> Result<i32, &'static str> {
+    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, amount_recvmsg: u32) -> Result<i32, &'static str> {
         let mut submission_count = 0;
 
         //sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
@@ -263,7 +263,7 @@ impl Server {
         // Use the socket file descripter to receive messages
         let fd = self.socket.get_socket_id();
 
-        for i in 0..burst_size {
+        for i in 0..amount_recvmsg {
             let sqe = if self.parameter.uring_parameter.provided_buffer {
                 opcode::RecvMsg::new(types::Fd(fd), msghdr)
                 .buf_group(URING_BGROUP) 
@@ -272,7 +272,7 @@ impl Server {
             } else {
                 let packet_buffer_index = match self.packet_buffer.get_buffer_index() {
                     Some(index) => {
-                        trace!("Burst number {}/{}: Used buffer index {}", i, burst_size, index);
+                        trace!("Message number {}/{}: Used buffer index {}", i, amount_recvmsg, index);
                         index
                     },
                     None => {
@@ -514,7 +514,7 @@ impl Server {
     }
 
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32) -> Result<usize, &'static str> {
+    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, to_submit: usize) -> Result<usize, &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
@@ -523,7 +523,7 @@ impl Server {
 
         let mut zero_submitted_counter: usize = 0;
         
-        match submitter.submit_with_args(1, &args) {
+        match submitter.submit_with_args(to_submit, &args) {
             Ok(0) => { 
                 zero_submitted_counter += 1; 
                 debug!("Zero completion events received from submit_with_args");
@@ -533,7 +533,7 @@ impl Server {
             // If this happens, the application must reap events from the CQ ring and attempt the submit again.
             // Should ONLY appear when using flag IORING_FEAT_NODROP
             Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { info!("submit_with_args: EBUSY error") },
-            Err(ref err) if err.raw_os_error() == Some(62) => { warn!("submit_with_args: Timeout error") },
+            Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
             Err(err) => {
                 error!("Error submitting io_uring sqe: {}", err);
                 return Err("IO_URING ERROR")
@@ -554,11 +554,14 @@ impl Server {
             if inflight_count < (uring_buffer_size - uring_burst_size) as i32 {
                 inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
             };
+            // sq.sync() to get current sq.len().
+            // Check if there is enough bufferes left get_amount_buffers_left.
+            // let amount_buffers_left = self.packet_buffer.get_amount_buffers_left() % sq.len();
             //if inflight_count < uring_burst_size as i32 {
             //    inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
             //};
 
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => inflight_count -= completed,
@@ -591,7 +594,7 @@ impl Server {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
 
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT)?;
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 1)?;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
                 Ok(multishot_armed) => armed = multishot_armed,
