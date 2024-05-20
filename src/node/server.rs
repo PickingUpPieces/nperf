@@ -18,9 +18,9 @@ const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 
 const URING_BGROUP: u16 = 0;
 const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
-const URING_SQ_POLL_TIMEOUT: u32 = 2000;
+const URING_SQ_POLL_TIMEOUT: u32 = 1_000;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
-const URING_TASK_WORK: bool = true;
+const URING_TASK_WORK: bool = false;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -242,35 +242,36 @@ impl Server {
         let sqe = opcode::RecvMsgMulti::new(types::Fd(fd), msghdr, URING_BGROUP)
         .build();
 
-        unsafe {
-            if sq.push(&sqe).is_err() {
-                // TODO: Potentially create either backlog queue or revert packet count to previous, if submitting fails
-                error!("Error pushing io_uring multishot sqe");
-                return Err("IO_URING ERROR")
+        match unsafe { sq.push(&sqe) } {
+            Ok(_) => {
+                sq.sync(); // Sync sq data structure with io_uring submission queue 
+                Ok(())
+            },
+            Err(err) => {
+                error!("Error pushing io_uring sqe: {}", err);
+                Err("IO_URING ERROR")
             }
         }
-
-        sq.sync(); // Sync sq data structure with io_uring submission queue 
-        Ok(())
     }
 
     fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, amount_recvmsg: u32) -> Result<i32, &'static str> {
         let mut submission_count = 0;
 
-        //sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
+        sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
         // Use the socket file descripter to receive messages
         let fd = self.socket.get_socket_id();
 
         for i in 0..amount_recvmsg {
+            let mut packet_buffer_index = 0;
             let sqe = if self.parameter.uring_parameter.provided_buffer {
                 opcode::RecvMsg::new(types::Fd(fd), msghdr)
                 .buf_group(URING_BGROUP) 
                 .build()
                 .flags(squeue::Flags::BUFFER_SELECT)
             } else {
-                let packet_buffer_index = match self.packet_buffer.get_buffer_index() {
+                packet_buffer_index = match self.packet_buffer.get_buffer_index() {
                     Some(index) => {
                         trace!("Message number {}/{}: Used buffer index {}", i, amount_recvmsg, index);
                         index
@@ -286,14 +287,16 @@ impl Server {
                 .user_data(packet_buffer_index as u64)
             };
 
-            unsafe {
-                if sq.push(&sqe).is_err() {
+            match unsafe { sq.push(&sqe) } {
+                Ok(_) => submission_count += 1,
+                Err(err) => {
+                    // When using submission queue polling, it can happen that the reported queue length is not the same as the actual queue length.
                     // TODO: Potentially create either backlog queue or revert packet count to previous, if submitting fails
-                    error!("Error pushing io_uring sqe");
-                    return Err("IO_URING ERROR")
+                    warn!("Error pushing io_uring sqe: {}. Stopping submit() after submitting {} entries", err, submission_count);
+                    self.packet_buffer.return_buffer_index(packet_buffer_index);
+                    break;
                 }
-            }
-            submission_count += 1;
+            };
         }
 
         sq.sync(); // Sync sq data structure with io_uring submission queue 
@@ -438,7 +441,7 @@ impl Server {
                     continue;
                 },
                 -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
-                    warn!("ENOBUFS: No buffer space available! (Next expected packet ID; {}", self.next_packet_id);
+                    debug!("ENOBUFS: No buffer space available! (Next expected packet ID; {}", self.next_packet_id);
                     continue;
                 },
                 -11 => {
@@ -523,7 +526,7 @@ impl Server {
 
         let mut zero_submitted_counter: usize = 0;
         
-        match submitter.submit_with_args(to_submit, &args) {
+        match if timeout == 0 { submitter.submit() } else { submitter.submit_with_args(to_submit, &args) } {
             Ok(0) => { 
                 zero_submitted_counter += 1; 
                 debug!("Zero completion events received from submit_with_args");
@@ -561,7 +564,11 @@ impl Server {
             //    inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
             //};
 
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
+            if self.parameter.uring_parameter.sq_poll {
+                zero_submitted_counter += Self::io_uring_enter(&mut submitter, 0, 0)?;
+            } else {
+                zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
+            }
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => inflight_count -= completed,
@@ -620,6 +627,8 @@ impl Server {
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
 
+        // TODO: Potentially set the completition queue 2* squeue, to easier fill the squeue: .setup_cqsize()
+
         if URING_TASK_WORK {
             ring_builder
             .setup_coop_taskrun()
@@ -628,10 +637,10 @@ impl Server {
         }
 
         if parameters.sq_poll {
-            info!("Starting uring with SQ_POLL thread");
-            ring_builder.setup_sqpoll(URING_SQ_POLL_TIMEOUT);
-            // https://docs.rs/io-uring/latest/io_uring/struct.Builder.html#method.setup_sqpoll_cpu
-            // .setup_sqpoll_cpu(0) // CPU to run the SQ poll thread on
+            const SQPOLL_CPU: u32 = 0;
+            info!("Starting uring with SQ_POLL thread. Pinning thread to CPU {}.", SQPOLL_CPU);
+            ring_builder.setup_sqpoll(URING_SQ_POLL_TIMEOUT)
+            .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
         };
 
         let ring = ring_builder.build(uring_ring_size).expect("Failed to create io_uring");
