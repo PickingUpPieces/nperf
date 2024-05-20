@@ -526,7 +526,7 @@ impl Server {
 
         let mut zero_submitted_counter: usize = 0;
         
-        match if timeout == 0 { submitter.submit() } else { submitter.submit_with_args(to_submit, &args) } {
+        match if timeout == 0 { submitter.submit_and_wait(to_submit) } else { submitter.submit_with_args(to_submit, &args) } {
             Ok(0) => { 
                 zero_submitted_counter += 1; 
                 debug!("Zero completion events received from submit_with_args");
@@ -548,13 +548,14 @@ impl Server {
 
     fn io_uring_loop_normal(&mut self, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
         let uring_burst_size = self.parameter.uring_parameter.burst_size;
-        let uring_buffer_size = uring_burst_size * 4;
+        let uring_buffer_size = self.parameter.uring_parameter.buffer_size;
         let mut inflight_count: i32 = 0;
         let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
-            if inflight_count < (uring_buffer_size - uring_burst_size) as i32 {
+            sq.sync();
+            if inflight_count < (uring_buffer_size - uring_burst_size) as i32 && !sq.is_full() {
                 inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
             };
             // sq.sync() to get current sq.len().
@@ -565,7 +566,8 @@ impl Server {
             //};
 
             if self.parameter.uring_parameter.sq_poll {
-                zero_submitted_counter += Self::io_uring_enter(&mut submitter, 0, 0)?;
+                let to_submit = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
+                zero_submitted_counter += Self::io_uring_enter(&mut submitter, 0, to_submit)?;
             } else {
                 zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
             }
@@ -619,11 +621,8 @@ impl Server {
         }
     }
 
-    fn io_uring_setup(burst_size: u32, mss: u32, parameters: UringParameter) -> Result<(IoUring, BufRing), &'static str> {
-        let uring_ring_size = burst_size * 2;
-        let uring_buffer_size = burst_size * 4;
-
-        info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and ring size: {}", burst_size, uring_buffer_size, mss, uring_ring_size);
+    fn io_uring_setup(mss: u32, parameters: UringParameter) -> Result<(IoUring, BufRing), &'static str> {
+        info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and ring size: {}", parameters.burst_size, parameters.buffer_size, mss, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
 
@@ -643,7 +642,7 @@ impl Server {
             .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
         };
 
-        let ring = ring_builder.build(uring_ring_size).expect("Failed to create io_uring");
+        let ring = ring_builder.build( parameters.ring_size).expect("Failed to create io_uring");
         // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
         debug!("Created io_uring instance successfully");
 
@@ -657,7 +656,7 @@ impl Server {
         let buf_ring = ring
             .submitter()
             // In multishot mode, more parts of the msghdr struct are written into the buffer, so we need to allocate more space ( + URING_ADDITIONAL_BUFFER_LENGTH )
-            .register_buf_ring(u16::try_from(uring_buffer_size).unwrap(), URING_BGROUP, mss + URING_ADDITIONAL_BUFFER_LENGTH as u32)
+            .register_buf_ring(u16::try_from(parameters.buffer_size).unwrap(), URING_BGROUP, mss + URING_ADDITIONAL_BUFFER_LENGTH as u32)
             .expect("Creation of BufRing failed.");
 
         debug!("Registered buffer ring");
@@ -667,7 +666,7 @@ impl Server {
 
 
     fn io_uring_loop(&mut self) -> Result<(), &'static str> {
-        let (ring, mut buf_ring) = Self::io_uring_setup(self.parameter.uring_parameter.burst_size, self.parameter.mss, self.parameter.uring_parameter)?;
+        let (ring, mut buf_ring) = Self::io_uring_setup(self.parameter.mss, self.parameter.uring_parameter)?;
         let bufs = buf_ring.submissions();
 
         // TODO: Can be moved to provided buffer

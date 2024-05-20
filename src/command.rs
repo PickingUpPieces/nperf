@@ -109,8 +109,12 @@ pub struct nPerf {
     uring_sq_poll: bool,
 
     /// io_uring: Amount of recvmsg/sendmsg requests are sent in one go
-    #[arg(long, default_value_t = crate::DEFAULT_URING_BURST_SIZE)]
+    #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / 2)]
     uring_burst_size: u32,
+
+    /// io_uring: Size of the ring buffer
+    #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE)]
+    uring_ring_size: u32,
 
     /// Show help in markdown format
     #[arg(long, hide = true)]
@@ -170,7 +174,9 @@ impl nPerf {
         let uring_parameters = UringParameter {
             provided_buffer: self.uring_provided_buffer,
             multishot: self.uring_multishot,
+            ring_size: self.uring_ring_size,
             burst_size: self.uring_burst_size,
+            buffer_size: self.uring_ring_size * 4,
             sq_poll: self.uring_sq_poll
         };
 
@@ -223,12 +229,17 @@ impl nPerf {
             warn!("Time is ignored in server mode!");
         }
 
-        if parameter.io_model != IOModel::IoUring && (self.uring_provided_buffer || self.uring_multishot || self.uring_burst_size != crate::DEFAULT_URING_BURST_SIZE) {
+        if parameter.io_model != IOModel::IoUring && (self.uring_provided_buffer || self.uring_multishot || self.uring_ring_size != crate::DEFAULT_URING_RING_SIZE) {
             warn!("Uring specific parameters are only used with io-model io_uring enabled!");
         }
 
         if !self.uring_burst_size.is_power_of_two() {
             error!("Uring burst size must be a power of 2!");
+            return None;
+        }
+
+        if self.uring_burst_size > self.uring_ring_size {
+            error!("Uring burst size must be smaller than the ring size!");
             return None;
         }
 
@@ -239,8 +250,8 @@ impl nPerf {
         }
 
         if self.io_model == IOModel::IoUring && !self.uring_provided_buffer {
-            warn!("Setting packet_buffer_size to burst_size * 4!");
-            parameter.packet_buffer_size = (parameter.uring_parameter.burst_size * 4) as usize;
+            warn!("Setting packet_buffer_size to {}!", parameter.uring_parameter.buffer_size);
+            parameter.packet_buffer_size = parameter.uring_parameter.buffer_size as usize;
         }
 
         Some(parameter)

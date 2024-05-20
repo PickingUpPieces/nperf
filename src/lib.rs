@@ -22,10 +22,12 @@ const DEFAULT_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(0,0,0,0);
 const DEFAULT_CLIENT_PORT: u16 = 46001;
 const WAIT_CONTROL_MESSAGE: u64 = 500; // /* milliseconds */
 
-// /* Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes */
+// Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes 
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
 const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1;
 const LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER: usize = 100;
-const DEFAULT_URING_BURST_SIZE: u32 = 64;
+
+// uring defaults
+const DEFAULT_URING_RING_SIZE: u32 = 256;
 
 pub use command::nPerf;
