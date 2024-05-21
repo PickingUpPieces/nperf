@@ -176,7 +176,7 @@ impl nPerf {
             multishot: self.uring_multishot,
             ring_size: self.uring_ring_size,
             burst_size: self.uring_burst_size,
-            buffer_size: self.uring_ring_size * 4,
+            buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
             sq_poll: self.uring_sq_poll
         };
 

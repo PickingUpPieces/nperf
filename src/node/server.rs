@@ -642,9 +642,10 @@ impl Server {
             .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
         };
 
-        let ring = ring_builder.build( parameters.ring_size).expect("Failed to create io_uring");
+        let mut ring = ring_builder.build(parameters.ring_size).expect("Failed to create io_uring");
         // TODO: Set IORING_FEAT_NODROP flag to handle ring drops
-        debug!("Created io_uring instance successfully");
+        let sq_cap = ring.submission().capacity();
+        debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
 
         if !ring.params().is_feature_fast_poll() {
             warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
@@ -659,7 +660,7 @@ impl Server {
             .register_buf_ring(u16::try_from(parameters.buffer_size).unwrap(), URING_BGROUP, mss + URING_ADDITIONAL_BUFFER_LENGTH as u32)
             .expect("Creation of BufRing failed.");
 
-        debug!("Registered buffer ring");
+        debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", parameters.buffer_size, mss + URING_ADDITIONAL_BUFFER_LENGTH as u32);
 
         Ok((ring, buf_ring))
     }
