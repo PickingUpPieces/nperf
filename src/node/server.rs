@@ -21,6 +21,7 @@ const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_SQ_POLL_TIMEOUT: u32 = 1_000;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 const URING_TASK_WORK: bool = false;
+const URING_SQ_FILLING_MODE_BURST: bool = false;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -254,7 +255,7 @@ impl Server {
         }
     }
 
-    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, amount_recvmsg: u32) -> Result<i32, &'static str> {
+    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, amount_recvmsg: u32) -> Result<u32, &'static str> {
         let mut submission_count = 0;
 
         sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
@@ -419,7 +420,7 @@ impl Server {
     }
 
 
-    fn io_uring_complete(&mut self, cq: &mut CompletionQueue, bufs: &mut BufRingSubmissions) -> Result<i32, &'static str> {
+    fn io_uring_complete(&mut self, cq: &mut CompletionQueue, bufs: &mut BufRingSubmissions) -> Result<u32, &'static str> {
         let mut completion_count = 0;
 
         cq.sync(); // Sync cq data structure with io_uring completion queue
@@ -531,7 +532,7 @@ impl Server {
                 zero_submitted_counter += 1; 
                 debug!("Zero completion events received from submit_with_args");
             },
-            Ok(submitted) => { debug!("Completion events received from submit_with_args: {}", submitted) },
+            Ok(submitted) => { debug!("Completion events received from submit: {}", submitted) },
             // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
             // If this happens, the application must reap events from the CQ ring and attempt the submit again.
             // Should ONLY appear when using flag IORING_FEAT_NODROP
@@ -549,21 +550,44 @@ impl Server {
     fn io_uring_loop_normal(&mut self, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
         let uring_burst_size = self.parameter.uring_parameter.burst_size;
         let uring_buffer_size = self.parameter.uring_parameter.buffer_size;
-        let mut inflight_count: i32 = 0;
+        let mut inflight_count: u32 = 0;
         let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
+        #[derive(Debug)]
+        struct SqUtilization {
+            amount_loops: u32,
+            amount_emptied: u32,
+        }
+        let mut sq_utilization = SqUtilization {
+            amount_loops: 0,
+            amount_emptied: 0,
+        };
+
         loop {
             sq.sync();
-            if inflight_count < (uring_buffer_size - uring_burst_size) as i32 && !sq.is_full() {
-                inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
-            };
-            // sq.sync() to get current sq.len().
-            // Check if there is enough bufferes left get_amount_buffers_left.
-            // let amount_buffers_left = self.packet_buffer.get_amount_buffers_left() % sq.len();
-            //if inflight_count < uring_burst_size as i32 {
-            //    inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
-            //};
+            if !sq.is_full() {
+                if URING_SQ_FILLING_MODE_BURST {
+                    // Check if there are enough buffers left to fill up the submission queue with the burst size
+                    if inflight_count < uring_buffer_size - uring_burst_size {
+                        inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
+                    };
+                } else {
+                    // Fill up the submission queue to the maximum
+                    let sq_entries_left = (sq.capacity() - sq.len()) as u32;
+                    let buffers_left = uring_buffer_size - inflight_count;
+                    // Check if enough buffers are left to fill up the submission queue, otherwise only fill up the remaining buffers
+                    if buffers_left < sq_entries_left {
+                        inflight_count += self.io_uring_submit(&mut sq, msghdr, buffers_left)?;
+                    } else {
+                        inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
+                    }
+                }
+            }
+
+            // Utilization of the submission queue
+            sq_utilization.amount_loops += 1;
+            let sq_before = sq.len();
 
             if self.parameter.uring_parameter.sq_poll {
                 let to_submit = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
@@ -572,11 +596,23 @@ impl Server {
                 zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
             }
 
+            // Utilization of the submission queue
+            sq.sync();
+            if sq.is_empty() && sq_before > 0 {
+                sq_utilization.amount_emptied += 1;
+            }
+            debug!("SQ utilization: {}% vs {}% ({}/{} vs {}/{})", (sq_before as f32 / sq.capacity() as f32) * 100.0, (sq.len() as f32 / sq.capacity() as f32) * 100.0, sq_before, sq.capacity(), sq.len(), sq.capacity());
+
+            // Utilization of the completion queue
+            cq.sync();
+            let cq_before = cq.len();
+
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => inflight_count -= completed,
                 Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
+                    info!("SQ utilization: {:?}", sq_utilization);
                     return Ok(());
                 },
                 Err(x) => {
@@ -584,6 +620,10 @@ impl Server {
                     return Err(x);
                 }
             };
+
+            // Utilization of the completion queue
+            cq.sync();
+            debug!("CQ utilization: {}% vs {}% ({}/{} vs {}/{})", (cq_before as f32 / cq.capacity() as f32) * 100.0, (cq.len() as f32 / cq.capacity() as f32) * 100.0, cq_before, cq.capacity(), cq.len(), cq.capacity());
 
             if self.parameter.uring_parameter.provided_buffer {
                 bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.
@@ -603,7 +643,10 @@ impl Server {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
 
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 1)?;
+            // Wierd bug, if to_submit bigger than 2, submit_and_wait runs into the Timeout error. 
+            // Due to this bug, we have less batching effects. 
+            // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 2)?;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
                 Ok(multishot_armed) => armed = multishot_armed,
@@ -622,7 +665,7 @@ impl Server {
     }
 
     fn io_uring_setup(mss: u32, parameters: UringParameter) -> Result<(IoUring, BufRing), &'static str> {
-        info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and ring size: {}", parameters.burst_size, parameters.buffer_size, mss, parameters.ring_size);
+        info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and sq ring size: {}", parameters.burst_size, parameters.buffer_size, mss, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
 

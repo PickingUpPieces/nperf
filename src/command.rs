@@ -108,8 +108,8 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     uring_sq_poll: bool,
 
-    /// io_uring: Amount of recvmsg/sendmsg requests are sent in one go
-    #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / 2)]
+    /// io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
+    #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND)]
     uring_burst_size: u32,
 
     /// io_uring: Size of the ring buffer
@@ -175,7 +175,7 @@ impl nPerf {
             provided_buffer: self.uring_provided_buffer,
             multishot: self.uring_multishot,
             ring_size: self.uring_ring_size,
-            burst_size: self.uring_burst_size,
+            burst_size: if self.uring_burst_size == crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND { self.uring_ring_size / crate::URING_BURST_SIZE_DIVIDEND } else { self.uring_burst_size } ,
             buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
             sq_poll: self.uring_sq_poll
         };
@@ -233,8 +233,8 @@ impl nPerf {
             warn!("Uring specific parameters are only used with io-model io_uring enabled!");
         }
 
-        if !self.uring_burst_size.is_power_of_two() {
-            error!("Uring burst size must be a power of 2!");
+        if !self.uring_ring_size.is_power_of_two() {
+            error!("Uring ring size must be a power of 2!");
             return None;
         }
 
