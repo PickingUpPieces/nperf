@@ -26,8 +26,7 @@
                 "with-gsro": true
             },
             "server": {
-                "io-model": "io-uring",
-                "uring-burst-size": 1
+                "io-model": "io-uring"
             }
         },
         "2": {

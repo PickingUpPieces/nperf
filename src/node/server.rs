@@ -242,6 +242,7 @@ impl Server {
 
         let sqe = opcode::RecvMsgMulti::new(types::Fd(fd), msghdr, URING_BGROUP)
         .build();
+        sq.sync();
 
         match unsafe { sq.push(&sqe) } {
             Ok(_) => {
