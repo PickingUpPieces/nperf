@@ -614,7 +614,10 @@ impl Server {
             let cq_before = cq.len();
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
-                Ok(completed) => inflight_count -= completed,
+                Ok(completed) => {
+                    cq.sync();
+                    inflight_count -= completed
+                },
                 Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
@@ -628,7 +631,6 @@ impl Server {
             };
 
             // Utilization of the completion queue
-            cq.sync();
             debug!("CQ utilization: {}% vs {}% ({}/{} vs {}/{})", (cq_before as f32 / cq.capacity() as f32) * 100.0, (cq.len() as f32 / cq.capacity() as f32) * 100.0, cq_before, cq.capacity(), cq.len(), cq.capacity());
 
             if self.parameter.uring_parameter.provided_buffer {
@@ -657,7 +659,10 @@ impl Server {
             zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, self.parameter.uring_parameter.burst_size as usize)?;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
-                Ok(multishot_armed) => armed = multishot_armed,
+                Ok(multishot_armed) => {
+                    cq.sync(); // Sync completion queue after reaping the CQEs
+                    armed = multishot_armed
+                },
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
                     return Ok(statistic);
