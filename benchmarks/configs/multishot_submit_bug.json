@@ -17,7 +17,7 @@
         "io-model": "poll",
         "uring-provided-buffer": false,
         "uring-multishot": true,
-        "uring-burst-size": 64
+        "uring-ring-size": 1024
     },
     "uring-multishot": {
         "1": {
@@ -26,7 +26,8 @@
                 "with-gsro": true
             },
             "server": {
-                "io-model": "io-uring"
+                "io-model": "io-uring",
+                "uring-ring-size": 2
             }
         },
         "2": {
@@ -119,7 +120,7 @@
             "server": {
                 "io-model": "io-uring",
                 "uring-multishot": false,
-                "uring-burst-size": 1
+                "uring-ring-size": 2
             }
         },
         "2": {
