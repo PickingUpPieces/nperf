@@ -235,5 +235,5 @@ pub struct UringParameter {
     pub ring_size: u32,
     pub burst_size: u32,
     pub buffer_size: u32,
-    pub sq_poll: bool
+    pub sqpoll: bool
 }

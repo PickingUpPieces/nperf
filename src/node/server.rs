@@ -21,7 +21,7 @@ const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_SQ_POLL_TIMEOUT: u32 = 1_000;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 const URING_TASK_WORK: bool = false;
-const URING_SQ_FILLING_MODE_BURST: bool = false;
+const URING_SQ_FILLING_MODE_BURST: bool = true;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -322,6 +322,10 @@ impl Server {
         cq.sync(); // Sync cq data structure with io_uring completion queue
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
+        if cq.overflow() > 0 {
+            warn!("Dropped messages in completion queue: {}", cq.overflow());
+        }
+
         for cqe in cq {
             let amount_received_bytes = cqe.result();
             debug!("Received completion event with bytes: {}", amount_received_bytes); 
@@ -518,7 +522,7 @@ impl Server {
     }
 
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, to_submit: usize) -> Result<usize, &'static str> {
+    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<usize, &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
@@ -527,7 +531,7 @@ impl Server {
 
         let mut zero_submitted_counter: usize = 0;
         
-        match if timeout == 0 { submitter.submit_and_wait(to_submit) } else { submitter.submit_with_args(to_submit, &args) } {
+        match if timeout == 0 { submitter.submit_and_wait(min_complete) } else { submitter.submit_with_args(min_complete, &args) } {
             Ok(0) => { 
                 zero_submitted_counter += 1; 
                 debug!("Zero completion events received from submit_with_args");
@@ -540,14 +544,14 @@ impl Server {
             Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
             Err(err) => {
                 error!("Error submitting io_uring sqe: {}", err);
-                return Err("IO_URING ERROR")
+                return Err("IO_URING_ERROR")
             }
         }
 
         Ok(zero_submitted_counter)
     }
 
-    fn io_uring_loop_normal(&mut self, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
+    fn io_uring_loop_normal(&mut self, mut statistic: Statistic, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
         let uring_burst_size = self.parameter.uring_parameter.burst_size;
         let uring_buffer_size = self.parameter.uring_parameter.buffer_size;
         let mut inflight_count: u32 = 0;
@@ -565,6 +569,7 @@ impl Server {
         };
 
         loop {
+            statistic.amount_io_model_syscalls += 1;
             sq.sync();
             if !sq.is_full() {
                 if URING_SQ_FILLING_MODE_BURST {
@@ -583,15 +588,15 @@ impl Server {
                         inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
                     }
                 }
-            }
+           }
 
             // Utilization of the submission queue
             sq_utilization.amount_loops += 1;
             let sq_before = sq.len();
 
-            if self.parameter.uring_parameter.sq_poll {
-                let to_submit = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
-                zero_submitted_counter += Self::io_uring_enter(&mut submitter, 0, to_submit)?;
+            if self.parameter.uring_parameter.sqpoll {
+                let min_complete = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
+                zero_submitted_counter += Self::io_uring_enter(&mut submitter, 0, min_complete)?;
             } else {
                 zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
             }
@@ -613,7 +618,7 @@ impl Server {
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
                     info!("SQ utilization: {:?}", sq_utilization);
-                    return Ok(());
+                    return Ok(statistic);
                 },
                 Err(x) => {
                     error!("Error completing io_uring sqe: {}", x);
@@ -632,13 +637,15 @@ impl Server {
         }
     }
 
-    fn io_uring_loop_multishot(&mut self, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
+    fn io_uring_loop_multishot(&mut self, mut statistic: Statistic, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
         // Indicator if multishot request is still armed
         let mut armed = false;
         let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
+            statistic.amount_io_model_syscalls += 1;
+
             if !armed {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
@@ -646,13 +653,13 @@ impl Server {
             // Wierd bug, if to_submit bigger than 2, submit_and_wait runs into the Timeout error. 
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 2)?;
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, self.parameter.uring_parameter.burst_size as usize)?;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
                 Ok(multishot_armed) => armed = multishot_armed,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
-                    return Ok(());
+                    return Ok(statistic);
                 },
                 Err(x) => {
                     error!("Error completing io_uring sqe: {}", x);
@@ -678,7 +685,7 @@ impl Server {
             .setup_defer_taskrun();
         }
 
-        if parameters.sq_poll {
+        if parameters.sqpoll {
             const SQPOLL_CPU: u32 = 0;
             info!("Starting uring with SQ_POLL thread. Pinning thread to CPU {}.", SQPOLL_CPU);
             ring_builder.setup_sqpoll(URING_SQ_POLL_TIMEOUT)
@@ -709,7 +716,7 @@ impl Server {
     }
 
 
-    fn io_uring_loop(&mut self) -> Result<(), &'static str> {
+    fn io_uring_loop(&mut self, statistic: Statistic) -> Result<Statistic, &'static str> {
         let (ring, mut buf_ring) = Self::io_uring_setup(self.parameter.mss, self.parameter.uring_parameter)?;
         let bufs = buf_ring.submissions();
 
@@ -724,9 +731,9 @@ impl Server {
         };
 
         if self.parameter.uring_parameter.multishot {
-            self.io_uring_loop_multishot(ring, bufs, &mut msghdr)
+            self.io_uring_loop_multishot(statistic, ring, bufs, &mut msghdr)
         } else {
-            self.io_uring_loop_normal(ring, bufs, &mut msghdr)
+            self.io_uring_loop_normal(statistic, ring, bufs, &mut msghdr)
         }
     }
 }
@@ -755,7 +762,7 @@ impl Node for Server {
 
         // TODO: Very ugly at the moment
         if io_model == IOModel::IoUring {
-            self.io_uring_loop()?;
+            statistic = self.io_uring_loop(statistic)?;
         } else {
             'outer: loop {
                 match self.recv_messages() {

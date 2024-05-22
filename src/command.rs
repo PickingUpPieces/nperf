@@ -106,7 +106,7 @@ pub struct nPerf {
 
     /// io_uring: Use a SQ_POLL thread
     #[arg(long, default_value_t = false)]
-    uring_sq_poll: bool,
+    uring_sqpoll: bool,
 
     /// io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND)]
@@ -177,7 +177,7 @@ impl nPerf {
             ring_size: self.uring_ring_size,
             burst_size: if self.uring_burst_size == crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND { self.uring_ring_size / crate::URING_BURST_SIZE_DIVIDEND } else { self.uring_burst_size } ,
             buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
-            sq_poll: self.uring_sq_poll
+            sqpoll: self.uring_sqpoll
         };
 
         let parameter = util::statistic::Parameter::new(
@@ -238,7 +238,7 @@ impl nPerf {
             return None;
         }
 
-        if self.uring_burst_size > self.uring_ring_size {
+        if parameter.uring_parameter.burst_size > self.uring_ring_size {
             error!("Uring burst size must be smaller than the ring size!");
             return None;
         }
