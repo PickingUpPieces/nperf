@@ -438,13 +438,12 @@ impl Server {
             let user_data = cqe.user_data();
             debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
 
-            completion_count += 1;
-
             // Same as in socket.recvmsg function: Check if result is negative, and handle the error
             // Errors are negated, since a positive amount of bytes received is a success
             match amount_received_bytes {
                 0 => {
                     warn!("Received empty message");
+                    completion_count += 1;
                     continue;
                 },
                 -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
@@ -462,7 +461,9 @@ impl Server {
                     error!("Error receiving message: {}", errno);
                     return Err("Failed to receive data");
                 },
-                _ => {} // Positive amount of bytes received
+                _ => { // Positive amount of bytes received
+                    completion_count += 1;
+                }
             }
 
             let iovec: libc::iovec;
@@ -499,7 +500,10 @@ impl Server {
             // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
             match self.handle_recvmsg_return(amount_received_bytes, pmsghdr, user_data) {
                 Ok(_) => {},
-                Err("INIT_MESSAGE_RECEIVED") => continue,
+                Err("INIT_MESSAGE_RECEIVED") => {
+                    self.packet_buffer.return_buffer_index(user_data as usize);
+                    continue;
+                },
                 Err("LAST_MESSAGE_RECEIVED") => {
                     for measurement in self.measurements.iter() {
                         if !measurement.last_packet_received && measurement.first_packet_received {
