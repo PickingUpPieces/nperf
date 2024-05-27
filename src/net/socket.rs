@@ -235,7 +235,7 @@ impl Socket {
     }
 
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
-        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        debug!("Trying to receive message with msghdr length: {}, iov_len: {}, controllen: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len, msghdr.msg_controllen);
         trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         let recv_result: isize = unsafe {

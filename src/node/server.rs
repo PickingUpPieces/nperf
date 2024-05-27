@@ -60,10 +60,11 @@ impl Server {
         // The same applies to the msg_flags field, which is set by the kernel in the msghdr struct.
         // To safe performance, we don't reset the fields, and ignore the msg_flags.
         // The msg_controllen field should be the same for all messages, since it should only contain the GRO enabled control message.
+        // It is only reset after the first message, since the first message is the INIT message, which doesn't contain any control messages.
 
-        // if self.parameter.socket_options.gro {
-        //     self.packet_buffer.reset_msghdr_fields();
-        // }
+        if self.parameter.socket_options.gro && self.next_packet_id == 0 {
+            self.packet_buffer.reset_msghdr_fields();
+        }
 
         match self.exchange_function {
             ExchangeFunction::Normal => self.recv(),
