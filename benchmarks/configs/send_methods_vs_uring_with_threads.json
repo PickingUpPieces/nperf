@@ -1,6 +1,6 @@
 {
     "parameters": {
-        "repetitions": 3,
+        "repetitions": 1,
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
@@ -9,19 +9,21 @@
         "with-mss": 1472,
         "multiplex-port": "individual",
         "multiplex-port-server": "individual",
-        "with-gsro": true,
+        "with-gsro": false,
         "with-mmsg-amount": 16,
         "with-ip-frag": false,
         "with-core-affinity": true,
+        "with-numa-affinity": true,
         "without-non-blocking": false,
         "io-model": "poll",
         "uring-provided-buffer": false,
         "uring-multishot": false,
-        "uring-ring-size": 64
+        "uring-ring-size": 256
     },
     "sendmmsg": {
         "1": {
             "client": {
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -31,6 +33,7 @@
         "2": {
             "client": {
                 "parallel": 2,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -41,6 +44,7 @@
         "4": {
             "client": {
                 "parallel": 4,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -51,6 +55,7 @@
         "6": {
             "client": {
                 "parallel": 6,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -61,6 +66,7 @@
         "8": {
             "client": {
                 "parallel": 8,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -71,6 +77,7 @@
         "10": {
             "client": {
                 "parallel": 10,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -81,6 +88,7 @@
         "12": {
             "client": {
                 "parallel": 12,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -91,6 +99,7 @@
         "14": {
             "client": {
                 "parallel": 14,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -101,6 +110,7 @@
         "16": {
             "client": {
                 "parallel": 16,
+                "with-gsro": true,
                 "exchange-function": "mmsg"
             },
             "server": {
@@ -112,6 +122,7 @@
     "sendmsg": {
         "1": {
             "client": {
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -121,6 +132,7 @@
         "2": {
             "client": {
                 "parallel": 2,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -131,6 +143,7 @@
         "4": {
             "client": {
                 "parallel": 4,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -141,6 +154,7 @@
         "6": {
             "client": {
                 "parallel": 6,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -151,6 +165,7 @@
         "8": {
             "client": {
                 "parallel": 8,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -161,6 +176,7 @@
         "10": {
             "client": {
                 "parallel": 10,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -171,6 +187,7 @@
         "12": {
             "client": {
                 "parallel": 12,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -181,6 +198,7 @@
         "14": {
             "client": {
                 "parallel": 14,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -191,6 +209,7 @@
         "16": {
             "client": {
                 "parallel": 16,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -199,126 +218,127 @@
             }
         }
     },
-    "uring": {
+    "normal": {
         "1": {
             "client": {
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "2": {
             "client": {
                 "parallel": 2,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 2,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "4": {
             "client": {
                 "parallel": 4,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 4,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "6": {
             "client": {
                 "parallel": 6,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 6,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "8": {
             "client": {
                 "parallel": 8,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 8,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "10": {
             "client": {
                 "parallel": 10,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 10,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "12": {
             "client": {
                 "parallel": 12,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 12,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "14": {
             "client": {
                 "parallel": 14,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 14,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "16": {
             "client": {
                 "parallel": 16,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 16,
                 "io-model": "io-uring",
                 "uring-provided-buffer": false,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         }
     },
-    "uring-provided-buffers": {
+    "provided-buffer": {
         "1": {
             "client": {
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -330,111 +350,112 @@
         "2": {
             "client": {
                 "parallel": 2,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 2,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "4": {
             "client": {
                 "parallel": 4,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 4,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "6": {
             "client": {
                 "parallel": 6,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 6,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "8": {
             "client": {
                 "parallel": 8,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 8,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "10": {
             "client": {
                 "parallel": 10,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 10,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "12": {
             "client": {
                 "parallel": 12,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 12,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "14": {
             "client": {
                 "parallel": 14,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 14,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         },
         "16": {
             "client": {
                 "parallel": 16,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
                 "parallel": 16,
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-multishot": false
             }
         }
     },
-    "uring-multishot": {
+    "multishot": {
         "1": {
             "client": {
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -446,6 +467,7 @@
         "2": {
             "client": {
                 "parallel": 2,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -458,6 +480,7 @@
         "4": {
             "client": {
                 "parallel": 4,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -470,6 +493,7 @@
         "6": {
             "client": {
                 "parallel": 6,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -482,6 +506,7 @@
         "8": {
             "client": {
                 "parallel": 8,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -494,6 +519,7 @@
         "10": {
             "client": {
                 "parallel": 10,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -506,6 +532,7 @@
         "12": {
             "client": {
                 "parallel": 12,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -518,6 +545,7 @@
         "14": {
             "client": {
                 "parallel": 14,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
@@ -530,6 +558,7 @@
         "16": {
             "client": {
                 "parallel": 16,
+                "with-gsro": true,
                 "exchange-function": "msg"
             },
             "server": {
