@@ -243,6 +243,11 @@ impl nPerf {
             return None;
         }
 
+        if self.uring_ring_size > crate::URING_MAX_RING_SIZE {
+            error!("Uring ring size is too big! Maximum is {}", crate::URING_MAX_RING_SIZE);
+            return None;
+        }
+
         if self.uring_multishot && !self.uring_provided_buffer {
             warn!("Uring multishot can't be used without provided buffer!");
             warn!("Setting provided buffer to true!");

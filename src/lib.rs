@@ -31,5 +31,6 @@ const LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER: usize = 100;
 const DEFAULT_URING_RING_SIZE: u32 = 256;
 const URING_BUFFER_SIZE_MULTIPLICATOR: u32 = 4; // The buffer size is a multiplicator of the ring size
 const URING_BURST_SIZE_DIVIDEND: u32 = 2; // The burst size is a division of the ring size
+const URING_MAX_RING_SIZE: u32 = 2048; // Maximum ring size
 
 pub use command::nPerf;

@@ -317,7 +317,7 @@ impl Server {
         }
     }
 
-    fn io_uring_complete_multishot(&mut self, cq: &mut CompletionQueue, bufs: &mut BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<bool, &'static str> {
+    fn io_uring_complete_multishot(&mut self, cq: &mut CompletionQueue, bufs: &mut BufRingSubmissions, msghdr: &mut libc::msghdr, statistic: &mut Statistic) -> Result<bool, &'static str> {
         let mut completion_count = 0;
         let mut multishot_armed = true;
 
@@ -382,12 +382,14 @@ impl Server {
                 debug!("The name data was truncated");
             }
 
+            statistic.uring_canceled_multishot += if multishot_armed { 0 } else { 1 };
+
             // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
             let iovec: libc::iovec = libc::iovec {
                 iov_base: msg.payload_data().as_ptr() as *mut libc::c_void,
                 iov_len: (amount_received_bytes - URING_ADDITIONAL_BUFFER_LENGTH) as usize
             };
-            
+
             let mut msghdr: libc::msghdr = {
                 let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
                 hdr.msg_iov = &iovec as *const _ as *mut _;
@@ -564,18 +566,8 @@ impl Server {
         let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
-        #[derive(Debug)]
-        struct SqUtilization {
-            amount_loops: u32,
-            amount_emptied: u32,
-        }
-        let mut sq_utilization = SqUtilization {
-            amount_loops: 0,
-            amount_emptied: 0,
-        };
-
         loop {
-            statistic.amount_io_model_syscalls += 1;
+            statistic.amount_io_model_calls += 1;
             sq.sync();
             if !sq.is_full() {
                 if URING_SQ_FILLING_MODE_BURST {
@@ -594,11 +586,7 @@ impl Server {
                         inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
                     }
                 }
-           }
-
-            // Utilization of the submission queue
-            sq_utilization.amount_loops += 1;
-            let sq_before = sq.len();
+            }
 
             if self.parameter.uring_parameter.sqpoll {
                 let min_complete = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
@@ -607,16 +595,9 @@ impl Server {
                 zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
             }
 
-            // Utilization of the submission queue
-            sq.sync();
-            if sq.is_empty() && sq_before > 0 {
-                sq_utilization.amount_emptied += 1;
-            }
-            debug!("SQ utilization: {}% vs {}% ({}/{} vs {}/{})", (sq_before as f32 / sq.capacity() as f32) * 100.0, (sq.len() as f32 / sq.capacity() as f32) * 100.0, sq_before, sq.capacity(), sq.len(), sq.capacity());
-
             // Utilization of the completion queue
             cq.sync();
-            let cq_before = cq.len();
+            statistic.uring_cq_utilization_temp[cq.len()] += 1;
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => {
@@ -626,7 +607,6 @@ impl Server {
                 Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
-                    info!("SQ utilization: {:?}", sq_utilization);
                     return Ok(statistic);
                 },
                 Err(x) => {
@@ -635,12 +615,11 @@ impl Server {
                 }
             };
 
-            // Utilization of the completion queue
-            debug!("CQ utilization: {}% vs {}% ({}/{} vs {}/{})", (cq_before as f32 / cq.capacity() as f32) * 100.0, (cq.len() as f32 / cq.capacity() as f32) * 100.0, cq_before, cq.capacity(), cq.len(), cq.capacity());
-
             if self.parameter.uring_parameter.provided_buffer {
                 bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.
             }
+
+            statistic.uring_inflight_utilization_temp[inflight_count as usize] += 1;
             debug!("Current inflight count {}", inflight_count);
         }
     }
@@ -652,7 +631,7 @@ impl Server {
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
-            statistic.amount_io_model_syscalls += 1;
+            statistic.amount_io_model_calls += 1;
 
             if !armed {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
@@ -663,7 +642,11 @@ impl Server {
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
             zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, self.parameter.uring_parameter.burst_size as usize)?;
 
-            match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr) {
+            // Utilization of the completion queue
+            cq.sync();
+            statistic.uring_cq_utilization_temp[cq.len()] += 1;
+
+            match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr, &mut statistic) {
                 Ok(multishot_armed) => {
                     cq.sync(); // Sync completion queue after reaping the CQEs
                     armed = multishot_armed
@@ -779,7 +762,7 @@ impl Node for Server {
                 match self.recv_messages() {
                     Ok(_) => {},
                     Err("EAGAIN") => {
-                        statistic.amount_io_model_syscalls += 1;
+                        statistic.amount_io_model_calls += 1;
                         match self.io_wait(io_model) {
                             Ok(_) => {},
                             Err("TIMEOUT") => {

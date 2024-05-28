@@ -192,7 +192,7 @@ impl Node for Client {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
-                    self.statistic.amount_io_model_syscalls += 1;
+                    self.statistic.amount_io_model_calls += 1;
                     self.io_wait(io_model)?;
                 },
                 Err(x) => {

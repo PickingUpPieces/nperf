@@ -3,6 +3,7 @@ pub mod msghdr;
 pub mod msghdr_vec;
 pub mod packet_buffer;
 pub mod core_affinity_manager;
+mod utilization;
 
 use std::io::IoSlice;
 use log::{debug, trace};

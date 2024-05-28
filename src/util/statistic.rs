@@ -2,8 +2,8 @@ use std::{ops::Add, time::{Duration, Instant}};
 use log::debug;
 use serde::Serialize;
 use serde_json;
-
 use crate::net::socket_options::SocketOptions;
+use super::utilization::utilization;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
@@ -38,10 +38,16 @@ pub struct Statistic {
     pub amount_duplicated_datagrams: u64,
     pub amount_omitted_datagrams: i64,
     pub amount_syscalls: u64,
-    pub amount_io_model_syscalls: u64,
+    pub amount_io_model_calls: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
+    pub uring_canceled_multishot: u64,
+    #[serde(with = "utilization")]
+    pub uring_cq_utilization_temp: [usize; (crate::URING_MAX_RING_SIZE * 2) as usize],
+    #[serde(with = "utilization")]
+    pub uring_inflight_utilization_temp: [usize; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize],
 }
+
 
 // Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
 #[derive(Debug, Copy, Clone)]
@@ -65,9 +71,12 @@ impl Statistic {
             amount_duplicated_datagrams: 0,
             amount_omitted_datagrams: 0,
             amount_syscalls: 0,
-            amount_io_model_syscalls: 0,
+            amount_io_model_calls: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
+            uring_canceled_multishot: 0,
+            uring_cq_utilization_temp: [0; (crate::URING_MAX_RING_SIZE * 2) as usize],
+            uring_inflight_utilization_temp: [0; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize]
         }
     }
 
@@ -97,10 +106,25 @@ impl Statistic {
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
-                println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
+                println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
                 println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
                 println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
+                if self.parameter.io_model == super::IOModel::IoUring {
+                    println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
+                    println!("Uring CQ utilization:");
+                    // Print out an enumerate table with the utilization of the CQ and inflight count; Leave out all zero values
+                    for (index, &utilization) in self.uring_cq_utilization_temp.iter().enumerate() {
+                        if utilization != 0 && utilization != 1 {
+                            println!("CQ[{}]: {}", index, utilization);
+                        }
+                    }
+                    for(index, &utilization) in self.uring_inflight_utilization_temp.iter().enumerate() {
+                        if utilization != 0 && utilization != 1 {
+                            println!("Inflight[{}]: {}", index, utilization);
+                        }
+                    }
+                }
             }
         }
     }
@@ -155,6 +179,17 @@ impl Add for Statistic {
             self.test_duration
         };
 
+        // Add the arrays field by field
+        let mut uring_cq_utilization_temp = [0; (crate::URING_MAX_RING_SIZE * 2) as usize];
+        for i in 0..uring_cq_utilization_temp.len() {
+            uring_cq_utilization_temp[i] = self.uring_cq_utilization_temp[i] + other.uring_cq_utilization_temp[i];
+        }
+
+        let mut uring_inflight_utilization_temp = [0; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize];
+        for i in 0..uring_inflight_utilization_temp.len() {
+            uring_inflight_utilization_temp[i] = self.uring_inflight_utilization_temp[i] + other.uring_inflight_utilization_temp[i];
+        }
+
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
             test_duration, 
@@ -165,9 +200,12 @@ impl Add for Statistic {
             amount_duplicated_datagrams: self.amount_duplicated_datagrams + other.amount_duplicated_datagrams,
             amount_omitted_datagrams: self.amount_omitted_datagrams + other.amount_omitted_datagrams,
             amount_syscalls: self.amount_syscalls + other.amount_syscalls,
-            amount_io_model_syscalls: self.amount_io_model_syscalls + other.amount_io_model_syscalls,
+            amount_io_model_calls: self.amount_io_model_calls + other.amount_io_model_calls,
             data_rate_gbit, 
             packet_loss,
+            uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
+            uring_cq_utilization_temp,
+            uring_inflight_utilization_temp
         }
     }
 }
