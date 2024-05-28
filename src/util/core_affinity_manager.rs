@@ -7,28 +7,26 @@ use super::NPerfMode;
 
 pub struct CoreAffinityManager {
     core_ids: Vec<core_affinity::CoreId>,
-    next_core_id: usize,
+    next_core_id: i32,
     mode: NPerfMode, // Server uses inverse round robin
     numa_affinity: bool // According to the NUMA core pattern on the server, assign the threads to run on the same NUMA node
 }
 
 impl CoreAffinityManager {
-    pub fn new(mode: NPerfMode, first_core_id: Option<usize>, numa_affinity: bool) -> CoreAffinityManager {
+    pub fn new(mode: NPerfMode, first_core_id: Option<i32>, numa_affinity: bool) -> CoreAffinityManager {
         let core_ids = core_affinity::get_core_ids().unwrap_or_default();
 
         let next_core_id = if let Some(next_core_id) = first_core_id {
             next_core_id
+        } else if numa_affinity {
+            match mode {
+                NPerfMode::Client => 1,
+                NPerfMode::Server => (core_ids.len() - 1 ) as i32
+            }
         } else {
-            if numa_affinity {
-                match mode {
-                    NPerfMode::Client => 1,
-                    NPerfMode::Server => core_ids.len() - 1
-                }
-            } else {
-                match mode {
-                    NPerfMode::Client => 1,
-                    NPerfMode::Server => 2
-                }
+            match mode {
+                NPerfMode::Client => 1,
+                NPerfMode::Server => 2
             }
         };
 
@@ -70,27 +68,25 @@ impl CoreAffinityManager {
         self.next_core_id = if self.numa_affinity && self.mode == NPerfMode::Server {
                 // If we assign NUMA, the reverse round-robin schedules the uneven core IDs
                 if self.next_core_id - delta <= 0 {
-                    self.core_ids.len() - 1
+                    ( self.core_ids.len() - 1 ) as i32
                 } else {
                     self.next_core_id - delta
                 }
             } else if self.numa_affinity && self.mode == NPerfMode::Client {
-                if self.next_core_id + delta >= self.core_ids.len() {
+                if self.next_core_id + delta >= self.core_ids.len() as i32 {
                     1
                 } else {
                     self.next_core_id + delta
                 }
-        } else {
-            if self.next_core_id + delta >= self.core_ids.len() {
-                match self.mode {
-                    NPerfMode::Client => 1,
-                    NPerfMode::Server => 2
-                }
-            } else {
-                self.next_core_id + delta
+        } else if self.next_core_id + delta >= self.core_ids.len() as i32 {
+            match self.mode {
+                NPerfMode::Client => 1,
+                NPerfMode::Server => 2
             }
+        } else {
+            self.next_core_id + delta
         };
 
-        Ok(self.core_ids[ret]) 
+        Ok(self.core_ids[ret as usize]) 
     }
 }
