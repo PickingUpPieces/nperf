@@ -211,7 +211,7 @@ impl Node for Client {
 
         self.statistic.set_test_duration(start_time, end_time);
         self.statistic.calculate_statistics();
-        Ok(self.statistic)
+        Ok(self.statistic.clone())
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {

@@ -597,7 +597,7 @@ impl Server {
 
             // Utilization of the completion queue
             cq.sync();
-            statistic.uring_cq_utilization_temp[cq.len()] += 1;
+            statistic.uring_cq_utilization[cq.len()] += 1;
 
             match self.io_uring_complete(&mut cq, &mut bufs) {
                 Ok(completed) => {
@@ -619,7 +619,7 @@ impl Server {
                 bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.
             }
 
-            statistic.uring_inflight_utilization_temp[inflight_count as usize] += 1;
+            statistic.uring_inflight_utilization[inflight_count as usize] += 1;
             debug!("Current inflight count {}", inflight_count);
         }
     }
@@ -656,7 +656,7 @@ impl Server {
 
             // Utilization of the completion queue
             cq.sync();
-            statistic.uring_cq_utilization_temp[cq.len()] += 1;
+            statistic.uring_cq_utilization[cq.len()] += 1;
 
             match self.io_uring_complete_multishot(&mut cq, &mut bufs, msghdr, &mut statistic) {
                 Ok(multishot_armed) => {
@@ -823,7 +823,7 @@ impl Node for Server {
 
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
         // Fold over all statistics, and calculate the final statistic
-        let statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic);
+        let statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
         Ok(statistic)
     }
 
