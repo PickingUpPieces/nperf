@@ -40,9 +40,13 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Pin each thread to an individual core
+    /// Pin each thread to an individual core. The server threads start from the last core, the client threads from the second core. This way each server/client pair should operate on the same NUMA core.
     #[arg(long, default_value_t = false)]
     with_core_affinity: bool,
+
+    /// Pin client/server threads to different NUMA nodes
+    #[arg(long, default_value_t = false)]
+    with_numa_affinity: bool,
 
     /// Enable GSO/GRO on socket
     #[arg(long, default_value_t = false)]
@@ -196,6 +200,7 @@ impl nPerf {
             self.multiplex_port_server,
             simulate_connection,
             self.with_core_affinity,
+            self.with_numa_affinity,
             uring_parameters
         );
 
@@ -239,7 +244,7 @@ impl nPerf {
         }
 
         if parameter.uring_parameter.burst_size > self.uring_ring_size {
-            error!("Uring burst size must be smaller than the ring size!");
+            error!("Uring burst size {} must be smaller than the ring size {}!", parameter.uring_parameter.burst_size, self.uring_ring_size);
             return None;
         }
 

@@ -628,6 +628,7 @@ impl Server {
         // Indicator if multishot request is still armed
         let mut armed = false;
         let mut zero_submitted_counter = 0;
+        let mut failed_zero_return = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
@@ -637,10 +638,21 @@ impl Server {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
 
-            // Wierd bug, if to_submit bigger than 2, submit_and_wait runs into the Timeout error. 
+            //cq.sync();
+            let cq_before = cq.len();
+            let zero_sub_before = zero_submitted_counter;
+
+            // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
             zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, self.parameter.uring_parameter.burst_size as usize)?;
+
+            if zero_submitted_counter != zero_sub_before && cq_before <= self.parameter.uring_parameter.burst_size as usize {
+                //cq.sync();
+                if cq.len() < self.parameter.uring_parameter.burst_size as usize {
+                    failed_zero_return += 1;
+                }
+            }
 
             // Utilization of the completion queue
             cq.sync();
@@ -653,6 +665,7 @@ impl Server {
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
                     warn!("Zero submitted counter: {}", zero_submitted_counter);
+                    warn!("Failed zero return: {}", failed_zero_return);
                     return Ok(statistic);
                 },
                 Err(x) => {
