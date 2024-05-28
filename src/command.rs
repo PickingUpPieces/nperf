@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
 
-use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter}, ExchangeFunction, IOModel, NPerfMode};
+use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter, UringSqFillingMode}, ExchangeFunction, IOModel, NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
@@ -120,6 +120,10 @@ pub struct nPerf {
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE)]
     uring_ring_size: u32,
 
+    /// io_uring: How the SQ is filled
+    #[arg(long, default_value_t, value_enum)]
+    uring_sq_mode: UringSqFillingMode,
+
     /// Show help in markdown format
     #[arg(long, hide = true)]
     markdown_help: bool,
@@ -181,7 +185,8 @@ impl nPerf {
             ring_size: self.uring_ring_size,
             burst_size: if self.uring_burst_size == crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND { (self.uring_ring_size as f32 / crate::URING_BURST_SIZE_DIVIDEND as f32).ceil() as u32 } else { self.uring_burst_size } ,
             buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
-            sqpoll: self.uring_sqpoll
+            sqpoll: self.uring_sqpoll,
+            sq_filling_mode: self.uring_sq_mode
         };
 
         let parameter = util::statistic::Parameter::new(
