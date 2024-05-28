@@ -10,13 +10,14 @@
         "multiplex-port": "individual",
         "multiplex-port-server": "individual",
         "with-gsro": true,
-        "with-mmsg-amount": 10,
+        "with-mmsg-amount": 16,
         "with-ip-frag": false,
+        "with-core-affinity": true,
         "without-non-blocking": false,
         "io-model": "poll",
         "uring-provided-buffer": false,
         "uring-multishot": false,
-        "uring-burst-size": 64
+        "uring-ring-size": 64
     },
     "sendmmsg": {
         "1": {
