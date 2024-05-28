@@ -16,9 +16,11 @@ impl nPerf {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
 
-        let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode == NPerfMode::Server, None, parameter.numa_affinity)));
+        let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode, None, parameter.numa_affinity)));
+
         if parameter.core_affinity {
-            core_affinity_manager.lock().unwrap().set_affinity().expect("Error setting core affinity");
+            let core_ids = core_affinity::get_core_ids().unwrap_or_default();
+            core_affinity::set_for_current(core_ids[0]);
         }
 
         loop {

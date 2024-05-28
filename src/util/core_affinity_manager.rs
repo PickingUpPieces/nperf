@@ -3,30 +3,38 @@
 use std::thread;
 use log::info;
 
+use super::NPerfMode;
+
 pub struct CoreAffinityManager {
     core_ids: Vec<core_affinity::CoreId>,
-    next_core_id: usize,
-    inverse_round_robin: bool, // Server uses inverse round robin
-    assign_numa: bool // According to the NUMA core pattern on the server, assign the threads to run on the same NUMA node
+    next_core_id: i32,
+    mode: NPerfMode, // Server uses inverse round robin
+    numa_affinity: bool // According to the NUMA core pattern on the server, assign the threads to run on the same NUMA node
 }
 
-const NUMA_CORE_PATTERN: usize = 2;
-
 impl CoreAffinityManager {
-    pub fn new(inverse_round_robin: bool, first_core_id: Option<usize>, assign_numa: bool) -> CoreAffinityManager {
+    pub fn new(mode: NPerfMode, first_core_id: Option<i32>, numa_affinity: bool) -> CoreAffinityManager {
         let core_ids = core_affinity::get_core_ids().unwrap_or_default();
 
         let next_core_id = if let Some(next_core_id) = first_core_id {
             next_core_id
+        } else if numa_affinity {
+            match mode {
+                NPerfMode::Client => 1,
+                NPerfMode::Server => (core_ids.len() - 1 ) as i32
+            }
         } else {
-            0
+            match mode {
+                NPerfMode::Client => 1,
+                NPerfMode::Server => 2
+            }
         };
 
         CoreAffinityManager {
             core_ids,
             next_core_id,
-            inverse_round_robin,
-            assign_numa
+            mode,
+            numa_affinity
         }
     }
 
@@ -41,6 +49,7 @@ impl CoreAffinityManager {
         }
     }
     
+    // We don't schedule any thread on core 0, since sometimes interrupts are scheduled on core 0
     fn get_core_id(&mut self) -> Result<core_affinity::CoreId, &'static str> {
         if self.core_ids.is_empty() {
             return Err("No core IDs available! CPU affinity is not configured correctly.");
@@ -48,33 +57,36 @@ impl CoreAffinityManager {
 
         let ret = self.next_core_id;
 
-        // If NUMA enabled, schedule threads on even/uneven core_ids only
-        let delta = if self.assign_numa {
-            NUMA_CORE_PATTERN
-        } else {
+        // If NUMA enabled, schedule client/server pair of threads both on uneven on even/uneven core_ids only
+        let delta = if self.numa_affinity {
             1
+        } else {
+            2
         };
 
         // cycle to the next core ID 
-        // Reverse round-robin order
-        #[allow(clippy::collapsible_else_if)]
-        if self.inverse_round_robin {
-            // If we assign NUMA, the reverse round-robin schedules the uneven core IDs
-            if self.next_core_id < delta {
-                self.next_core_id = self.core_ids.len() - 1;
-            } else {
-                self.next_core_id -= delta;
+        self.next_core_id = if self.numa_affinity && self.mode == NPerfMode::Server {
+                // If we assign NUMA, the reverse round-robin schedules the uneven core IDs
+                if self.next_core_id - delta <= 0 {
+                    ( self.core_ids.len() - 1 ) as i32
+                } else {
+                    self.next_core_id - delta
+                }
+            } else if self.numa_affinity && self.mode == NPerfMode::Client {
+                if self.next_core_id + delta >= self.core_ids.len() as i32 {
+                    1
+                } else {
+                    self.next_core_id + delta
+                }
+        } else if self.next_core_id + delta >= self.core_ids.len() as i32 {
+            match self.mode {
+                NPerfMode::Client => 1,
+                NPerfMode::Server => 2
             }
         } else {
-            // normal round-robin
-            // If we assign NUMA, the normal round-robin schedules the even core IDs
-            if self.next_core_id == self.core_ids.len() - delta {
-                self.next_core_id = 0;
-            } else {
-                self.next_core_id += delta;
-            }
-        }
+            self.next_core_id + delta
+        };
 
-        Ok(self.core_ids[ret]) 
+        Ok(self.core_ids[ret as usize]) 
     }
 }
