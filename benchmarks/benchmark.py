@@ -129,7 +129,7 @@ def run_test(run_config):
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'uring-provided-buffer', 'uring-burst-size', 'uring-multishot', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_calls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'core_affinity', 'numa_affinity', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'uring-ring-size', 'uring-burst-size', 'uring-provided-buffer', 'uring-multishot', 'uring-sqpoll', 'amount_uring_multishot_canceled', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_calls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'core_affinity', 'numa_affinity', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -155,9 +155,12 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'packet_buffer_size': server_result['parameter']['packet_buffer_size'],
                 'exchange_function': server_result['parameter']['exchange_function'],
                 'io_model': server_result['parameter']['io_model'],
-                'uring-provided-buffer': server_result['parameter']['uring_parameter']['provided_buffer'],
+                'uring-ring-size': server_result['parameter']['uring_parameter']['ring_size'],
                 'uring-burst-size': server_result['parameter']['uring_parameter']['burst_size'],
+                'uring-provided-buffer': server_result['parameter']['uring_parameter']['provided_buffer'],
                 'uring-multishot': server_result['parameter']['uring_parameter']['multishot'],
+                'uring-sqpoll': server_result['parameter']['uring_parameter']['sqpoll'],
+                'amount_uring_multishot_canceled': server_result['uring_canceled_multishot'],
                 'total_data_gbyte': server_result['total_data_gbyte'],
                 'amount_datagrams': server_result['amount_datagrams'],
                 'amount_data_bytes': server_result['amount_data_bytes'],
@@ -165,9 +168,9 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'amount_duplicated_datagrams': server_result['amount_duplicated_datagrams'],
                 'amount_omitted_datagrams': server_result['amount_omitted_datagrams'],
                 'data_rate_gbit': server_result['data_rate_gbit'],
+                'packet_loss': server_result['packet_loss'],
                 'amount_syscalls': server_result['amount_syscalls'],
                 'amount_io_model_calls': server_result['amount_io_model_calls'],
-                'packet_loss': server_result['packet_loss'],
                 'nonblocking': server_result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
                 'multiplex_port_client': client_result['parameter']['multiplex_port'],

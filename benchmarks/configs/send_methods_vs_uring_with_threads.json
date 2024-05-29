@@ -1,24 +1,25 @@
 {
     "parameters": {
-        "repetitions": 1,
+        "repetitions": 3,
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
         "time": 30,
         "with-gso-buffer": 65507,
         "with-mss": 1472,
+        "with-socket-buffer": false,
         "multiplex-port": "individual",
         "multiplex-port-server": "individual",
         "with-gsro": false,
-        "with-mmsg-amount": 16,
+        "with-mmsg-amount": 128,
         "with-ip-frag": false,
-        "with-core-affinity": true,
-        "with-numa-affinity": true,
+        "with-core-affinity": false,
+        "with-numa-affinity": false,
         "without-non-blocking": false,
         "io-model": "poll",
         "uring-provided-buffer": false,
         "uring-multishot": false,
-        "uring-ring-size": 256
+        "uring-ring-size": 512
     },
     "sendmmsg": {
         "1": {
