@@ -570,24 +570,24 @@ impl Server {
             sq.sync();
             if !sq.is_full() {
                 match self.parameter.uring_parameter.sq_filling_mode {
-                    UringSqFillingMode::Burst => {
+                    UringSqFillingMode::Syscall => {
                         // Check if there are enough buffers left to fill up the submission queue with the burst size
                         if inflight_count < uring_buffer_size - uring_burst_size {
                             inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
                         };
                     },
                     UringSqFillingMode::Topup => {
-                    // Fill up the submission queue to the maximum
-                    let sq_entries_left = (sq.capacity() - sq.len()) as u32;
-                    let buffers_left = uring_buffer_size - inflight_count;
-                    // Check if enough buffers are left to fill up the submission queue, otherwise only fill up the remaining buffers
-                    if buffers_left < sq_entries_left {
-                        inflight_count += self.io_uring_submit(&mut sq, msghdr, buffers_left)?;
-                    } else {
-                        inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
-                    }
+                        // Fill up the submission queue to the maximum
+                        let sq_entries_left = (sq.capacity() - sq.len()) as u32;
+                        let buffers_left = uring_buffer_size - inflight_count;
+                        // Check if enough buffers are left to fill up the submission queue, otherwise only fill up the remaining buffers
+                        if buffers_left < sq_entries_left {
+                            inflight_count += self.io_uring_submit(&mut sq, msghdr, buffers_left)?;
+                        } else {
+                            inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
+                        }
                     },
-                    UringSqFillingMode::Syscall => {
+                    UringSqFillingMode::Burst => {
                         todo!()
                     }
                 };
