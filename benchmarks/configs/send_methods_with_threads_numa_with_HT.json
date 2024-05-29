@@ -12,6 +12,7 @@
         "with-gsro": true,
         "with-mmsg-amount": 10,
         "with-core-affinity": true,
+        "with-socket-buffer": false,
         "with-ip-frag": false,
         "without-non-blocking": false,
         "io-model": "poll"

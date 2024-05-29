@@ -650,7 +650,7 @@ impl Server {
             // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, self.parameter.uring_parameter.burst_size as usize)?;
+            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 1)?;
 
             if zero_submitted_counter != zero_sub_before && cq_before <= self.parameter.uring_parameter.burst_size as usize {
                 //cq.sync();
