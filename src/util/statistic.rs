@@ -29,6 +29,14 @@ pub enum SimulateConnection {
     Multiple
 }
 
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum UringSqFillingMode {
+    #[default]
+    Topup,
+    Burst,
+    Syscall 
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
     pub parameter: Parameter,
@@ -77,8 +85,8 @@ impl Statistic {
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
             uring_canceled_multishot: 0,
-            uring_cq_utilization: vec![0; (crate::URING_MAX_RING_SIZE * 2) as usize].into_boxed_slice(),
-            uring_inflight_utilization: vec![0 as usize; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize].into_boxed_slice()
+            uring_cq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE * 2) as usize].into_boxed_slice(),
+            uring_inflight_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize].into_boxed_slice()
         }
     }
 
@@ -277,7 +285,8 @@ pub struct UringParameter {
     pub ring_size: u32,
     pub burst_size: u32,
     pub buffer_size: u32,
-    pub sqpoll: bool
+    pub sqpoll: bool,
+    pub sq_filling_mode: UringSqFillingMode
 }
 
 

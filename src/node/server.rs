@@ -21,7 +21,6 @@ const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_SQ_POLL_TIMEOUT: u32 = 1_000;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 const URING_TASK_WORK: bool = false;
-const URING_SQ_FILLING_MODE_BURST: bool = false;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -570,12 +569,14 @@ impl Server {
             statistic.amount_io_model_calls += 1;
             sq.sync();
             if !sq.is_full() {
-                if URING_SQ_FILLING_MODE_BURST {
-                    // Check if there are enough buffers left to fill up the submission queue with the burst size
-                    if inflight_count < uring_buffer_size - uring_burst_size {
-                        inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
-                    };
-                } else {
+                match self.parameter.uring_parameter.sq_filling_mode {
+                    UringSqFillingMode::Burst => {
+                        // Check if there are enough buffers left to fill up the submission queue with the burst size
+                        if inflight_count < uring_buffer_size - uring_burst_size {
+                            inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
+                        };
+                    },
+                    UringSqFillingMode::Topup => {
                     // Fill up the submission queue to the maximum
                     let sq_entries_left = (sq.capacity() - sq.len()) as u32;
                     let buffers_left = uring_buffer_size - inflight_count;
@@ -585,7 +586,11 @@ impl Server {
                     } else {
                         inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
                     }
-                }
+                    },
+                    UringSqFillingMode::Syscall => {
+                        todo!()
+                    }
+                };
             }
 
             if self.parameter.uring_parameter.sqpoll {
