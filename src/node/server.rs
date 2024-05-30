@@ -341,15 +341,19 @@ impl Server {
                     continue;
                 },
                 -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
-                    debug!("ENOBUFS: No buffer space available! Next expected packet ID: {}", self.next_packet_id);
+                    warn!("ENOBUFS: No buffer space available! Next expected packet ID: {}", self.next_packet_id);
                     return Ok(Self::io_uring_check_multishot(cqe.flags()));
                 },
                 _ if amount_received_bytes < 0 => {
                     let errno = Error::last_os_error();
                     match errno.raw_os_error() {
                         // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                        // At the moment, this doesn't happen with nonblocking sockets in io_uring.
                         // From: https://linux.die.net/man/2/recvmsg
-                        Some(libc::EAGAIN) => { return Err("EAGAIN"); },
+                        Some(libc::EAGAIN) => { 
+                            warn!("EAGAIN"); 
+                            return Err("EAGAIN"); 
+                        },
                         _ => {
                             error!("Error receiving message: {}", errno);
                             return Err("Failed to receive data!");
@@ -529,40 +533,33 @@ impl Server {
     }
 
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<usize, &'static str> {
+    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
         let ts = Timespec::new().nsec(timeout);
         args = args.timespec(&ts);
 
-        let mut zero_submitted_counter: usize = 0;
-        
         match if timeout == 0 { submitter.submit_and_wait(min_complete) } else { submitter.submit_with_args(min_complete, &args) } {
-            Ok(0) => { 
-                zero_submitted_counter += 1; 
-                debug!("Zero completion events received from submit_with_args");
-            },
-            Ok(submitted) => { debug!("Completion events received from submit: {}", submitted) },
+            Ok(submitted) => { debug!("Amount of submitted events received from submit: {}", submitted) },
             // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
             // If this happens, the application must reap events from the CQ ring and attempt the submit again.
             // Should ONLY appear when using flag IORING_FEAT_NODROP
-            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { info!("submit_with_args: EBUSY error") },
-            Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
+            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { warn!("submit_with_args: EBUSY error") },
+            Err(ref err) if err.raw_os_error() == Some(62) => { warn!("submit_with_args: Timeout error") },
             Err(err) => {
                 error!("Error submitting io_uring sqe: {}", err);
                 return Err("IO_URING_ERROR")
             }
         }
 
-        Ok(zero_submitted_counter)
+        Ok(())
     }
 
     fn io_uring_loop_normal(&mut self, mut statistic: Statistic, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
         let uring_burst_size = self.parameter.uring_parameter.burst_size;
         let uring_buffer_size = self.parameter.uring_parameter.buffer_size;
         let mut inflight_count: u32 = 0;
-        let mut zero_submitted_counter = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
@@ -595,9 +592,9 @@ impl Server {
 
             if self.parameter.uring_parameter.sqpoll {
                 let min_complete = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
-                zero_submitted_counter += Self::io_uring_enter(&mut submitter, 0, min_complete)?;
+                Self::io_uring_enter(&mut submitter, 0, min_complete)?;
             } else {
-                zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
+                Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
             }
 
             // Utilization of the completion queue
@@ -611,7 +608,6 @@ impl Server {
                 },
                 Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
-                    warn!("Zero submitted counter: {}", zero_submitted_counter);
                     return Ok(statistic);
                 },
                 Err(x) => {
@@ -621,7 +617,7 @@ impl Server {
             };
 
             if self.parameter.uring_parameter.provided_buffer {
-                bufs.sync(); // Returns used buffers to the buffer ring. Only needed for provided buffers.
+                bufs.sync(); // Returns used buffers to the buffer ring. Only needed when provided buffers are used.
             }
 
             statistic.uring_inflight_utilization[inflight_count as usize] += 1;
@@ -632,8 +628,6 @@ impl Server {
     fn io_uring_loop_multishot(&mut self, mut statistic: Statistic, mut ring: IoUring, mut bufs: BufRingSubmissions, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
         // Indicator if multishot request is still armed
         let mut armed = false;
-        let mut zero_submitted_counter = 0;
-        let mut failed_zero_return = 0;
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
@@ -643,21 +637,10 @@ impl Server {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
             };
 
-            //cq.sync();
-            let cq_before = cq.len();
-            let zero_sub_before = zero_submitted_counter;
-
             // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            zero_submitted_counter += Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 1)?;
-
-            if zero_submitted_counter != zero_sub_before && cq_before <= self.parameter.uring_parameter.burst_size as usize {
-                //cq.sync();
-                if cq.len() < self.parameter.uring_parameter.burst_size as usize {
-                    failed_zero_return += 1;
-                }
-            }
+            Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 1)?;
 
             // Utilization of the completion queue
             cq.sync();
@@ -669,8 +652,6 @@ impl Server {
                     armed = multishot_armed
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {
-                    warn!("Zero submitted counter: {}", zero_submitted_counter);
-                    warn!("Failed zero return: {}", failed_zero_return);
                     return Ok(statistic);
                 },
                 Err(x) => {
