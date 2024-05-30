@@ -97,7 +97,7 @@ impl PacketBuffer {
         self.index_pool.pop()
     }
 
-    pub fn return_buffer_index(&mut self, buf_index: usize) {
-        self.index_pool.push(buf_index)
+    pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
+        self.index_pool.append(buf_index_vec.as_mut())
     }
 }
