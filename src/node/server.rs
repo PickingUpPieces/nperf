@@ -696,6 +696,10 @@ impl Server {
                     }
                 };
 
+                // Utilization of the submission queue
+                sq.sync();
+                statistic.uring_sq_utilization[sq.len()] += 1;
+
                 // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread
 		        //          Due to the library we're using, the library function won't trigger the syscall io_uring_enter, if sq_poll is enabled and not asleep.
 		        //          If other task_work is implemented, we need to force this probably.
@@ -739,6 +743,9 @@ impl Server {
 
             if !armed {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
+                // Utilization of the submission queue
+                //sq.sync(); Already done in io_uring_submit_multishot
+                statistic.uring_sq_utilization[sq.len()] += 1;
             };
 
             // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.

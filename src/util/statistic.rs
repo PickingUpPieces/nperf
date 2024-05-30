@@ -53,6 +53,8 @@ pub struct Statistic {
     pub packet_loss: f64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization")]
+    pub uring_sq_utilization: Box<[usize]>,
+    #[serde(with = "utilization")]
     pub uring_cq_utilization: Box<[usize]>,
     #[serde(with = "utilization")]
     pub uring_inflight_utilization: Box<[usize]>,
@@ -85,6 +87,7 @@ impl Statistic {
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
             uring_canceled_multishot: 0,
+            uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
             uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
             uring_inflight_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()
         }
@@ -122,18 +125,31 @@ impl Statistic {
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
+
+                    println!();
+                    println!("Uring SQ utilization:");
+                    for (index, &utilization) in self.uring_sq_utilization.iter().enumerate() {
+                        if utilization != 0 && utilization != 1 {
+                            println!("SQ[{}]: {}", index, utilization);
+                        }
+                    }
+
+                    println!();
                     println!("Uring CQ utilization:");
-                    // Print out an enumerate table with the utilization of the CQ and inflight count; Leave out all zero values
                     for (index, &utilization) in self.uring_cq_utilization.iter().enumerate() {
                         if utilization != 0 && utilization != 1 {
                             println!("CQ[{}]: {}", index, utilization);
                         }
                     }
+
+                    println!();
+                    println!("Uring Inflight utilization:");
                     for(index, &utilization) in self.uring_inflight_utilization.iter().enumerate() {
                         if utilization != 0 && utilization != 1 {
                             println!("Inflight[{}]: {}", index, utilization);
                         }
                     }
+                    println!(); 
                 }
             }
         }
@@ -190,6 +206,11 @@ impl Add for Statistic {
         };
 
         // Add the arrays field by field
+        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+        for i in 0..uring_sq_utilization.len() {
+            uring_sq_utilization[i] = self.uring_sq_utilization[i] + other.uring_sq_utilization[i];
+        }
+
         let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
         for i in 0..uring_cq_utilization.len() {
             uring_cq_utilization[i] = self.uring_cq_utilization[i] + other.uring_cq_utilization[i];
@@ -214,6 +235,7 @@ impl Add for Statistic {
             data_rate_gbit, 
             packet_loss,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
+            uring_sq_utilization,
             uring_cq_utilization,
             uring_inflight_utilization
         }

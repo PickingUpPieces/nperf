@@ -13,12 +13,13 @@
         "with-gsro": false,
         "with-mmsg-amount": 128,
         "with-ip-frag": false,
-        "with-core-affinity": false,
-        "with-numa-affinity": false,
+        "with-core-affinity": true,
+        "with-numa-affinity": true,
         "without-non-blocking": false,
         "io-model": "poll",
         "uring-provided-buffer": false,
         "uring-multishot": false,
+        "uring-sqpoll": false,
         "uring-ring-size": 512
     },
     "sendmmsg": {
@@ -567,6 +568,114 @@
                 "io-model": "io-uring",
                 "uring-provided-buffer": true,
                 "uring-multishot": true
+            }
+        }
+    },
+    "sq-poll": {
+        "1": {
+            "client": {
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 2,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 4,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 6,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "8": {
+            "client": {
+                "parallel": 8,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 8,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "10": {
+            "client": {
+                "parallel": 10,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 10,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "12": {
+            "client": {
+                "parallel": 12,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 12,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "14": {
+            "client": {
+                "parallel": 14,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 14,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
+            }
+        },
+        "16": {
+            "client": {
+                "parallel": 16,
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 16,
+                "io-model": "io-uring",
+                "uring-sqpoll": true
             }
         }
     }
