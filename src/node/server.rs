@@ -659,7 +659,7 @@ impl Server {
 
         loop {
         	// Check if there are not enough free buffers -> Either wait for completion events or reap them
-            if inflight_count > ( uring_buffer_size - uring_burst_size ) {
+            if inflight_count > uring_buffer_size - uring_burst_size {
                 if cq.is_empty() {
                     // No buffers left and cq is empty -> We need to do some work/wait for CQEs
                     let min_complete = if uring_burst_size == 0 {
@@ -675,10 +675,12 @@ impl Server {
                 // There are enough buffers left to fill up the submission queue
                 match self.parameter.uring_parameter.sq_filling_mode {
                     UringSqFillingMode::Syscall => {
-                        // Check if there are enough buffers left to fill up the submission queue with the burst size
-                        if inflight_count < uring_buffer_size - uring_burst_size {
+                        // Check if the submission queue is max filled with the burst size
+                        if inflight_count < uring_burst_size {
                             inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
-                        };
+                        }
+                        // If there are currently more entries inflight than the burst size, we don't want to submit more entries
+                        // Fall through to the completion queue handling
                     },
                     UringSqFillingMode::Topup => {
                         // Fill up the submission queue to the maximum
@@ -690,9 +692,6 @@ impl Server {
                         } else {
                             inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
                         }
-                    },
-                    UringSqFillingMode::Burst => {
-                        todo!()
                     }
                 };
 
@@ -700,10 +699,10 @@ impl Server {
                 sq.sync();
                 statistic.uring_sq_utilization[sq.len()] += 1;
 
-                // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread
-		        //          Due to the library we're using, the library function won't trigger the syscall io_uring_enter, if sq_poll is enabled and not asleep.
-		        //          If other task_work is implemented, we need to force this probably.
+                // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread.
+		        //          Due to the library we're using, the library function will only trigger the syscall io_uring_enter, if the sq_poll thread is asleep.
                 //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
+		        //          If other task_work is implemented, we need to force this probably.
                 let min_complete = if self.parameter.uring_parameter.sqpoll { 0 } else { uring_burst_size } as usize;
                 Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
             }
@@ -717,7 +716,6 @@ impl Server {
                     cq.sync();
                     inflight_count -= completed
                 },
-                Err("EAGAIN") => continue,
                 Err("LAST_MESSAGE_RECEIVED") => {
                     return Ok(statistic);
                 },
@@ -739,8 +737,6 @@ impl Server {
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
-            statistic.amount_io_model_calls += 1;
-
             if !armed {
                 self.io_uring_submit_multishot(&mut sq, msghdr)?;
                 // Utilization of the submission queue
@@ -771,6 +767,7 @@ impl Server {
                 }
             };
 
+            statistic.amount_io_model_calls += 1;
         }
     }
 

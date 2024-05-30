@@ -33,7 +33,6 @@ pub enum SimulateConnection {
 pub enum UringSqFillingMode {
     #[default]
     Topup,
-    Burst,
     Syscall 
 }
 
