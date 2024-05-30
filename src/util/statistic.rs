@@ -314,16 +314,21 @@ pub struct UringParameter {
 pub mod utilization {
 
     use super::*;
+    const LIMIT_LENGTH_OUTPUT: usize = 15;
 
     pub fn serialize<S>(array: &[usize], serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
+        let mut values = array.iter().enumerate()
+            .filter(|&(_, &value)| value != 0 && value != 1)
+            .collect::<Vec<_>>();
+        values.sort_by(|a, b| b.1.cmp(a.1));
+        values.truncate(LIMIT_LENGTH_OUTPUT);
+    
         let mut map = HashMap::new();
-        for (index, &value) in array.iter().enumerate() {
-            if value != 0 && value != 1 {
-                map.insert(index, value);
-            }
+        for &(index, &value) in &values {
+            map.insert(index, value);
         }
         map.serialize(serializer)
     }
