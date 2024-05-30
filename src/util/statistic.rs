@@ -85,8 +85,8 @@ impl Statistic {
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
             uring_canceled_multishot: 0,
-            uring_cq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE * 2) as usize].into_boxed_slice(),
-            uring_inflight_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize].into_boxed_slice()
+            uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
+            uring_inflight_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()
         }
     }
 
@@ -190,12 +190,12 @@ impl Add for Statistic {
         };
 
         // Add the arrays field by field
-        let mut uring_cq_utilization = vec![0; (crate::URING_MAX_RING_SIZE * 2) as usize].into_boxed_slice();
+        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
         for i in 0..uring_cq_utilization.len() {
             uring_cq_utilization[i] = self.uring_cq_utilization[i] + other.uring_cq_utilization[i];
         }
 
-        let mut uring_inflight_utilization = vec![0; (crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) as usize].into_boxed_slice();
+        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
         for i in 0..uring_inflight_utilization.len() {
             uring_inflight_utilization[i] = self.uring_inflight_utilization[i] + other.uring_inflight_utilization[i];
         }

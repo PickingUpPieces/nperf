@@ -309,7 +309,7 @@ impl Server {
         Ok(submission_count)
     }
 
-    // Needed for multishot recvmsg, to check if request is still armed.
+    // Check flags, if multishot request is still armed
     fn io_uring_check_multishot(flags: u32) -> bool {
         if !cqueue::more(flags) {
             debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed");
@@ -627,7 +627,7 @@ impl Server {
     }
 
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
+    fn io_uring_enter(submitter: &mut Submitter, sq: &mut SubmissionQueue, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
@@ -647,6 +647,7 @@ impl Server {
             }
         }
 
+        sq.sync();
         Ok(())
     }
 
@@ -657,9 +658,21 @@ impl Server {
         let (mut submitter, mut sq, mut cq) = ring.split();
 
         loop {
-            statistic.amount_io_model_calls += 1;
-            sq.sync();
-            if !sq.is_full() {
+        	// Check if there are not enough free buffers -> Either wait for completion events or reap them
+            if inflight_count > ( uring_buffer_size - uring_burst_size ) {
+                if cq.is_empty() {
+                    // No buffers left and cq is empty -> We need to do some work/wait for CQEs
+                    let min_complete = if uring_burst_size == 0 {
+                        self.parameter.uring_parameter.ring_size / crate::URING_BURST_SIZE_DIVIDEND // Default burst size
+                    }  else {
+                        uring_burst_size
+                    } as usize;
+                
+                    Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
+                }
+                // If no buffers left, but CQE events in CQ, we don't want to call io_uring_enter -> Fall through
+            } else {
+                // There are enough buffers left to fill up the submission queue
                 match self.parameter.uring_parameter.sq_filling_mode {
                     UringSqFillingMode::Syscall => {
                         // Check if there are enough buffers left to fill up the submission queue with the burst size
@@ -682,13 +695,13 @@ impl Server {
                         todo!()
                     }
                 };
-            }
 
-            if self.parameter.uring_parameter.sqpoll {
-                let min_complete = if sq.is_full() { 1 } else { 0 }; // If sq is full, we need to wait until we submitted at least one entry
-                Self::io_uring_enter(&mut submitter, 0, min_complete)?;
-            } else {
-                Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, uring_burst_size as usize)?;
+                // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread
+		        //          Due to the library we're using, the library function won't trigger the syscall io_uring_enter, if sq_poll is enabled and not asleep.
+		        //          If other task_work is implemented, we need to force this probably.
+                //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
+                let min_complete = if self.parameter.uring_parameter.sqpoll { 0 } else { uring_burst_size } as usize;
+                Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
             }
 
             // Utilization of the completion queue
@@ -710,8 +723,8 @@ impl Server {
                 }
             };
 
-
             statistic.uring_inflight_utilization[inflight_count as usize] += 1;
+            statistic.amount_io_model_calls += 1;
             debug!("Current inflight count {}", inflight_count);
         }
     }
@@ -731,7 +744,7 @@ impl Server {
             // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            Self::io_uring_enter(&mut submitter, URING_ENTER_TIMEOUT, 1)?;
+            Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, 1)?;
 
             // Utilization of the completion queue
             cq.sync();
