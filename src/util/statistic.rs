@@ -307,6 +307,7 @@ pub struct UringParameter {
     pub burst_size: u32,
     pub buffer_size: u32,
     pub sqpoll: bool,
+    pub sqpoll_shared: bool,
     pub sq_filling_mode: UringSqFillingMode
 }
 

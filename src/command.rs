@@ -108,9 +108,13 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     uring_multishot: bool,
 
-    /// io_uring: Use a SQ_POLL thread
+    /// io_uring: Use a SQ_POLL thread per executing thread, pinned to CPU 0
     #[arg(long, default_value_t = false)]
     uring_sqpoll: bool,
+
+    /// io_uring: Share the SQ_POLL thread between all executing threads
+    #[arg(long, default_value_t = false)]
+    uring_sqpoll_shared: bool,
 
     /// io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND)]
@@ -186,6 +190,7 @@ impl nPerf {
             burst_size: if self.uring_burst_size == crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND { (self.uring_ring_size as f32 / crate::URING_BURST_SIZE_DIVIDEND as f32).ceil() as u32 } else { self.uring_burst_size } ,
             buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
             sqpoll: self.uring_sqpoll,
+            sqpoll_shared: self.uring_sqpoll_shared,
             sq_filling_mode: self.uring_sq_mode
         };
 
@@ -267,6 +272,12 @@ impl nPerf {
         if self.io_model == IOModel::IoUring && !self.uring_provided_buffer {
             warn!("Setting packet_buffer_size to {}!", parameter.uring_parameter.buffer_size);
             parameter.packet_buffer_size = parameter.uring_parameter.buffer_size as usize;
+        }
+
+        if self.uring_sqpoll_shared && !self.uring_sqpoll {
+            warn!("Uring sqpoll_shared can't be used without sqpoll!");
+            warn!("Setting sqpoll to true!");
+            parameter.uring_parameter.sqpoll = true;
         }
 
         Some(parameter)

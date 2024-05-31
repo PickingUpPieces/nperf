@@ -1,5 +1,6 @@
 use std::io::Error;
 use std::net::SocketAddrV4;
+use std::os::fd::RawFd;
 use std::thread::{self, sleep};
 use std::time::Instant;
 use crate::util::msghdr_vec::MsghdrVec;
@@ -16,15 +17,12 @@ use super::Node;
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 
-const URING_BGROUP: u16 = 0;
-const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
-const URING_SQ_POLL_TIMEOUT: u32 = 1_000;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
-const URING_TASK_WORK: bool = false;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
     socket: Socket,
+    io_uring_sqpoll_fd: Option<RawFd>,
     next_packet_id: u64,
     parameter: Parameter,
     measurements: Vec<Measurement>,
@@ -32,7 +30,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Server {
+    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Server {
         let socket = if let Some(socket) = socket {
             socket
         } else {
@@ -47,6 +45,7 @@ impl Server {
         Server {
             packet_buffer,
             socket,
+            io_uring_sqpoll_fd: io_uring,
             next_packet_id: 0,
             parameter,
             measurements: Vec::new(),
@@ -240,7 +239,7 @@ impl Server {
         let fd = self.socket.get_socket_id();
         debug!("Arming multishot request");
 
-        let sqe = opcode::RecvMsgMulti::new(types::Fd(fd), msghdr, URING_BGROUP)
+        let sqe = opcode::RecvMsgMulti::new(types::Fd(fd), msghdr, crate::URING_BUFFER_GROUP)
         .build();
         sq.sync();
 
@@ -270,7 +269,7 @@ impl Server {
             // Create OPCODE for receiving message
             let sqe = if self.parameter.uring_parameter.provided_buffer {
                 opcode::RecvMsg::new(types::Fd(fd), msghdr)
-                .buf_group(URING_BGROUP) 
+                .buf_group(crate::URING_BUFFER_GROUP) 
                 .build()
                 .flags(squeue::Flags::BUFFER_SELECT)
             } else {
@@ -394,7 +393,7 @@ impl Server {
             // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
             let iovec: libc::iovec = libc::iovec {
                 iov_base: msg.payload_data().as_ptr() as *mut libc::c_void,
-                iov_len: (amount_received_bytes - URING_ADDITIONAL_BUFFER_LENGTH) as usize
+                iov_len: (amount_received_bytes - crate::URING_ADDITIONAL_BUFFER_LENGTH) as usize
             };
 
             let mut msghdr: libc::msghdr = {
@@ -410,7 +409,7 @@ impl Server {
             // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
             // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
             // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes - URING_ADDITIONAL_BUFFER_LENGTH,  Some(&mut msghdr), 0) {
+            match self.handle_recvmsg_return(amount_received_bytes - crate::URING_ADDITIONAL_BUFFER_LENGTH,  Some(&mut msghdr), 0) {
                 Ok(_) => {},
                 Err("INIT_MESSAGE_RECEIVED") => break,
                 Err("LAST_MESSAGE_RECEIVED") => {
@@ -771,55 +770,9 @@ impl Server {
         }
     }
 
-    fn io_uring_setup(mss: u32, parameters: UringParameter) -> Result<(IoUring, Option<BufRing>), &'static str> {
-        info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and sq ring size: {}", parameters.burst_size, parameters.buffer_size, mss, parameters.ring_size);
-
-        let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
-
-        // TODO: Potentially set the completition queue 2* squeue, to easier fill the squeue: .setup_cqsize()
-
-        if URING_TASK_WORK {
-            ring_builder
-            .setup_coop_taskrun()
-            .setup_single_issuer()
-            .setup_defer_taskrun();
-        }
-
-        if parameters.sqpoll {
-            const SQPOLL_CPU: u32 = 0;
-            info!("Starting uring with SQ_POLL thread. Pinning thread to CPU {}.", SQPOLL_CPU);
-            ring_builder.setup_sqpoll(URING_SQ_POLL_TIMEOUT)
-            .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
-        };
-
-        let mut ring = ring_builder.build(parameters.ring_size).expect("Failed to create io_uring");
-        let sq_cap = ring.submission().capacity();
-        debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
-
-        if !ring.params().is_feature_fast_poll() {
-            warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
-        } else {
-            info!("IORING_FEAT_FAST_POLL is available and used!");
-        }
-
-        // Register provided buffers with io_uring
-        let buf_ring = if parameters.provided_buffer {
-            let buf_ring = ring.submitter()
-            // In multishot mode, more parts of the msghdr struct are written into the buffer, so we need to allocate more space ( + URING_ADDITIONAL_BUFFER_LENGTH )
-            .register_buf_ring(u16::try_from(parameters.buffer_size).unwrap(), URING_BGROUP, mss + URING_ADDITIONAL_BUFFER_LENGTH as u32)
-            .expect("Creation of BufRing failed.");
-            debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", parameters.buffer_size, mss + URING_ADDITIONAL_BUFFER_LENGTH as u32);
-            Some(buf_ring)
-        } else {
-            None
-        };
-
-        Ok((ring, buf_ring))
-    }
-
 
     fn io_uring_loop(&mut self, statistic: Statistic) -> Result<Statistic, &'static str> {
-        let (ring, buf_ring) = Self::io_uring_setup(self.parameter.mss, self.parameter.uring_parameter)?;
+        let (ring, buf_ring) = crate::io_uring::io_uring_setup(self.parameter.mss, self.parameter.uring_parameter, self.io_uring_sqpoll_fd)?;
 
         // TODO: Can be moved to provided buffer
         // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206

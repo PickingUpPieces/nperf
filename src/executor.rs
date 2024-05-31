@@ -1,3 +1,4 @@
+use io_uring::IoUring;
 use log::{debug, error, info};
 
 use crate::command::nPerf;
@@ -7,8 +8,10 @@ use crate::util::core_affinity_manager::CoreAffinityManager;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::{Statistic, DEFAULT_CLIENT_IP};
 
+use std::os::fd::RawFd;
 use std::sync::{Arc, Mutex};
 use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
+use std::os::unix::io::AsRawFd;
 extern crate core_affinity;
 
 impl nPerf {
@@ -30,6 +33,15 @@ impl nPerf {
             // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
             let socket = self.create_socket(parameter);
 
+            // If SQ_POLL and io_uring enabled, create io_uring fd here
+            let io_uring: Option<IoUring> = if parameter.uring_parameter.sqpoll_shared {
+                let (ring, _) = crate::io_uring::io_uring_setup(parameter.mss, parameter.uring_parameter, None).unwrap();
+                Some(ring)
+            } else {
+                None
+            };
+            let io_uring_fd = io_uring.as_ref().map(|io_uring| io_uring.as_raw_fd()); 
+
 
             for i in 0..parameter.amount_threads {
                 let tx: Sender<_> = tx.clone();
@@ -47,7 +59,7 @@ impl nPerf {
                 let test_id = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
                 let local_port_client: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
 
-                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, server_port, local_port_client, test_id, core_affinity)));
+                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, io_uring_fd, server_port, local_port_client, test_id, core_affinity)));
             }
     
             info!("Waiting for all threads to finish...");
@@ -69,7 +81,8 @@ impl nPerf {
         }
     }
 
-    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) {
+    #[allow(clippy::too_many_arguments)]
+    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, io_uring: Option<RawFd>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) {
         let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
 
         if parameter.core_affinity {
@@ -79,7 +92,7 @@ impl nPerf {
         let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
             Box::new(Client::new(test_id, client_port, sock_address_server, socket, parameter))
         } else {
-            Box::new(Server::new(sock_address_server, socket, parameter))
+            Box::new(Server::new(sock_address_server, socket, io_uring, parameter))
         };
 
         match node.run(parameter.io_model) {

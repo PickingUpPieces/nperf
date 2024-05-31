@@ -3,6 +3,7 @@ mod net;
 mod util;
 mod command;
 mod executor;
+mod io_uring;
 
 use std::net::Ipv4Addr;
 
@@ -32,5 +33,7 @@ const DEFAULT_URING_RING_SIZE: u32 = 256;
 const URING_BUFFER_SIZE_MULTIPLICATOR: u32 = 4; // The buffer size is a multiplicator of the ring size
 const URING_BURST_SIZE_DIVIDEND: u32 = 4; // The burst size is a division of the ring size
 const URING_MAX_RING_SIZE: u32 = 2048; // Maximum ring size
+const URING_BUFFER_GROUP: u16 = 0;
+const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 
 pub use command::nPerf;
