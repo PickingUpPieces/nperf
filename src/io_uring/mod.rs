@@ -1,7 +1,7 @@
 use std::os::fd::RawFd;
 
-use io_uring::{buf_ring::BufRing, IoUring};
-use log::{debug, info, warn};
+use io_uring::{buf_ring::BufRing, types::{SubmitArgs, Timespec}, IoUring, SubmissionQueue, Submitter};
+use log::{debug, error, info, warn};
 
 use crate::util::statistic::{UringParameter, UringTaskWork};
 
@@ -62,4 +62,28 @@ pub fn io_uring_setup(mss: u32, parameters: UringParameter, io_uring_fd: Option<
         };
 
         Ok((ring, buf_ring))
+}
+
+pub fn io_uring_enter(submitter: &mut Submitter, sq: &mut SubmissionQueue, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
+    // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
+    // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
+    let mut args = SubmitArgs::new();
+    let ts = Timespec::new().nsec(timeout);
+    args = args.timespec(&ts);
+
+    match if timeout == 0 { submitter.submit_and_wait(min_complete) } else { submitter.submit_with_args(min_complete, &args) } {
+        Ok(submitted) => { debug!("Amount of submitted events received from submit: {}", submitted) },
+        // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
+        // If this happens, the application must reap events from the CQ ring and attempt the submit again.
+        // Should ONLY appear when using flag IORING_FEAT_NODROP
+        Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { warn!("submit_with_args: EBUSY error") },
+        Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
+        Err(err) => {
+            error!("Error submitting io_uring sqe: {}", err);
+            return Err("IO_URING_ERROR")
+        }
+    }
+
+    sq.sync();
+    Ok(())
 }

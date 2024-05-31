@@ -3,13 +3,15 @@ use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
 use std::thread::{self, sleep};
 use std::time::Instant;
+use log::{debug, error, info, trace, warn};
+
+use io_uring::types::RecvMsgOut;
+use io_uring::buf_ring::{Buf, BufRing};
+use io_uring::{cqueue, opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue};
+
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
-use io_uring::types::{SubmitArgs, Timespec};
-use io_uring::{cqueue, opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue, Submitter};
-use log::{debug, error, info, trace, warn};
-use io_uring::buf_ring::{Buf, BufRing};
-
+use crate::io_uring::io_uring_enter;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
 use crate::util::{self, statistic::*, ExchangeFunction, IOModel};
 use super::Node;
@@ -376,7 +378,7 @@ impl Server {
             // Helps parsing buffer of multishot recvmsg
             // https://docs.rs/io-uring/latest/io_uring/types/struct.RecvMsgOut.html
             // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L211
-            let msg = io_uring::types::RecvMsgOut::parse(&buf, msghdr).expect("Parsing of RecvMsgOut failed. Didn't allocate large enough buffers");
+            let msg = RecvMsgOut::parse(&buf, msghdr).expect("Parsing of RecvMsgOut failed. Didn't allocate large enough buffers");
             trace!("Received message: {:?}", msg);
 
             // Check if any data is truncated
@@ -625,31 +627,6 @@ impl Server {
         Ok(completion_count)
     }
 
-
-    fn io_uring_enter(submitter: &mut Submitter, sq: &mut SubmissionQueue, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
-        // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
-        // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
-        let mut args = SubmitArgs::new();
-        let ts = Timespec::new().nsec(timeout);
-        args = args.timespec(&ts);
-
-        match if timeout == 0 { submitter.submit_and_wait(min_complete) } else { submitter.submit_with_args(min_complete, &args) } {
-            Ok(submitted) => { debug!("Amount of submitted events received from submit: {}", submitted) },
-            // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
-            // If this happens, the application must reap events from the CQ ring and attempt the submit again.
-            // Should ONLY appear when using flag IORING_FEAT_NODROP
-            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { warn!("submit_with_args: EBUSY error") },
-            Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
-            Err(err) => {
-                error!("Error submitting io_uring sqe: {}", err);
-                return Err("IO_URING_ERROR")
-            }
-        }
-
-        sq.sync();
-        Ok(())
-    }
-
     fn io_uring_loop_normal(&mut self, mut statistic: Statistic, mut ring: IoUring, mut buf_ring: Option<BufRing>, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
         let uring_burst_size = self.parameter.uring_parameter.burst_size;
         let uring_buffer_size = self.parameter.uring_parameter.buffer_size;
@@ -667,7 +644,7 @@ impl Server {
                         uring_burst_size
                     } as usize;
                 
-                    Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
+                    io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
                 }
                 // If no buffers left, but CQE events in CQ, we don't want to call io_uring_enter -> Fall through
             } else {
@@ -703,7 +680,7 @@ impl Server {
                 //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
 		        //          If other task_work is implemented, we need to force this probably.
                 let min_complete = if self.parameter.uring_parameter.sqpoll { 0 } else { uring_burst_size } as usize;
-                Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
+                io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
             }
 
             // Utilization of the completion queue
@@ -747,7 +724,7 @@ impl Server {
             // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            Self::io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, 1)?;
+            io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, 1)?;
 
             // Utilization of the completion queue
             cq.sync();
