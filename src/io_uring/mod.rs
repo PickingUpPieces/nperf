@@ -3,9 +3,8 @@ use std::os::fd::RawFd;
 use io_uring::{buf_ring::BufRing, IoUring};
 use log::{debug, info, warn};
 
-use crate::util::statistic::UringParameter;
+use crate::util::statistic::{UringParameter, UringTaskWork};
 
-const URING_TASK_WORK: bool = false;
 const URING_SQ_POLL_TIMEOUT: u32 = 2_000;
 
 pub fn io_uring_setup(mss: u32, parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<(IoUring, Option<BufRing>), &'static str> {
@@ -13,10 +12,12 @@ pub fn io_uring_setup(mss: u32, parameters: UringParameter, io_uring_fd: Option<
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
 
-        if URING_TASK_WORK {
-            ring_builder
-            .setup_coop_taskrun()
-            .setup_single_issuer()
+        if parameters.task_work == UringTaskWork::Coop {
+            info!("Setting up io_uring with cooperative task work (IORING_SETUP_COOP_TASKRUN)");
+            ring_builder.setup_coop_taskrun();
+        } else if parameters.task_work == UringTaskWork::Defer {
+            info!("Setting up io_uring with deferred task work (IORING_SETUP_DEFER_TASKRUN)");
+            ring_builder.setup_single_issuer()
             .setup_defer_taskrun();
         }
 

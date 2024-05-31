@@ -718,6 +718,7 @@ impl Server {
                 Err("LAST_MESSAGE_RECEIVED") => {
                     return Ok(statistic);
                 },
+                Err("EAGAIN") => continue,
                 Err(x) => {
                     error!("Error completing io_uring sqe: {}", x);
                     return Err(x);
@@ -754,7 +755,7 @@ impl Server {
 
             match self.io_uring_complete_multishot(&mut cq, &mut buf_ring, msghdr, &mut statistic) {
                 Ok(multishot_armed) => {
-                    cq.sync(); // Sync completion queue after reaping the CQEs
+                    cq.sync(); 
                     armed = multishot_armed
                 },
                 Err("LAST_MESSAGE_RECEIVED") => {

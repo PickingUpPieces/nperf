@@ -36,6 +36,14 @@ pub enum UringSqFillingMode {
     Syscall 
 }
 
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum UringTaskWork {
+    Default,
+    Coop,
+    #[default]
+    Defer
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
     pub parameter: Parameter,
@@ -308,7 +316,8 @@ pub struct UringParameter {
     pub buffer_size: u32,
     pub sqpoll: bool,
     pub sqpoll_shared: bool,
-    pub sq_filling_mode: UringSqFillingMode
+    pub sq_filling_mode: UringSqFillingMode,
+    pub task_work: UringTaskWork
 }
 
 

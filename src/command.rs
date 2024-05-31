@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
 
-use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter, UringSqFillingMode}, ExchangeFunction, IOModel, NPerfMode};
+use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter, UringSqFillingMode, UringTaskWork}, ExchangeFunction, IOModel, NPerfMode};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
@@ -128,6 +128,10 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     uring_sq_mode: UringSqFillingMode,
 
+    /// io_uring: Set the operation mode of task_work
+    #[arg(long, default_value_t, value_enum)]
+    uring_task_work: UringTaskWork,
+
     /// Show help in markdown format
     #[arg(long, hide = true)]
     markdown_help: bool,
@@ -191,7 +195,8 @@ impl nPerf {
             buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
             sqpoll: self.uring_sqpoll,
             sqpoll_shared: self.uring_sqpoll_shared,
-            sq_filling_mode: self.uring_sq_mode
+            sq_filling_mode: self.uring_sq_mode,
+            task_work: self.uring_task_work,
         };
 
         let parameter = util::statistic::Parameter::new(
@@ -278,6 +283,11 @@ impl nPerf {
             warn!("Uring sqpoll_shared can't be used without sqpoll!");
             warn!("Setting sqpoll to true!");
             parameter.uring_parameter.sqpoll = true;
+        }
+
+        if parameter.uring_parameter.sqpoll && parameter.uring_parameter.task_work != UringTaskWork::Default {
+            warn!("Neither DEFER nor COOP can be used with SQ_POLL! Setting task_work to Default!");
+            parameter.uring_parameter.task_work = UringTaskWork::Default;
         }
 
         Some(parameter)
