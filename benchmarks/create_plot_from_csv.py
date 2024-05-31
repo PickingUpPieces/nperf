@@ -1,7 +1,12 @@
 import argparse
+import csv
 import matplotlib.pyplot as plt
 import logging
-import csv
+# Needed for heatmap
+import pandas as pd
+import seaborn as sns
+import numpy as np
+import ast
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
@@ -52,6 +57,63 @@ def generate_area_chart(x: str, y: str, data, chart_title, add_labels=False):
     logging.info('Saved plot to %s_area.png', chart_title)
     plt.close()
 
+def generate_heatmap(x: str, y: str, test_name, data, chart_title):
+    logging.debug('Generating heatmap for %s', test_name)
+    heatmap_data = []
+
+    logging.debug('Data: %s', data)
+    # data is a list of list, where each list is a test
+
+    for test in data:
+        for run in test:
+            logging.debug('Test: %s', run)
+            if run['test_name'] == test_name:
+                y_values = ast.literal_eval(run[y])
+                for key, val in y_values.items():
+                    heatmap_data.append({
+                        x: run[x],
+                        'Utilization': key,
+                        'Value': val
+                    })
+
+    # parse heatmap data
+    logging.debug('Heatmap data: %s', heatmap_data)
+    
+    # Create a DataFrame from the heatmap_data list
+    df = pd.DataFrame(heatmap_data)
+    
+    # Sort x and y keys
+    df[x] = df[x].astype(int)
+    df['Utilization'] = df['Utilization'].astype(int)
+    df = df.sort_values(by=[x, 'Utilization'])
+
+    logging.debug('DataFrame: %s', df)
+
+    # Devide each value through the thread_amount to get the value per thread
+    if x.startswith("amount_threads"):
+        df['Value'] = df.apply(lambda row: row['Value'] / row[x], axis=1)
+
+    logging.debug('DataFrame: %s', df)
+
+    # use log, otherwise the values are too big
+    df['Value'] = np.log(df['Value'])
+
+    logging.debug('DataFrame: %s', df)
+
+    # Pivot the DataFrame to get the heatmap data
+    pivot_table = df.pivot(index='Utilization', columns=x, values='Value').fillna(0)
+    logging.debug('Pivot Table: %s', pivot_table)
+
+    # Generate heatmap
+    plt.figure(figsize=(10, 8))
+    heatmap = sns.heatmap(pivot_table, cmap="YlGnBu", linewidths=.5, fmt='g')
+    plt.xlabel(x)
+    plt.ylabel(y)
+    plt.title(chart_title)
+    plt.savefig(PATH_TO_RESULTS_FOLDER + chart_title + '_heatmap.png')
+    logging.info('Saved plot to %s_heatmap.png', chart_title)
+    plt.close()
+
 
 def generate_bar_chart(y: str, data, test_name: str):
     # Map every row in the data as a bar with the y value
@@ -69,7 +131,6 @@ def generate_bar_chart(y: str, data, test_name: str):
     logging.info('Saved plot to %s_bar.png', test_name)
     plt.close()
     
-
 def main():
     logging.debug('Starting main function')
 
@@ -78,7 +139,8 @@ def main():
     parser.add_argument('chart_name', default="Benchmark", help='Name of the generated chart')
     parser.add_argument('x_axis_param', default="run_name", help='Name of the x-axis parameter')
     parser.add_argument('y_axis_param', help='Name of the y-axis parameter')
-    parser.add_argument('type', default="area", help='Type of graph to generate (area, bar)')
+    parser.add_argument('--test_name', help='Name of the specific test to generate the heatmap for')
+    parser.add_argument('type', default="area", help='Type of graph to generate (area, bar, heat)')
     parser.add_argument('-l', action="store_true", help='Add labels to data points')
     args = parser.parse_args()
 
@@ -91,6 +153,8 @@ def main():
     elif args.type == 'bar':
         for test in results:
             generate_bar_chart(args.y_axis_param, test, test[0]["test_name"])
+    elif args.type == 'heat':
+        generate_heatmap(args.x_axis_param, args.y_axis_param, args.test_name, results, args.chart_name)
 
 if __name__ == '__main__':
     logging.info('Starting script')
