@@ -1,7 +1,19 @@
 #!/bin/bash
 
-# Start the process
-../target/release/nperf server --io-model io-uring --uring-sq-poll &
+# Function to handle SIGINT signal
+cleanup() {
+    echo "Received SIGINT signal. Terminating the process."
+    kill $pid
+    exit 1
+}
+trap cleanup SIGINT
+
+NPERF_BIN="../target/release/nperf"
+# Start the process with command line arguments
+
+$NPERF_BIN "$@" &
+pid=$!
+
 
 # Get the PID of the last background process started
 pid=$!
