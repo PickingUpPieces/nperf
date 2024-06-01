@@ -87,65 +87,24 @@ impl IoUringNormal {
         Ok(submission_count)
     }
 
+
     pub fn fill_sq_and_submit(&mut self, amount_inflight: u32, packet_buffer: &mut PacketBuffer, socket_fd: i32) -> Result<u32, &'static str> {
-        let uring_burst_size = self.parameter.burst_size;
-        let uring_buffer_size = self.parameter.buffer_size;
         let mut amount_new_requests = 0;
 
-        // Check if there are not enough free buffers -> Either wait for completion events or reap them
-        if amount_inflight > uring_buffer_size - uring_burst_size {
-            if self.ring.completion().is_empty() {
-                // No buffers left and cq is empty -> We need to do some work/wait for CQEs
-                let min_complete = if uring_burst_size == 0 {
-                    self.parameter.ring_size / crate::URING_BURST_SIZE_DIVIDEND // Default burst size
-                }  else {
-                    uring_burst_size
-                } as usize;
-            
-                super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+        let min_complete = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
+            (0,0) => return Ok(0),
+            (to_submit, min_complete) => {
+                amount_new_requests += self.submit(to_submit, packet_buffer, socket_fd)?;
+                min_complete
             }
-            // If no buffers left, but CQE events in CQ, we don't want to call io_uring_enter -> Fall through
-        } else {
-            // There are enough buffers left to fill up the submission queue
-            match self.parameter.sq_filling_mode {
-                UringSqFillingMode::Syscall => {
-                    // Check if the submission queue is max filled with the burst size
-                    if amount_inflight < uring_burst_size {
-                        amount_new_requests += self.submit(uring_burst_size, packet_buffer, socket_fd)?;
-                    }
-                    // If there are currently more entries inflight than the burst size, we don't want to submit more entries
-                    // Fall through to the completion queue handling
-                },
-                UringSqFillingMode::Topup => {
-                    // Fill up the submission queue to the maximum
-                    let sq_entries_left = {
-                        let sq = self.ring.submission();
-                        sq.capacity() - sq.len()
-                    } as u32;
-                    let buffers_left = uring_buffer_size - amount_inflight;
-                    // Check if enough buffers are left to fill up the submission queue, otherwise only fill up the remaining buffers
-                    if buffers_left < sq_entries_left {
-                        amount_new_requests += self.submit(buffers_left, packet_buffer, socket_fd)?;
-                    } else {
-                        amount_new_requests += self.submit(sq_entries_left, packet_buffer, socket_fd)?;
-                    }
-                }
-            };
+        };
 
-            // Utilization of the submission queue
-            self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
-
-            // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread.
-		    //          Due to the library we're using, the library function will only trigger the syscall io_uring_enter, if the sq_poll thread is asleep.
-            //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
-		    //          If other task_work is implemented, we need to force this probably.
-            let min_complete = if self.parameter.sqpoll { 0 } else { uring_burst_size } as usize;
-            super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
-        }
+        // Utilization of the submission queue
+        self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
+        super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
 
         // Utilization of the completion queue
         self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
-
         debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
 
         Ok(amount_new_requests)
