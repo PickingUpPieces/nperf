@@ -6,21 +6,18 @@ use std::time::Instant;
 use log::{debug, error, info, trace, warn};
 
 use io_uring::types::RecvMsgOut;
-use io_uring::buf_ring::{Buf, BufRing};
-use io_uring::{opcode, types, CompletionQueue, IoUring, SubmissionQueue};
-
+use io_uring::buf_ring::Buf;
+use io_uring::CompletionQueue; 
+use crate::io_uring::multishot::IoUringMultishot;
 use crate::io_uring::normal::IoUringNormal;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
-use crate::io_uring::io_uring_enter;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
 use crate::util::{self, statistic::*, ExchangeFunction, IOModel};
 use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
-
-const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 
 pub struct Server {
     packet_buffer: PacketBuffer,
@@ -237,30 +234,12 @@ impl Server {
         }
     }
 
-    fn io_uring_submit_multishot(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr) -> Result<(), &'static str> {
-        // Use the socket file descripter to receive messages
-        let fd = self.socket.get_socket_id();
-        debug!("Arming multishot request");
 
-        let sqe = opcode::RecvMsgMulti::new(types::Fd(fd), msghdr, crate::URING_BUFFER_GROUP)
-        .build();
-        sq.sync();
-
-        match unsafe { sq.push(&sqe) } {
-            Ok(_) => {
-                sq.sync(); // Sync sq data structure with io_uring submission queue 
-                Ok(())
-            },
-            Err(err) => {
-                error!("Error pushing io_uring sqe: {}", err);
-                Err("IO_URING ERROR")
-            }
-        }
-    }
-
-    fn io_uring_complete_multishot(&mut self, cq: &mut CompletionQueue, buf_ring: &mut BufRing, msghdr: &mut libc::msghdr, statistic: &mut Statistic) -> Result<bool, &'static str> {
+    fn io_uring_complete_multishot(&mut self,  io_uring_instance: &mut IoUringMultishot, statistic: &mut Statistic) -> Result<bool, &'static str> {
         let mut completion_count = 0;
         let mut multishot_armed = true;
+        let msghdr = &io_uring_instance.get_msghdr();
+        let (buf_ring, mut cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
 
         cq.sync(); // Sync cq data structure with io_uring completion queue
@@ -566,68 +545,37 @@ impl Server {
         Ok(completion_count)
     }
 
-    fn io_uring_loop_multishot(&mut self, mut statistic: Statistic, mut ring: IoUring, mut buf_ring: BufRing, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
-        // Indicator if multishot request is still armed
-        let mut armed = false;
-        let (mut submitter, mut sq, mut cq) = ring.split();
-
-        loop {
-            if !armed {
-                self.io_uring_submit_multishot(&mut sq, msghdr)?;
-                // Utilization of the submission queue
-                //sq.sync(); Already done in io_uring_submit_multishot
-                statistic.uring_sq_utilization[sq.len()] += 1;
-            };
-
-            // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
-            // Due to this bug, we have less batching effects. 
-            // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            io_uring_enter(&mut submitter,  URING_ENTER_TIMEOUT, 1)?;
-            sq.sync();
-
-            // Utilization of the completion queue
-            cq.sync();
-            statistic.uring_cq_utilization[cq.len()] += 1;
-
-            match self.io_uring_complete_multishot(&mut cq, &mut buf_ring, msghdr, &mut statistic) {
-                Ok(multishot_armed) => {
-                    cq.sync(); 
-                    armed = multishot_armed
-                },
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    return Ok(statistic);
-                },
-                Err(x) => {
-                    error!("Error completing io_uring sqe: {}", x);
-                    return Err(x);
-                }
-            };
-
-            statistic.amount_io_model_calls += 1;
-        }
-    }
-
 
     fn io_uring_loop(&mut self, mut statistic: Statistic) -> Result<Statistic, &'static str> {
+        let socket_fd = self.socket.get_socket_id();
+
         if self.parameter.uring_parameter.multishot {
-            let ring = crate::io_uring::create_ring(self.parameter.uring_parameter, None).unwrap();
-            let buf_ring = crate::io_uring::create_buf_ring(&mut ring.submitter(), self.parameter.packet_buffer_size as u16, self.parameter.mss,);
+            let mut io_uring_instance = crate::io_uring::multishot::IoUringMultishot::new(self.parameter, self.io_uring_sqpoll_fd)?;
+            // Indicator if multishot request is still armed
+            let mut armed = false;
 
-            // TODO: Can be moved to provided buffer
-            // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
-            // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
-            // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
-            let mut msghdr = {
-                let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-                hdr.msg_controllen = 24;
-                hdr
-            };
+            loop {
+                io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
-            self.io_uring_loop_multishot(statistic, ring, buf_ring, &mut msghdr)
+                match self.io_uring_complete_multishot(&mut io_uring_instance, &mut statistic) {
+                    Ok(multishot_armed) => {
+                        armed = multishot_armed
+                    },
+                    Err("LAST_MESSAGE_RECEIVED") => {
+                        return Ok(statistic + io_uring_instance.get_statistic());
+                        // TODO: Check if all measurements are done
+                    },
+                    Err(x) => {
+                        error!("Error completing io_uring sqe: {}", x);
+                        return Err(x);
+                    }
+                };
+
+                statistic.amount_io_model_calls += 1;
+            }
         } else {
             let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
             let mut amount_inflight = 0;
-            let socket_fd = self.socket.get_socket_id();
 
             loop {
                 amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
@@ -638,6 +586,7 @@ impl Server {
                     },
                     Err("LAST_MESSAGE_RECEIVED") => {
                         return Ok(statistic + io_uring_instance.get_statistic());
+                        // TODO: Check if all measurements are done
                     },
                     Err("EAGAIN") => continue,
                     Err(x) => {

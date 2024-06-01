@@ -7,8 +7,6 @@ use std::os::{fd::RawFd, unix::io::AsRawFd};
 
 use super::UringSqFillingMode;
 
-const URING_ENTER_TIMEOUT: u32 = 10_000_000;
-
 pub struct IoUringNormal {
     ring: IoUring,
     buf_ring: BufRing,
@@ -22,6 +20,7 @@ impl IoUringNormal {
 
         let ring = super::create_ring(parameter.uring_parameter, io_uring_fd)?;
         let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
+
         // TODO: Can be moved to provided buffer
         // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
@@ -107,7 +106,7 @@ impl IoUringNormal {
                     uring_burst_size
                 } as usize;
             
-                super::io_uring_enter(&mut self.ring.submitter(), URING_ENTER_TIMEOUT, min_complete)?;
+                super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
                 self.ring.submission().sync();
             }
             // If no buffers left, but CQE events in CQ, we don't want to call io_uring_enter -> Fall through
@@ -150,7 +149,7 @@ impl IoUringNormal {
             //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
 		    //          If other task_work is implemented, we need to force this probably.
             let min_complete = if self.parameter.sqpoll { 0 } else { uring_burst_size } as usize;
-            super::io_uring_enter(&mut self.ring.submitter(),  URING_ENTER_TIMEOUT, min_complete)?;
+            super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
         }
 
         // Utilization of the completion queue

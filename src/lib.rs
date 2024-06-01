@@ -35,5 +35,6 @@ const URING_BURST_SIZE_DIVIDEND: u32 = 4; // The burst size is a division of the
 const URING_MAX_RING_SIZE: u32 = 2048; // Maximum ring size
 const URING_BUFFER_GROUP: u16 = 0;
 const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
+const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 
 pub use command::nPerf;

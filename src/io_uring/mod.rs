@@ -1,6 +1,6 @@
 pub mod normal;
 //pub mod provided_buffer;
-//pub mod multishot;
+pub mod multishot;
 
 use std::os::fd::RawFd;
 use io_uring::{buf_ring::BufRing, cqueue, types::{SubmitArgs, Timespec}, IoUring, Submitter};
