@@ -7,9 +7,9 @@ use log::{debug, error, info, trace, warn};
 
 use io_uring::types::RecvMsgOut;
 use io_uring::buf_ring::Buf;
-use io_uring::CompletionQueue; 
 use crate::io_uring::multishot::IoUringMultishot;
 use crate::io_uring::normal::IoUringNormal;
+use crate::io_uring::provided_buffer::IoUringProvidedBuffer;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
@@ -235,7 +235,7 @@ impl Server {
     }
 
 
-    fn io_uring_complete_multishot(&mut self,  io_uring_instance: &mut IoUringMultishot, statistic: &mut Statistic) -> Result<bool, &'static str> {
+    fn io_uring_complete_multishot(&mut self,  io_uring_instance: &mut IoUringMultishot) -> Result<bool, &'static str> {
         let mut completion_count = 0;
         let mut multishot_armed = true;
         let msghdr = &io_uring_instance.get_msghdr();
@@ -261,7 +261,7 @@ impl Server {
                     warn!("Received empty message");
                     continue;
                 },
-                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
+                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
                     warn!("ENOBUFS: No buffer space available! Next expected packet ID: {}", self.next_packet_id);
                     return Ok(crate::io_uring::check_multishot_status(cqe.flags()));
                 },
@@ -306,8 +306,6 @@ impl Server {
                 debug!("The name data was truncated");
             }
 
-            statistic.uring_canceled_multishot += if multishot_armed { 0 } else { 1 };
-
             // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
             let iovec: libc::iovec = libc::iovec {
                 iov_base: msg.payload_data().as_ptr() as *mut libc::c_void,
@@ -351,8 +349,9 @@ impl Server {
     }
 
 
-    fn io_uring_complete(&mut self, cq: &mut CompletionQueue) -> Result<u32, &'static str> {
+    fn io_uring_complete(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
+        let cq = io_uring_instance.get_cq();
 
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
@@ -375,10 +374,6 @@ impl Server {
                 0 => {
                     warn!("Received empty message");
                     completion_count += 1;
-                    continue;
-                },
-                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
-                    debug!("ENOBUFS: No buffer space available! (Next expected packet ID; {}", self.next_packet_id);
                     continue;
                 },
                 -11 => {
@@ -433,13 +428,8 @@ impl Server {
     }
 
 
-    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
+    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer) -> Result<u32, &'static str> {
         let mut completion_count = 0;
-        //let mut bufs = if self.parameter.uring_parameter.provided_buffer {
-        //    buf_ring.as_mut().unwrap().submissions()
-        //} else {
-        //    return Err("Provided buffers not available");
-        //};
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
 
@@ -463,7 +453,7 @@ impl Server {
                     completion_count += 1;
                     continue;
                 },
-                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
+                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
                     debug!("ENOBUFS: No buffer space available! (Next expected packet ID; {}", self.next_packet_id);
                     continue;
                 },
@@ -550,8 +540,11 @@ impl Server {
             loop {
                 io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
-                match self.io_uring_complete_multishot(&mut io_uring_instance, &mut statistic) {
+                match self.io_uring_complete_multishot(&mut io_uring_instance) {
                     Ok(multishot_armed) => {
+                        if !multishot_armed {
+                            statistic.uring_canceled_multishot += 1;
+                        }
                         armed = multishot_armed
                     },
                     Err("LAST_MESSAGE_RECEIVED") => {
@@ -566,6 +559,31 @@ impl Server {
 
                 statistic.amount_io_model_calls += 1;
             }
+        } else if self.parameter.uring_parameter.provided_buffer {
+            let mut io_uring_instance = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
+            let mut amount_inflight = 0;
+
+            loop {
+                amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
+
+                match self.io_uring_complete_provided_buffers(&mut io_uring_instance) {
+                    Ok(completed) => {
+                        amount_inflight -= completed
+                    },
+                    Err("LAST_MESSAGE_RECEIVED") => {
+                        return Ok(statistic + io_uring_instance.get_statistic());
+                        // TODO: Check if all measurements are done
+                    },
+                    Err("EAGAIN") => continue,
+                    Err(x) => {
+                        error!("Error completing io_uring sqe: {}", x);
+                        return Err(x);
+                    }
+                };
+    
+                statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                statistic.amount_io_model_calls += 1;
+            }
         } else {
             let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
             let mut amount_inflight = 0;
@@ -573,7 +591,7 @@ impl Server {
             loop {
                 amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
 
-                match if self.parameter.uring_parameter.provided_buffer { self.io_uring_complete_provided_buffers(&mut io_uring_instance) } else { self.io_uring_complete(&mut io_uring_instance.get_cq()) } {
+                match self.io_uring_complete(&mut io_uring_instance) {
                     Ok(completed) => {
                         amount_inflight -= completed
                     },

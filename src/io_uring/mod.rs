@@ -1,5 +1,5 @@
 pub mod normal;
-//pub mod provided_buffer;
+pub mod provided_buffer;
 pub mod multishot;
 
 use std::os::fd::RawFd;
@@ -171,5 +171,5 @@ pub fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: 
         //          If other task_work is implemented, we need to force this probably.
         min_complete = if parameter.sqpoll { 0 } else { uring_burst_size } as usize;
     }
-    return (to_submit, min_complete);
+    (to_submit, min_complete)
 }

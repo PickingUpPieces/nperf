@@ -93,8 +93,11 @@ impl PacketBuffer {
         self.datagram_size
     }
 
-    pub fn get_buffer_index(&mut self) -> Option<usize> {
-        self.index_pool.pop()
+    pub fn get_buffer_index(&mut self) -> Result<usize, &'static str> {
+        match self.index_pool.pop() {
+            Some(index) => Ok(index),
+            None => Err("No buffers left in packet_buffer")
+        }
     }
 
     pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
