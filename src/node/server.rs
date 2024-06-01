@@ -625,7 +625,7 @@ impl Server {
 
             self.io_uring_loop_multishot(statistic, ring, buf_ring, &mut msghdr)
         } else {
-            let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.parameter.mss, self.io_uring_sqpoll_fd)?;
+            let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
             let mut amount_inflight = 0;
             let socket_fd = self.socket.get_socket_id();
 

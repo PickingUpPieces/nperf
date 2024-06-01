@@ -18,10 +18,10 @@ pub struct IoUringNormal {
 }
 
 impl IoUringNormal {
-    pub fn new(parameter: Parameter, mss: u32, io_uring_fd: Option<RawFd>) -> Result<Self, &'static str> {
+    pub fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<Self, &'static str> {
 
         let ring = super::create_ring(parameter.uring_parameter, io_uring_fd)?;
-        let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, mss);
+        let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
         // TODO: Can be moved to provided buffer
         // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
@@ -39,10 +39,6 @@ impl IoUringNormal {
             msghdr,
             statistic: Statistic::new(parameter)
         })
-    }
-
-    pub fn get_raw_fd(&self) -> i32 {
-        self.ring.as_raw_fd()
     }
 
     pub fn submit(&mut self, amount_recvmsg: u32, packet_buffer: &mut PacketBuffer, socket_fd: i32) -> Result<u32, &'static str> {
@@ -179,5 +175,9 @@ impl IoUringNormal {
 
     pub fn get_statistic(&self) -> Statistic {
         self.statistic.clone()
+    }
+
+    pub fn get_raw_fd(&self) -> i32 {
+        self.ring.as_raw_fd()
     }
 }

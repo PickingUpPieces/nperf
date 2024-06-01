@@ -1,7 +1,7 @@
-use io_uring::IoUring;
 use log::{debug, error, info};
 
 use crate::command::nPerf;
+use crate::io_uring::normal::IoUringNormal;
 use crate::net::socket::Socket;
 use crate::node::{client::Client, server::Server, Node};
 use crate::util::core_affinity_manager::CoreAffinityManager;
@@ -11,7 +11,6 @@ use crate::{Statistic, DEFAULT_CLIENT_IP};
 use std::os::fd::RawFd;
 use std::sync::{Arc, Mutex};
 use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
-use std::os::unix::io::AsRawFd;
 extern crate core_affinity;
 
 impl nPerf {
@@ -34,13 +33,12 @@ impl nPerf {
             let socket = self.create_socket(parameter);
 
             // If SQ_POLL and io_uring enabled, create io_uring fd here
-            let io_uring: Option<IoUring> = if parameter.uring_parameter.sqpoll_shared {
-                let ring = crate::io_uring::create_ring(parameter.uring_parameter, None).unwrap();
-                Some(ring)
+            let io_uring: Option<IoUringNormal> = if parameter.uring_parameter.sqpoll_shared {
+                IoUringNormal::new(parameter, None).ok()
             } else {
                 None
             };
-            let io_uring_fd = io_uring.as_ref().map(|io_uring| io_uring.as_raw_fd()); 
+            let io_uring_fd = io_uring.as_ref().map(|io_uring| io_uring.get_raw_fd()); 
 
 
             for i in 0..parameter.amount_threads {
