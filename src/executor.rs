@@ -35,7 +35,7 @@ impl nPerf {
 
             // If SQ_POLL and io_uring enabled, create io_uring fd here
             let io_uring: Option<IoUring> = if parameter.uring_parameter.sqpoll_shared {
-                let (ring, _) = crate::io_uring::io_uring_setup(parameter.mss, parameter.uring_parameter, None).unwrap();
+                let ring = crate::io_uring::create_ring(parameter.uring_parameter, None).unwrap();
                 Some(ring)
             } else {
                 None

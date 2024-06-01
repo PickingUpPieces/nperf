@@ -1,14 +1,33 @@
+pub mod normal;
+//pub mod provided_buffer;
+//pub mod multishot;
+
 use std::os::fd::RawFd;
-
-use io_uring::{buf_ring::BufRing, types::{SubmitArgs, Timespec}, IoUring, SubmissionQueue, Submitter};
+use io_uring::{buf_ring::BufRing, cqueue, types::{SubmitArgs, Timespec}, IoUring, Submitter};
 use log::{debug, error, info, warn};
-
-use crate::util::statistic::{UringParameter, UringTaskWork};
+use serde::Serialize;
+use crate::util::statistic::UringParameter;
 
 const URING_SQ_POLL_TIMEOUT: u32 = 2_000;
 
-pub fn io_uring_setup(mss: u32, parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<(IoUring, Option<BufRing>), &'static str> {
-        info!("Setup io_uring with burst size: {}, buffer length: {}, single buffer size: {} and sq ring size: {}", parameters.burst_size, parameters.buffer_size, mss, parameters.ring_size);
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum UringSqFillingMode {
+    #[default]
+    Topup,
+    Syscall 
+}
+
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum UringTaskWork {
+    Default,
+    Coop,
+    #[default]
+    Defer
+}
+
+
+pub fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<IoUring, &'static str> {
+        info!("Setup io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
 
@@ -39,7 +58,9 @@ pub fn io_uring_setup(mss: u32, parameters: UringParameter, io_uring_fd: Option<
             }
         };
 
-        let mut ring = ring_builder.build(parameters.ring_size).expect("Failed to create io_uring");
+        let mut ring = ring_builder.build(parameters.ring_size)
+            .map_err(|_| "Failed to create io_uring")?;
+
         let sq_cap = ring.submission().capacity();
         debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
 
@@ -49,22 +70,21 @@ pub fn io_uring_setup(mss: u32, parameters: UringParameter, io_uring_fd: Option<
             info!("IORING_FEAT_FAST_POLL is available and used!");
         }
 
-        // Register provided buffers with io_uring
-        let buf_ring = if parameters.provided_buffer {
-            let buf_ring = ring.submitter()
-            // In multishot mode, more parts of the msghdr struct are written into the buffer, so we need to allocate more space ( + crate::URING_ADDITIONAL_BUFFER_LENGTH )
-            .register_buf_ring(u16::try_from(parameters.buffer_size).unwrap(), crate::URING_BUFFER_GROUP, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32)
-            .expect("Creation of BufRing failed.");
-            debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", parameters.buffer_size, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32);
-            Some(buf_ring)
-        } else {
-            None
-        };
-
-        Ok((ring, buf_ring))
+        Ok(ring)
 }
 
-pub fn io_uring_enter(submitter: &mut Submitter, sq: &mut SubmissionQueue, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
+pub fn create_buf_ring(submitter: &mut Submitter, buffer_size: u16, mss: u32) -> BufRing {
+    let ring_buf = submitter
+    // In multishot mode, more parts of the msghdr struct are written into the buffer, so we need to allocate more space ( + crate::URING_ADDITIONAL_BUFFER_LENGTH )
+    .register_buf_ring(buffer_size, crate::URING_BUFFER_GROUP, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32)
+    .expect("Creation of BufRing failed.");
+
+    debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", buffer_size, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32);
+
+    ring_buf
+}
+
+pub fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
     // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
     // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
     let mut args = SubmitArgs::new();
@@ -84,6 +104,16 @@ pub fn io_uring_enter(submitter: &mut Submitter, sq: &mut SubmissionQueue, timeo
         }
     }
 
-    sq.sync();
     Ok(())
 }
+
+// Check flags, if multishot request is still armed
+pub fn check_multishot_status(flags: u32) -> bool {
+    if !cqueue::more(flags) {
+        debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed");
+        false
+    } else {
+        true
+    }
+}
+

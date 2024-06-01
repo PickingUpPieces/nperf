@@ -7,8 +7,9 @@ use log::{debug, error, info, trace, warn};
 
 use io_uring::types::RecvMsgOut;
 use io_uring::buf_ring::{Buf, BufRing};
-use io_uring::{cqueue, opcode, squeue, types, CompletionQueue, IoUring, SubmissionQueue};
+use io_uring::{opcode, types, CompletionQueue, IoUring, SubmissionQueue};
 
+use crate::io_uring::normal::IoUringNormal;
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::io_uring::io_uring_enter;
@@ -257,69 +258,6 @@ impl Server {
         }
     }
 
-    fn io_uring_submit(&mut self, sq: &mut SubmissionQueue, msghdr: &mut libc::msghdr, amount_recvmsg: u32) -> Result<u32, &'static str> {
-        let mut submission_count = 0;
-
-        sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
-        debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
-
-        // Use the socket file descripter to receive messages
-        let fd = self.socket.get_socket_id();
-
-        for i in 0..amount_recvmsg {
-            let mut packet_buffer_index = 0;
-            // Create OPCODE for receiving message
-            let sqe = if self.parameter.uring_parameter.provided_buffer {
-                opcode::RecvMsg::new(types::Fd(fd), msghdr)
-                .buf_group(crate::URING_BUFFER_GROUP) 
-                .build()
-                .flags(squeue::Flags::BUFFER_SELECT)
-            } else {
-                packet_buffer_index = match self.packet_buffer.get_buffer_index() {
-                    Some(index) => {
-                        trace!("Message number {}/{}: Used buffer index {}", i, amount_recvmsg, index);
-                        index
-                    },
-                    None => {
-                        warn!("No buffers left in packet_buffer");
-                        break;
-                    }
-                };
-                // Use io_uring_prep_recvmsg to receive messages: https://docs.rs/io-uring/latest/io_uring/opcode/struct.RecvMsg.html
-                opcode::RecvMsg::new(types::Fd(fd), self.packet_buffer.get_msghdr_from_index(packet_buffer_index)?)
-                .build()
-                .user_data(packet_buffer_index as u64)
-            };
-
-            match unsafe { sq.push(&sqe) } {
-                Ok(_) => submission_count += 1,
-                Err(err) => {
-                    // When using submission queue polling, it can happen that the reported queue length is not the same as the actual queue length.
-                    // TODO: Potentially create either backlog queue or revert packet count to previous, if submitting fails
-                    warn!("Error pushing io_uring sqe: {}. Stopping submit() after submitting {} entries", err, submission_count);
-                    if !self.parameter.uring_parameter.provided_buffer {
-                        self.packet_buffer.return_buffer_index(vec![packet_buffer_index]);
-                    }
-                    break;
-                }
-            };
-        }
-
-        sq.sync(); // Sync sq data structure with io_uring submission queue 
-        debug!("END io_uring_submit: Submitted {} io_uring sqe. Current sq len: {}. Dropped messages: {}", submission_count, sq.len(), sq.dropped());
-        Ok(submission_count)
-    }
-
-    // Check flags, if multishot request is still armed
-    fn io_uring_check_multishot(flags: u32) -> bool {
-        if !cqueue::more(flags) {
-            debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed");
-            false
-        } else {
-            true
-        }
-    }
-
     fn io_uring_complete_multishot(&mut self, cq: &mut CompletionQueue, buf_ring: &mut BufRing, msghdr: &mut libc::msghdr, statistic: &mut Statistic) -> Result<bool, &'static str> {
         let mut completion_count = 0;
         let mut multishot_armed = true;
@@ -347,7 +285,7 @@ impl Server {
                 },
                 -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) TODO: Only needed for provided buffers
                     warn!("ENOBUFS: No buffer space available! Next expected packet ID: {}", self.next_packet_id);
-                    return Ok(Self::io_uring_check_multishot(cqe.flags()));
+                    return Ok(crate::io_uring::check_multishot_status(cqe.flags()));
                 },
                 _ if amount_received_bytes < 0 => {
                     let errno = Error::last_os_error();
@@ -368,7 +306,7 @@ impl Server {
                 _ => {} // Positive amount of bytes received
             }
 
-            multishot_armed = Self::io_uring_check_multishot(cqe.flags());
+            multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
 
             // Get specific buffer from the buffer ring
             let buf = unsafe {
@@ -483,7 +421,6 @@ impl Server {
                 }
             }
 
-
             // Parse recvmsg msghdr on return
             // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
             // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
@@ -520,13 +457,15 @@ impl Server {
     }
 
 
-    fn io_uring_complete_provided_buffers(&mut self, cq: &mut CompletionQueue, buf_ring: &mut Option<BufRing>) -> Result<u32, &'static str> {
+    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
-        let mut bufs = if self.parameter.uring_parameter.provided_buffer {
-            buf_ring.as_mut().unwrap().submissions()
-        } else {
-            return Err("Provided buffers not available");
-        };
+        //let mut bufs = if self.parameter.uring_parameter.provided_buffer {
+        //    buf_ring.as_mut().unwrap().submissions()
+        //} else {
+        //    return Err("Provided buffers not available");
+        //};
+        let (buf_ring, mut cq) = io_uring_instance.get_bufs_and_cq();
+        let mut bufs = buf_ring.submissions();
 
         cq.sync(); // Sync cq data structure with io_uring completion queue
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
@@ -627,87 +566,6 @@ impl Server {
         Ok(completion_count)
     }
 
-    fn io_uring_loop_normal(&mut self, mut statistic: Statistic, mut ring: IoUring, mut buf_ring: Option<BufRing>, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
-        let uring_burst_size = self.parameter.uring_parameter.burst_size;
-        let uring_buffer_size = self.parameter.uring_parameter.buffer_size;
-        let mut inflight_count: u32 = 0;
-        let (mut submitter, mut sq, mut cq) = ring.split();
-
-        loop {
-        	// Check if there are not enough free buffers -> Either wait for completion events or reap them
-            if inflight_count > uring_buffer_size - uring_burst_size {
-                if cq.is_empty() {
-                    // No buffers left and cq is empty -> We need to do some work/wait for CQEs
-                    let min_complete = if uring_burst_size == 0 {
-                        self.parameter.uring_parameter.ring_size / crate::URING_BURST_SIZE_DIVIDEND // Default burst size
-                    }  else {
-                        uring_burst_size
-                    } as usize;
-                
-                    io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
-                }
-                // If no buffers left, but CQE events in CQ, we don't want to call io_uring_enter -> Fall through
-            } else {
-                // There are enough buffers left to fill up the submission queue
-                match self.parameter.uring_parameter.sq_filling_mode {
-                    UringSqFillingMode::Syscall => {
-                        // Check if the submission queue is max filled with the burst size
-                        if inflight_count < uring_burst_size {
-                            inflight_count += self.io_uring_submit(&mut sq, msghdr, uring_burst_size)?;
-                        }
-                        // If there are currently more entries inflight than the burst size, we don't want to submit more entries
-                        // Fall through to the completion queue handling
-                    },
-                    UringSqFillingMode::Topup => {
-                        // Fill up the submission queue to the maximum
-                        let sq_entries_left = (sq.capacity() - sq.len()) as u32;
-                        let buffers_left = uring_buffer_size - inflight_count;
-                        // Check if enough buffers are left to fill up the submission queue, otherwise only fill up the remaining buffers
-                        if buffers_left < sq_entries_left {
-                            inflight_count += self.io_uring_submit(&mut sq, msghdr, buffers_left)?;
-                        } else {
-                            inflight_count += self.io_uring_submit(&mut sq, msghdr, sq_entries_left)?;
-                        }
-                    }
-                };
-
-                // Utilization of the submission queue
-                sq.sync();
-                statistic.uring_sq_utilization[sq.len()] += 1;
-
-                // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread.
-		        //          Due to the library we're using, the library function will only trigger the syscall io_uring_enter, if the sq_poll thread is asleep.
-                //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
-		        //          If other task_work is implemented, we need to force this probably.
-                let min_complete = if self.parameter.uring_parameter.sqpoll { 0 } else { uring_burst_size } as usize;
-                io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, min_complete)?;
-            }
-
-            // Utilization of the completion queue
-            cq.sync();
-            statistic.uring_cq_utilization[cq.len()] += 1;
-
-            match if self.parameter.uring_parameter.provided_buffer { self.io_uring_complete_provided_buffers(&mut cq, &mut buf_ring) } else { self.io_uring_complete(&mut cq) } {
-                Ok(completed) => {
-                    cq.sync();
-                    inflight_count -= completed
-                },
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    return Ok(statistic);
-                },
-                Err("EAGAIN") => continue,
-                Err(x) => {
-                    error!("Error completing io_uring sqe: {}", x);
-                    return Err(x);
-                }
-            };
-
-            statistic.uring_inflight_utilization[inflight_count as usize] += 1;
-            statistic.amount_io_model_calls += 1;
-            debug!("Current inflight count {}", inflight_count);
-        }
-    }
-
     fn io_uring_loop_multishot(&mut self, mut statistic: Statistic, mut ring: IoUring, mut buf_ring: BufRing, msghdr: &mut libc::msghdr) -> Result<Statistic, &'static str> {
         // Indicator if multishot request is still armed
         let mut armed = false;
@@ -724,7 +582,8 @@ impl Server {
             // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
             // Due to this bug, we have less batching effects. 
             // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-            io_uring_enter(&mut submitter, &mut sq, URING_ENTER_TIMEOUT, 1)?;
+            io_uring_enter(&mut submitter,  URING_ENTER_TIMEOUT, 1)?;
+            sq.sync();
 
             // Utilization of the completion queue
             cq.sync();
@@ -749,23 +608,47 @@ impl Server {
     }
 
 
-    fn io_uring_loop(&mut self, statistic: Statistic) -> Result<Statistic, &'static str> {
-        let (ring, buf_ring) = crate::io_uring::io_uring_setup(self.parameter.mss, self.parameter.uring_parameter, self.io_uring_sqpoll_fd)?;
-
-        // TODO: Can be moved to provided buffer
-        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
-        // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
-        // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
-        let mut msghdr = {
-            let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-            hdr.msg_controllen = 24;
-            hdr
-        };
-
+    fn io_uring_loop(&mut self, mut statistic: Statistic) -> Result<Statistic, &'static str> {
         if self.parameter.uring_parameter.multishot {
-            self.io_uring_loop_multishot(statistic, ring, buf_ring.unwrap(), &mut msghdr)
+            let ring = crate::io_uring::create_ring(self.parameter.uring_parameter, None).unwrap();
+            let buf_ring = crate::io_uring::create_buf_ring(&mut ring.submitter(), self.parameter.packet_buffer_size as u16, self.parameter.mss,);
+
+            // TODO: Can be moved to provided buffer
+            // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
+            // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
+            // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
+            let mut msghdr = {
+                let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
+                hdr.msg_controllen = 24;
+                hdr
+            };
+
+            self.io_uring_loop_multishot(statistic, ring, buf_ring, &mut msghdr)
         } else {
-            self.io_uring_loop_normal(statistic, ring, buf_ring, &mut msghdr)
+            let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.parameter.mss, self.io_uring_sqpoll_fd)?;
+            let mut amount_inflight = 0;
+            let socket_fd = self.socket.get_socket_id();
+
+            loop {
+                amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
+
+                match if self.parameter.uring_parameter.provided_buffer { self.io_uring_complete_provided_buffers(&mut io_uring_instance) } else { self.io_uring_complete(&mut io_uring_instance.get_cq()) } {
+                    Ok(completed) => {
+                        amount_inflight -= completed
+                    },
+                    Err("LAST_MESSAGE_RECEIVED") => {
+                        return Ok(statistic + io_uring_instance.get_statistic());
+                    },
+                    Err("EAGAIN") => continue,
+                    Err(x) => {
+                        error!("Error completing io_uring sqe: {}", x);
+                        return Err(x);
+                    }
+                };
+    
+                statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                statistic.amount_io_model_calls += 1;
+            }
         }
     }
 }

@@ -2,7 +2,7 @@ use std::{ops::Add, time::{Duration, Instant}};
 use log::debug;
 use serde::Serialize;
 use serde_json;
-use crate::net::socket_options::SocketOptions;
+use crate::{io_uring::{UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
 
@@ -27,21 +27,6 @@ pub enum SimulateConnection {
     Single,
     #[default]
     Multiple
-}
-
-#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
-pub enum UringSqFillingMode {
-    #[default]
-    Topup,
-    Syscall 
-}
-
-#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
-pub enum UringTaskWork {
-    Default,
-    Coop,
-    #[default]
-    Defer
 }
 
 #[derive(Debug, Serialize, Clone)]

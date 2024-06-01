@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
 
-use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter, UringSqFillingMode, UringTaskWork}, ExchangeFunction, IOModel, NPerfMode};
+use crate::{io_uring::{UringSqFillingMode, UringTaskWork}, util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter}, ExchangeFunction, IOModel, NPerfMode}};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
