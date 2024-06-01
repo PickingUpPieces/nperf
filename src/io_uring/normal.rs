@@ -1,12 +1,10 @@
 use io_uring::{buf_ring::BufRing, cqueue::Entry, opcode, squeue, types, CompletionQueue, IoUring};
 use libc::msghdr;
 use log::{debug, trace, warn};
-
-use crate::{util::{packet_buffer::PacketBuffer, statistic::{Parameter, UringParameter}}, Statistic};
 use std::os::{fd::RawFd, unix::io::AsRawFd};
 
+use crate::{util::{packet_buffer::PacketBuffer, statistic::{Parameter, UringParameter}}, Statistic};
 use super::UringSqFillingMode;
-
 pub struct IoUringNormal {
     ring: IoUring,
     buf_ring: BufRing,
@@ -44,7 +42,6 @@ impl IoUringNormal {
         let mut submission_count = 0;
         let mut sq = self.ring.submission();
 
-        sq.sync(); // Sync sq data structure with io_uring submission queue (Unecessary here, but for debugging purposes)
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
         for i in 0..amount_recvmsg {
@@ -86,7 +83,6 @@ impl IoUringNormal {
             };
         }
 
-        sq.sync(); // Sync sq data structure with io_uring submission queue 
         debug!("END io_uring_submit: Submitted {} io_uring sqe. Current sq len: {}. Dropped messages: {}", submission_count, sq.len(), sq.dropped());
         Ok(submission_count)
     }
@@ -107,7 +103,6 @@ impl IoUringNormal {
                 } as usize;
             
                 super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
-                self.ring.submission().sync();
             }
             // If no buffers left, but CQE events in CQ, we don't want to call io_uring_enter -> Fall through
         } else {
@@ -138,11 +133,7 @@ impl IoUringNormal {
             };
 
             // Utilization of the submission queue
-            {
-                let mut sq = self.ring.submission();
-                sq.sync();
-                self.statistic.uring_sq_utilization[sq.len()] += 1;
-            }
+            self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
 
             // SQ_POLL: Only reason to call io_uring_enter is to wake up SQ_POLL thread.
 		    //          Due to the library we're using, the library function will only trigger the syscall io_uring_enter, if the sq_poll thread is asleep.
@@ -153,11 +144,7 @@ impl IoUringNormal {
         }
 
         // Utilization of the completion queue
-        {
-            let mut cq = self.ring.completion();
-            cq.sync();
-            self.statistic.uring_cq_utilization[cq.len()] += 1;
-        }
+        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
 
         debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
 

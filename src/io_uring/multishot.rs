@@ -37,15 +37,10 @@ impl IoUringMultishot {
     fn submit(&mut self, socket_fd: i32) -> Result<u32, &'static str> {
         // Use the socket file descripter to receive messages
         debug!("Arming multishot request");
-        let mut sq = self.ring.submission();
+        let sqe = opcode::RecvMsgMulti::new(types::Fd(socket_fd), &self.msghdr, crate::URING_BUFFER_GROUP).build();
 
-        let sqe = opcode::RecvMsgMulti::new(types::Fd(socket_fd), &self.msghdr, crate::URING_BUFFER_GROUP)
-        .build();
-        sq.sync();
-
-        match unsafe { sq.push(&sqe) } {
+        match unsafe { self.ring.submission().push(&sqe) } {
             Ok(_) => {
-                sq.sync(); // Sync sq data structure with io_uring submission queue 
                 Ok(1)
             },
             Err(err) => {
@@ -60,25 +55,16 @@ impl IoUringMultishot {
         if !armed {
             amount_new_requests = self.submit(socket_fd)?;
             // Utilization of the submission queue
-            {
-                let mut sq = self.ring.submission();
-                sq.sync();
-                self.statistic.uring_sq_utilization[sq.len()] += 1;
-            }
+            self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
         };
 
         // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
         // Due to this bug, we have less batching effects. 
         // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
         super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, 1)?;
-        self.ring.submission().sync();
 
         // Utilization of the completion queue
-        {
-            let mut cq = self.ring.completion();
-            cq.sync();
-            self.statistic.uring_cq_utilization[cq.len()] += 1;
-        }
+        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
 
         Ok(amount_new_requests)
     }

@@ -239,10 +239,9 @@ impl Server {
         let mut completion_count = 0;
         let mut multishot_armed = true;
         let msghdr = &io_uring_instance.get_msghdr();
-        let (buf_ring, mut cq) = io_uring_instance.get_bufs_and_cq();
+        let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
 
-        cq.sync(); // Sync cq data structure with io_uring completion queue
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -347,7 +346,6 @@ impl Server {
             }
         }
 
-        bufs.sync(); // Returns used buffers to the buffer ring. Since multishot always uses provided bufferes.
         debug!("END io_uring_complete: Completed {} io_uring cqe. Multishot is still armed: {}", completion_count, multishot_armed);
         Ok(multishot_armed)
     }
@@ -356,7 +354,6 @@ impl Server {
     fn io_uring_complete(&mut self, cq: &mut CompletionQueue) -> Result<u32, &'static str> {
         let mut completion_count = 0;
 
-        cq.sync(); // Sync cq data structure with io_uring completion queue
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -443,10 +440,9 @@ impl Server {
         //} else {
         //    return Err("Provided buffers not available");
         //};
-        let (buf_ring, mut cq) = io_uring_instance.get_bufs_and_cq();
+        let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
 
-        cq.sync(); // Sync cq data structure with io_uring completion queue
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -537,9 +533,6 @@ impl Server {
                 }
             }
         }
-
-        // Returns used buffers to the buffer ring.
-        bufs.sync(); 
 
         debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
         Ok(completion_count)
