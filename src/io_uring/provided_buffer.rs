@@ -1,10 +1,12 @@
-use std::os::{fd::RawFd, unix::io::AsRawFd};
+use std::os::fd::RawFd;
 
 use io_uring::{buf_ring::BufRing, cqueue::Entry, opcode, squeue, types, CompletionQueue, IoUring};
 use libc::msghdr;
 use log::{debug, warn};
 
 use crate::{util::statistic::{Parameter, UringParameter}, Statistic};
+
+use super::IoUringOperatingModes;
 
 pub struct IoUringProvidedBuffer {
     ring: IoUring,
@@ -15,27 +17,6 @@ pub struct IoUringProvidedBuffer {
 }
 
 impl IoUringProvidedBuffer {
-    pub fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<Self, &'static str> {
-        let ring = super::create_ring(parameter.uring_parameter, io_uring_fd)?;
-        let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
-
-        // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
-        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
-        // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
-        let msghdr = {
-            let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-            hdr.msg_controllen = 24;
-            hdr
-        };
-
-        Ok(IoUringProvidedBuffer {
-            ring,
-            buf_ring,
-            parameter: parameter.uring_parameter,
-            msghdr,
-            statistic: Statistic::new(parameter)
-        })
-    }
 
     pub fn submit(&mut self, amount_recvmsg: u32, socket_fd: i32) -> Result<u32, &'static str> {
         let mut submission_count = 0;
@@ -76,7 +57,7 @@ impl IoUringProvidedBuffer {
 
         // Utilization of the submission queue
         self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
-        super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+        Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
 
         // Utilization of the completion queue
         self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
@@ -85,19 +66,39 @@ impl IoUringProvidedBuffer {
         Ok(amount_new_requests)
     }
 
-    pub fn get_cq(&mut self) -> CompletionQueue<'_, Entry> {
-        self.ring.completion()
-    }
-
     pub fn get_bufs_and_cq(&mut self) -> (&mut BufRing, CompletionQueue<'_, Entry>) {
         (&mut self.buf_ring, self.ring.completion())
     }
 
-    pub fn get_statistic(&self) -> Statistic {
-        self.statistic.clone()
+
+}
+
+impl IoUringOperatingModes for IoUringProvidedBuffer {
+    type Mode = IoUringProvidedBuffer;
+
+    fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<Self, &'static str> {
+        let ring = Self::create_ring(parameter.uring_parameter, io_uring_fd)?;
+        let buf_ring = Self::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
+
+        // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
+        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
+        // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
+        let msghdr = {
+            let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
+            hdr.msg_controllen = 24;
+            hdr
+        };
+
+        Ok(IoUringProvidedBuffer {
+            ring,
+            buf_ring,
+            parameter: parameter.uring_parameter,
+            msghdr,
+            statistic: Statistic::new(parameter)
+        })
     }
 
-    pub fn get_raw_fd(&self) -> i32 {
-        self.ring.as_raw_fd()
+    fn get_statistic(&self) -> Statistic {
+        self.statistic.clone()
     }
 }

@@ -3,6 +3,8 @@ use log::{debug, trace, warn};
 use std::os::{fd::RawFd, unix::io::AsRawFd};
 
 use crate::{util::{packet_buffer::PacketBuffer, statistic::{Parameter, UringParameter}}, Statistic};
+
+use super::IoUringOperatingModes;
 pub struct IoUringNormal {
     ring: IoUring,
     parameter: UringParameter,
@@ -10,16 +12,6 @@ pub struct IoUringNormal {
 }
 
 impl IoUringNormal {
-    pub fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<Self, &'static str> {
-        let ring = super::create_ring(parameter.uring_parameter, io_uring_fd)?;
-
-        Ok(IoUringNormal {
-            ring,
-            parameter: parameter.uring_parameter,
-            statistic: Statistic::new(parameter)
-        })
-    }
-
     pub fn submit(&mut self, amount_recvmsg: u32, packet_buffer: &mut PacketBuffer, socket_fd: i32) -> Result<u32, &'static str> {
         let mut submission_count = 0;
         let mut sq = self.ring.submission();
@@ -61,7 +53,7 @@ impl IoUringNormal {
 
         // Utilization of the submission queue
         self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
-        super::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+        Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
 
         // Utilization of the completion queue
         self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
@@ -74,11 +66,25 @@ impl IoUringNormal {
         self.ring.completion()
     }
 
-    pub fn get_statistic(&self) -> Statistic {
-        self.statistic.clone()
-    }
-
     pub fn get_raw_fd(&self) -> i32 {
         self.ring.as_raw_fd()
+    }
+}
+
+impl IoUringOperatingModes for IoUringNormal {
+    type Mode = IoUringNormal;
+
+    fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<IoUringNormal, &'static str> {
+        let ring = Self::create_ring(parameter.uring_parameter, io_uring_fd)?;
+
+        Ok(IoUringNormal {
+            ring,
+            parameter: parameter.uring_parameter,
+            statistic: Statistic::new(parameter)
+        })
+    }
+
+    fn get_statistic(&self) -> Statistic {
+        self.statistic.clone()
     }
 }
