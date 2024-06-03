@@ -1,4 +1,5 @@
 import argparse
+import os
 import csv
 import matplotlib.pyplot as plt
 import logging
@@ -34,7 +35,7 @@ def parse_results_file(results_file):
     logging.info('Read %s test results', len(results))
     return results
 
-def generate_area_chart(x: str, y: str, data, chart_title, add_labels=False):
+def generate_area_chart(x: str, y: str, data, chart_title, results_file, add_labels=False, rm_filename=False):
     # Iterate over list of data and add plot for every list
     for test in data:
         x_values = [float(row[x]) for row in test]
@@ -50,6 +51,8 @@ def generate_area_chart(x: str, y: str, data, chart_title, add_labels=False):
 
     plt.xlabel(x)
     plt.ylabel(y)
+    if not rm_filename:
+        plt.text(0.99, 0.5, "data: " + os.path.basename(results_file), ha='center', va='center', rotation=90, transform=plt.gcf().transFigure, fontsize=8)
     plt.title(chart_title)
     plt.legend()
     
@@ -57,7 +60,7 @@ def generate_area_chart(x: str, y: str, data, chart_title, add_labels=False):
     logging.info('Saved plot to %s_area.png', chart_title)
     plt.close()
 
-def generate_heatmap(x: str, y: str, test_name, data, chart_title):
+def generate_heatmap(x: str, y: str, test_name, data, chart_title, results_file, rm_filename=False):
     logging.debug('Generating heatmap for %s', test_name)
     heatmap_data = []
 
@@ -109,13 +112,15 @@ def generate_heatmap(x: str, y: str, test_name, data, chart_title):
     heatmap = sns.heatmap(pivot_table, cmap="YlGnBu", linewidths=.5, fmt='g')
     plt.xlabel(x)
     plt.ylabel(y)
+    if not rm_filename:
+        plt.text(0.99, 0.5, "data: " + os.path.basename(results_file), ha='center', va='center', rotation=90, transform=plt.gcf().transFigure, fontsize=8)
     plt.title(chart_title)
     plt.savefig(PATH_TO_RESULTS_FOLDER + chart_title + '_heatmap.png')
     logging.info('Saved plot to %s_heatmap.png', chart_title)
     plt.close()
 
 
-def generate_bar_chart(y: str, data, test_name: str):
+def generate_bar_chart(y: str, data, test_name: str, results_file, rm_filename=False):
     # Map every row in the data as a bar with the y value
     logging.debug("Generating bar chart for %s with data %s", y, data)
     y_values = [float(row[y]) for row in data]
@@ -126,6 +131,8 @@ def generate_bar_chart(y: str, data, test_name: str):
     plt.bar(x_values, y_values)
     plt.xlabel('Run Name')
     plt.ylabel(y)
+    if not rm_filename:
+        plt.text(0.99, 0.5, "data: " + os.path.basename(results_file), ha='center', va='center', rotation=90, transform=plt.gcf().transFigure, fontsize=8)
     plt.title(test_name)
     plt.savefig(PATH_TO_RESULTS_FOLDER + test_name + '_bar.png')
     logging.info('Saved plot to %s_bar.png', test_name)
@@ -142,6 +149,7 @@ def main():
     parser.add_argument('--test_name', help='Name of the specific test to generate the heatmap for')
     parser.add_argument('type', default="area", help='Type of graph to generate (area, bar, heat)')
     parser.add_argument('-l', action="store_true", help='Add labels to data points')
+    parser.add_argument('--rm-filename', action="store_true", help='Add the results file name to the graph')
     args = parser.parse_args()
 
     logging.info('Reading results file: %s', args.results_file)
@@ -149,12 +157,12 @@ def main():
     logging.debug('Results: %s', results)
 
     if args.type == 'area':
-        generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.chart_name, args.l)
+        generate_area_chart(args.x_axis_param, args.y_axis_param, results, args.chart_name, args.results_file, args.l, args.rm_filename)
     elif args.type == 'bar':
         for test in results:
-            generate_bar_chart(args.y_axis_param, test, test[0]["test_name"])
+            generate_bar_chart(args.y_axis_param, test, test[0]["test_name"], results_file, args.rm_filename)
     elif args.type == 'heat':
-        generate_heatmap(args.x_axis_param, args.y_axis_param, args.test_name, results, args.chart_name)
+        generate_heatmap(args.x_axis_param, args.y_axis_param, args.test_name, results, args.chart_name, results_file, args.rm_filename)
 
 if __name__ == '__main__':
     logging.info('Starting script')
