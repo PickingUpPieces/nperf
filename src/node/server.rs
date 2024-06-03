@@ -70,6 +70,7 @@ impl Server {
         }
     }
 
+    #[inline(always)]
     fn recv(&mut self) -> Result<(), &'static str> {
         // Only one buffer is used, so we can directly access the first element
         let buffer_pointer = self.packet_buffer.get_buffer_pointer_from_index(0).unwrap();
@@ -94,6 +95,7 @@ impl Server {
         }
     }
 
+    #[inline(always)]
     fn recvmsg(&mut self) -> Result<(), &'static str> {
         // Only one buffer is used, so we can directly access the first element
         let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
@@ -119,38 +121,7 @@ impl Server {
         }
     }
 
-    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32,  msghdr: Option<&mut libc::msghdr>, msghdr_index: u64) -> Result<(), &'static str> {
-        let msghdr = match msghdr {
-            Some(msghdr) => msghdr,
-            None => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap()
-        };
-
-        let libc::iovec { iov_base, iov_len } = unsafe {*msghdr.msg_iov};
-        let buffer_pointer = unsafe {
-            // Get buffer from iov_base with type &[u8]
-            std::slice::from_raw_parts(iov_base as *const u8, iov_len )
-        };
-        
-        let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
-        let mtype = MessageHeader::get_message_type(buffer_pointer);
-
-        Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
-
-        let msghdr = match self.parameter.uring_parameter.uring_mode {
-            UringMode::Normal => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap(),
-            _ => msghdr
-        };
-
-        let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
-        let absolut_packets_received;
-        (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes as usize, self.next_packet_id, statistic);
-        statistic.amount_datagrams += absolut_packets_received;
-        statistic.amount_data_bytes += amount_received_bytes as usize;
-        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
-
-        Ok(())
-    }
-
+    #[inline(always)]
     fn recvmmsg(&mut self) -> Result<(), &'static str> {
         match self.socket.recvmmsg(&mut self.packet_buffer.mmsghdr_vec) {
             Ok(amount_received_mmsghdr) => { 
@@ -389,9 +360,42 @@ impl Server {
         Ok(multishot_armed)
     }
 
+    fn handle_recvmsg_return(&mut self, amount_received_bytes: i32,  msghdr: Option<&mut libc::msghdr>, msghdr_index: u64) -> Result<(), &'static str> {
+        let msghdr = match msghdr {
+            Some(msghdr) => msghdr,
+            None => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap()
+        };
+
+        let libc::iovec { iov_base, iov_len } = unsafe {*msghdr.msg_iov};
+        let buffer_pointer = unsafe {
+            // Get buffer from iov_base with type &[u8]
+            std::slice::from_raw_parts(iov_base as *const u8, iov_len )
+        };
+        
+        let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
+        let mtype = MessageHeader::get_message_type(buffer_pointer);
+
+        Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
+
+        let msghdr = match self.parameter.uring_parameter.uring_mode {
+            UringMode::Normal => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap(),
+            _ => msghdr
+        };
+
+        let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
+        let absolut_packets_received;
+        (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes as usize, self.next_packet_id, statistic);
+        statistic.amount_datagrams += absolut_packets_received;
+        statistic.amount_data_bytes += amount_received_bytes as usize;
+        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
+
+        Ok(())
+    }
+
 
     fn io_uring_loop(&mut self, mut statistic: Statistic) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
+        let mut amount_inflight = 0;
 
         match self.parameter.uring_parameter.uring_mode {
             UringMode::Multishot => {
@@ -399,7 +403,8 @@ impl Server {
                 // Indicator if multishot request is still armed
                 let mut armed = false;
 
-                loop {
+                'outer: loop {
+                    statistic.amount_io_model_calls += 1;
                     io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
                     match self.io_uring_complete_multishot(&mut io_uring_instance) {
@@ -409,92 +414,79 @@ impl Server {
                             }
                             armed = multishot_armed
                         },
-                        Err("INIT_MESSAGE_RECEIVED") => {},
+                        Err("INIT_MESSAGE_RECEIVED") => continue,
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            for measurement in self.measurements.iter() {
-                                if !measurement.last_packet_received && measurement.first_packet_received {
-                                    debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                                } 
-                            };
-                            info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                            return Ok(statistic + io_uring_instance.get_statistic());
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } else { continue 'outer }
                         },
-                        Err("EAGAIN") => continue,
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
                         }
                     };
-
-                    statistic.amount_io_model_calls += 1;
                 }
             },
             UringMode::ProvidedBuffer => {
                 let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
-                let mut amount_inflight = 0;
 
-                loop {
+                'outer: loop {
+                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    statistic.amount_io_model_calls += 1;
+
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
 
                     match self.io_uring_complete_provided_buffers(&mut io_uring_instance) {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
-                        Err("INIT_MESSAGE_RECEIVED") => {},
+                        Err("INIT_MESSAGE_RECEIVED") => continue,
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            for measurement in self.measurements.iter() {
-                                if !measurement.last_packet_received && measurement.first_packet_received {
-                                    debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                                } 
-                            };
-                            info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                            return Ok(statistic + io_uring_instance.get_statistic());
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } else { continue 'outer }
                         },
-                        Err("EAGAIN") => continue,
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
                         }
                     };
-    
-                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
-                    statistic.amount_io_model_calls += 1;
                 }
             },
             UringMode::Normal => {
                 let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
-                let mut amount_inflight = 0;
 
-                loop {
+                'outer: loop {
+                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    statistic.amount_io_model_calls += 1;
+
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
 
                     match self.io_uring_complete_normal(&mut io_uring_instance) {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
-                        Err("INIT_MESSAGE_RECEIVED") => {},
+                        Err("INIT_MESSAGE_RECEIVED") => continue,
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            for measurement in self.measurements.iter() {
-                                if !measurement.last_packet_received && measurement.first_packet_received {
-                                    debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                                } 
-                            };
-                            info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                            return Ok(statistic + io_uring_instance.get_statistic());
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } else { continue 'outer }
                         },
-                        Err("EAGAIN") => continue,
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
                         }
                     };
-    
-                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
-                    statistic.amount_io_model_calls += 1;
                 }
             }
         }
     }
+
+    fn all_measurements_finished(&self) -> bool {
+        for measurement in self.measurements.iter() {
+            if !measurement.last_packet_received && measurement.first_packet_received {
+                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                return false;
+            }
+        }
+        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+        true
+    }
+
 }
 
 
@@ -542,14 +534,7 @@ impl Node for Server {
                         }
                     },
                     Err("LAST_MESSAGE_RECEIVED") => {
-                        for measurement in self.measurements.iter() {
-                            if !measurement.last_packet_received && measurement.first_packet_received {
-                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                                continue 'outer;
-                            } 
-                        };
-                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                        break 'outer;
+                        if self.all_measurements_finished() { break 'outer } else { continue 'outer }
                     },
                     Err("INIT_MESSAGE_RECEIVED") => {
                         continue 'outer;
