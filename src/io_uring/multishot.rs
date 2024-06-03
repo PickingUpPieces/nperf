@@ -65,8 +65,8 @@ impl IoUringOperatingModes for IoUringMultishot {
     type Mode = IoUringMultishot;
 
     fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<Self, &'static str> {
-        let ring = Self::create_ring(parameter.uring_parameter, io_uring_fd)?;
-        let buf_ring = Self::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
+        let ring = super::create_ring(parameter.uring_parameter, io_uring_fd)?;
+        let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
 
         // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
         let msghdr = {

@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
 
-use crate::{io_uring::{UringSqFillingMode, UringTaskWork}, util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter}, ExchangeFunction, IOModel, NPerfMode}};
+use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter}, ExchangeFunction, IOModel, NPerfMode}};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
@@ -100,13 +100,9 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     simulate_connection: SimulateConnection,
 
-    /// io_uring: Use provided buffers for recvmsg
-    #[arg(long, default_value_t = false)]
-    uring_provided_buffer: bool,
-
-    /// io_uring: Use recvmsg multishot
-    #[arg(long, default_value_t = false)]
-    uring_multishot: bool,
+    /// io_uring: Which mode to use
+    #[arg(long, default_value_t, value_enum)]
+    uring_mode: UringMode,
 
     /// io_uring: Use a SQ_POLL thread per executing thread, pinned to CPU 0
     #[arg(long, default_value_t = false)]
@@ -188,8 +184,7 @@ impl nPerf {
         let socket_options = self.parse_socket_options(self.mode);
 
         let uring_parameters = UringParameter {
-            provided_buffer: self.uring_provided_buffer,
-            multishot: self.uring_multishot,
+            uring_mode: self.uring_mode,
             ring_size: self.uring_ring_size,
             burst_size: if self.uring_burst_size == crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND { (self.uring_ring_size as f32 / crate::URING_BURST_SIZE_DIVIDEND as f32).ceil() as u32 } else { self.uring_burst_size } ,
             buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
@@ -249,7 +244,7 @@ impl nPerf {
             warn!("Time is ignored in server mode!");
         }
 
-        if parameter.io_model != IOModel::IoUring && (self.uring_provided_buffer || self.uring_multishot || self.uring_ring_size != crate::DEFAULT_URING_RING_SIZE) {
+        if parameter.io_model != IOModel::IoUring && (self.uring_mode != UringMode::Normal || self.uring_ring_size != crate::DEFAULT_URING_RING_SIZE) {
             warn!("Uring specific parameters are only used with io-model io_uring enabled!");
         }
 
@@ -268,13 +263,7 @@ impl nPerf {
             return None;
         }
 
-        if self.uring_multishot && !self.uring_provided_buffer {
-            warn!("Uring multishot can't be used without provided buffer!");
-            warn!("Setting provided buffer to true!");
-            parameter.uring_parameter.provided_buffer = true;
-        }
-
-        if self.io_model == IOModel::IoUring && !self.uring_provided_buffer {
+        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal {
             warn!("Setting packet_buffer_size to {}!", parameter.uring_parameter.buffer_size);
             parameter.packet_buffer_size = parameter.uring_parameter.buffer_size as usize;
         }

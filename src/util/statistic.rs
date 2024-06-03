@@ -2,7 +2,7 @@ use std::{ops::Add, time::{Duration, Instant}};
 use log::debug;
 use serde::Serialize;
 use serde_json;
-use crate::{io_uring::{UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
+use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
 
@@ -294,8 +294,7 @@ impl Parameter {
 
 #[derive(Debug, Serialize, Copy, Clone)]
 pub struct UringParameter {
-    pub provided_buffer: bool,
-    pub multishot: bool,
+    pub uring_mode: UringMode,
     pub ring_size: u32,
     pub burst_size: u32,
     pub buffer_size: u32,

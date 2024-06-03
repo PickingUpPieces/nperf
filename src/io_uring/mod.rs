@@ -25,69 +25,20 @@ pub enum UringTaskWork {
     Defer
 }
 
+#[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
+pub enum UringMode {
+    #[default]
+    Normal,
+    ProvidedBuffer,
+    Multishot
+}
+
 pub trait IoUringOperatingModes {
     type Mode;
 
     fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<Self::Mode, &'static str>;
 
     fn get_statistic(&self) -> Statistic;
-
-    fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<IoUring, &'static str> {
-            info!("Setup io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
-
-            let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
-
-            if parameters.task_work == UringTaskWork::Coop {
-                info!("Setting up io_uring with cooperative task work (IORING_SETUP_COOP_TASKRUN)");
-                ring_builder.setup_coop_taskrun();
-            } else if parameters.task_work == UringTaskWork::Defer {
-                info!("Setting up io_uring with deferred task work (IORING_SETUP_DEFER_TASKRUN)");
-                ring_builder.setup_single_issuer()
-                .setup_defer_taskrun();
-            }
-
-            if parameters.sqpoll {
-                match io_uring_fd {
-                    Some(fd) => {
-                        info!("Using existing SQ_POLL thread from io_uring instance: {}", fd);
-                        ring_builder
-                        .setup_sqpoll(URING_SQ_POLL_TIMEOUT)
-                        .setup_attach_wq(fd);
-                    },
-                    None => {
-                        const SQPOLL_CPU: u32 = 0;
-                        info!("Starting uring with SQ_POLL thread. Pinned to CPU: {}. Poll timeout: {}ms", SQPOLL_CPU, URING_SQ_POLL_TIMEOUT);
-                        ring_builder
-                        .setup_sqpoll(URING_SQ_POLL_TIMEOUT)
-                        .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
-                    }
-                }
-            };
-
-            let mut ring = ring_builder.build(parameters.ring_size)
-                .map_err(|_| "Failed to create io_uring")?;
-
-            let sq_cap = ring.submission().capacity();
-            debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
-
-            if !ring.params().is_feature_fast_poll() {
-                warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
-            } else {
-                info!("IORING_FEAT_FAST_POLL is available and used!");
-            }
-
-            Ok(ring)
-    }
-
-    fn create_buf_ring(submitter: &mut Submitter, buffer_size: u16, mss: u32) -> BufRing {
-        let ring_buf = submitter
-        // In multishot mode, more parts of the msghdr struct are written into the buffer, so we need to allocate more space ( + crate::URING_ADDITIONAL_BUFFER_LENGTH )
-        .register_buf_ring(buffer_size, crate::URING_BUFFER_GROUP, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32)
-        .expect("Creation of BufRing failed.");
-
-        debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", buffer_size, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32);
-        ring_buf
-    }
 
     fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
@@ -112,6 +63,64 @@ pub trait IoUringOperatingModes {
         Ok(())
     }
 }
+
+fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<IoUring, &'static str> {
+        info!("Setup io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
+
+        let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
+
+        if parameters.task_work == UringTaskWork::Coop {
+            info!("Setting up io_uring with cooperative task work (IORING_SETUP_COOP_TASKRUN)");
+            ring_builder.setup_coop_taskrun();
+        } else if parameters.task_work == UringTaskWork::Defer {
+            info!("Setting up io_uring with deferred task work (IORING_SETUP_DEFER_TASKRUN)");
+            ring_builder.setup_single_issuer()
+            .setup_defer_taskrun();
+        }
+
+        if parameters.sqpoll {
+            match io_uring_fd {
+                Some(fd) => {
+                    info!("Using existing SQ_POLL thread from io_uring instance: {}", fd);
+                    ring_builder
+                    .setup_sqpoll(URING_SQ_POLL_TIMEOUT)
+                    .setup_attach_wq(fd);
+                },
+                None => {
+                    const SQPOLL_CPU: u32 = 0;
+                    info!("Starting uring with SQ_POLL thread. Pinned to CPU: {}. Poll timeout: {}ms", SQPOLL_CPU, URING_SQ_POLL_TIMEOUT);
+                    ring_builder
+                    .setup_sqpoll(URING_SQ_POLL_TIMEOUT)
+                    .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
+                }
+            }
+        };
+
+        let mut ring = ring_builder.build(parameters.ring_size)
+            .map_err(|_| "Failed to create io_uring")?;
+
+        let sq_cap = ring.submission().capacity();
+        debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
+
+        if !ring.params().is_feature_fast_poll() {
+            warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
+        } else {
+            info!("IORING_FEAT_FAST_POLL is available and used!");
+        }
+
+        Ok(ring)
+}
+
+fn create_buf_ring(submitter: &mut Submitter, buffer_size: u16, mss: u32) -> BufRing {
+    let ring_buf = submitter
+    // In multishot mode, more parts of the msghdr struct are written into the buffer, so we need to allocate more space ( + crate::URING_ADDITIONAL_BUFFER_LENGTH )
+    .register_buf_ring(buffer_size, crate::URING_BUFFER_GROUP, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32)
+    .expect("Creation of BufRing failed.");
+
+    debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", buffer_size, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32);
+    ring_buf
+}
+
 
 // Check flags, if multishot request is still armed
 pub fn check_multishot_status(flags: u32) -> bool {

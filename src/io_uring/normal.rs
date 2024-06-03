@@ -75,7 +75,7 @@ impl IoUringOperatingModes for IoUringNormal {
     type Mode = IoUringNormal;
 
     fn new(parameter: Parameter, io_uring_fd: Option<RawFd>) -> Result<IoUringNormal, &'static str> {
-        let ring = Self::create_ring(parameter.uring_parameter, io_uring_fd)?;
+        let ring = super::create_ring(parameter.uring_parameter, io_uring_fd)?;
 
         Ok(IoUringNormal {
             ring,

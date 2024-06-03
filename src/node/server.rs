@@ -8,7 +8,7 @@ use io_uring::types::RecvMsgOut;
 use crate::io_uring::multishot::IoUringMultishot;
 use crate::io_uring::normal::IoUringNormal;
 use crate::io_uring::provided_buffer::IoUringProvidedBuffer;
-use crate::io_uring::{parse_received_bytes, IoUringOperatingModes};
+use crate::io_uring::{parse_received_bytes, IoUringOperatingModes, UringMode};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
@@ -136,12 +136,10 @@ impl Server {
 
         Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
 
-        let msghdr = if self.parameter.uring_parameter.provided_buffer {
-           msghdr
-        } else {
-            self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap()
+        let msghdr = match self.parameter.uring_parameter.uring_mode {
+            UringMode::Normal => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap(),
+            _ => msghdr
         };
-
 
         let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
         let absolut_packets_received;
@@ -237,7 +235,7 @@ impl Server {
 
 
 
-    fn io_uring_complete(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
+    fn io_uring_complete_normal(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
         let cq = io_uring_instance.get_cq();
         // Pool to store the buffer indexes, which are used in the completion queue to return them later
@@ -395,101 +393,105 @@ impl Server {
     fn io_uring_loop(&mut self, mut statistic: Statistic) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
 
-        if self.parameter.uring_parameter.multishot {
-            let mut io_uring_instance = crate::io_uring::multishot::IoUringMultishot::new(self.parameter, self.io_uring_sqpoll_fd)?;
-            // Indicator if multishot request is still armed
-            let mut armed = false;
+        match self.parameter.uring_parameter.uring_mode {
+            UringMode::Multishot => {
+                let mut io_uring_instance = crate::io_uring::multishot::IoUringMultishot::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                // Indicator if multishot request is still armed
+                let mut armed = false;
 
-            loop {
-                io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
+                loop {
+                    io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
-                match self.io_uring_complete_multishot(&mut io_uring_instance) {
-                    Ok(multishot_armed) => {
-                        if !multishot_armed {
-                            statistic.uring_canceled_multishot += 1;
+                    match self.io_uring_complete_multishot(&mut io_uring_instance) {
+                        Ok(multishot_armed) => {
+                            if !multishot_armed {
+                                statistic.uring_canceled_multishot += 1;
+                            }
+                            armed = multishot_armed
+                        },
+                        Err("INIT_MESSAGE_RECEIVED") => {},
+                        Err("LAST_MESSAGE_RECEIVED") => {
+                            for measurement in self.measurements.iter() {
+                                if !measurement.last_packet_received && measurement.first_packet_received {
+                                    debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                                } 
+                            };
+                            info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+                            return Ok(statistic + io_uring_instance.get_statistic());
+                        },
+                        Err("EAGAIN") => continue,
+                        Err(x) => {
+                            error!("Error completing io_uring sqe: {}", x);
+                            return Err(x);
                         }
-                        armed = multishot_armed
-                    },
-                    Err("INIT_MESSAGE_RECEIVED") => {},
-                    Err("LAST_MESSAGE_RECEIVED") => {
-                        for measurement in self.measurements.iter() {
-                            if !measurement.last_packet_received && measurement.first_packet_received {
-                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                            } 
-                        };
-                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                        return Ok(statistic + io_uring_instance.get_statistic());
-                    },
-                    Err("EAGAIN") => continue,
-                    Err(x) => {
-                        error!("Error completing io_uring sqe: {}", x);
-                        return Err(x);
-                    }
-                };
+                    };
 
-                statistic.amount_io_model_calls += 1;
-            }
-        } else if self.parameter.uring_parameter.provided_buffer {
-            let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
-            let mut amount_inflight = 0;
+                    statistic.amount_io_model_calls += 1;
+                }
+            },
+            UringMode::ProvidedBuffer => {
+                let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut amount_inflight = 0;
 
-            loop {
-                amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
+                loop {
+                    amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
 
-                match self.io_uring_complete_provided_buffers(&mut io_uring_instance) {
-                    Ok(completed) => {
-                        amount_inflight -= completed
-                    },
-                    Err("INIT_MESSAGE_RECEIVED") => {},
-                    Err("LAST_MESSAGE_RECEIVED") => {
-                        for measurement in self.measurements.iter() {
-                            if !measurement.last_packet_received && measurement.first_packet_received {
-                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                            } 
-                        };
-                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                        return Ok(statistic + io_uring_instance.get_statistic());
-                    },
-                    Err("EAGAIN") => continue,
-                    Err(x) => {
-                        error!("Error completing io_uring sqe: {}", x);
-                        return Err(x);
-                    }
-                };
+                    match self.io_uring_complete_provided_buffers(&mut io_uring_instance) {
+                        Ok(completed) => {
+                            amount_inflight -= completed
+                        },
+                        Err("INIT_MESSAGE_RECEIVED") => {},
+                        Err("LAST_MESSAGE_RECEIVED") => {
+                            for measurement in self.measurements.iter() {
+                                if !measurement.last_packet_received && measurement.first_packet_received {
+                                    debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                                } 
+                            };
+                            info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+                            return Ok(statistic + io_uring_instance.get_statistic());
+                        },
+                        Err("EAGAIN") => continue,
+                        Err(x) => {
+                            error!("Error completing io_uring sqe: {}", x);
+                            return Err(x);
+                        }
+                    };
     
-                statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
-                statistic.amount_io_model_calls += 1;
-            }
-        } else {
-            let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
-            let mut amount_inflight = 0;
+                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    statistic.amount_io_model_calls += 1;
+                }
+            },
+            UringMode::Normal => {
+                let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut amount_inflight = 0;
 
-            loop {
-                amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
+                loop {
+                    amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
 
-                match self.io_uring_complete(&mut io_uring_instance) {
-                    Ok(completed) => {
-                        amount_inflight -= completed
-                    },
-                    Err("INIT_MESSAGE_RECEIVED") => {},
-                    Err("LAST_MESSAGE_RECEIVED") => {
-                        for measurement in self.measurements.iter() {
-                            if !measurement.last_packet_received && measurement.first_packet_received {
-                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                            } 
-                        };
-                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                        return Ok(statistic + io_uring_instance.get_statistic());
-                    },
-                    Err("EAGAIN") => continue,
-                    Err(x) => {
-                        error!("Error completing io_uring sqe: {}", x);
-                        return Err(x);
-                    }
-                };
+                    match self.io_uring_complete_normal(&mut io_uring_instance) {
+                        Ok(completed) => {
+                            amount_inflight -= completed
+                        },
+                        Err("INIT_MESSAGE_RECEIVED") => {},
+                        Err("LAST_MESSAGE_RECEIVED") => {
+                            for measurement in self.measurements.iter() {
+                                if !measurement.last_packet_received && measurement.first_packet_received {
+                                    debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                                } 
+                            };
+                            info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+                            return Ok(statistic + io_uring_instance.get_statistic());
+                        },
+                        Err("EAGAIN") => continue,
+                        Err(x) => {
+                            error!("Error completing io_uring sqe: {}", x);
+                            return Err(x);
+                        }
+                    };
     
-                statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
-                statistic.amount_io_model_calls += 1;
+                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    statistic.amount_io_model_calls += 1;
+                }
             }
         }
     }
