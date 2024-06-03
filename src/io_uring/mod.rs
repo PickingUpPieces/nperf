@@ -179,3 +179,28 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
     }
     (to_submit, min_complete)
 }
+
+
+// This function is used to parse the amount of bytes received from the socket
+// It shall only be used for io_uring, since the error codes are different (negated).
+// Errors are negated, since a positive amount of bytes received is a success.
+// io_uring doesn't use the errno variable, but returns the error code directly.
+pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static str> {
+    match amount_received_bytes {
+        -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
+            warn!("ENOBUFS: No buffer space available!");
+            Ok(0)
+        },
+        -11 => {
+            // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+            // From: https://linux.die.net/man/2/recvmsg
+            // libc::EAGAIN == 11
+            Err("EAGAIN")
+        },
+        _ if amount_received_bytes < 0 => {
+            error!("Error receiving message! Negated error code: {}", amount_received_bytes);
+            Err("Failed to receive data!")
+        },
+        _ => Ok(1) // Positive amount of bytes received
+    }
+}

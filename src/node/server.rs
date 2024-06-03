@@ -1,4 +1,3 @@
-use std::io::Error;
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
 use std::thread::{self, sleep};
@@ -10,7 +9,7 @@ use io_uring::buf_ring::Buf;
 use crate::io_uring::multishot::IoUringMultishot;
 use crate::io_uring::normal::IoUringNormal;
 use crate::io_uring::provided_buffer::IoUringProvidedBuffer;
-use crate::io_uring::IoUringOperatingModes;
+use crate::io_uring::{parse_received_bytes, IoUringOperatingModes};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
@@ -236,8 +235,147 @@ impl Server {
     }
 
 
-    fn io_uring_complete_multishot(&mut self,  io_uring_instance: &mut IoUringMultishot) -> Result<bool, &'static str> {
+
+    fn io_uring_complete(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
+        let cq = io_uring_instance.get_cq();
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        if cq.overflow() > 0 {
+            warn!("Dropped messages in completion queue: {}", cq.overflow());
+        }
+
+        // Pool to store the buffer indexes, which are used in the completion queue to return them later
+        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
+
+        // Drain completion queue events
+        for cqe in cq {
+            let amount_received_bytes = cqe.result();
+            let user_data = cqe.user_data();
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
+
+            completion_count += parse_received_bytes(amount_received_bytes)?;
+
+            // Parse recvmsg msghdr on return
+            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
+            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
+            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
+            match self.handle_recvmsg_return(amount_received_bytes, None, user_data) {
+                Ok(_) => {},
+                Err("INIT_MESSAGE_RECEIVED") => {
+                    index_pool.push(user_data as usize);
+                    continue;
+                },
+                Err("LAST_MESSAGE_RECEIVED") => {
+                    for measurement in self.measurements.iter() {
+                        if !measurement.last_packet_received && measurement.first_packet_received {
+                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                        } 
+                    };
+                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+                    return Err("LAST_MESSAGE_RECEIVED");
+                },
+                Err(x) => {
+                    error!("Error receiving message! Aborting measurement...");
+                    return Err(x);
+                }
+            }
+
+            index_pool.push(user_data as usize);
+        }
+
+        // Returns used buffers to the buffer ring.
+        self.packet_buffer.return_buffer_index(index_pool);
+
+        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
+        Ok(completion_count)
+    }
+
+
+    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer) -> Result<u32, &'static str> {
+        let mut completion_count = 0;
+        let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
+        let mut bufs = buf_ring.submissions();
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        if cq.overflow() > 0 {
+            warn!("Dropped messages in completion queue: {}", cq.overflow());
+        }
+
+        // Drain completion queue events
+        for cqe in cq {
+            let amount_received_bytes = cqe.result();
+            let user_data = cqe.user_data();
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
+
+            match parse_received_bytes(amount_received_bytes) {
+                Ok(0) => { // On ENOBUFS, we need to continue with the next cqe
+                    completion_count += 1;
+                    continue;
+                },
+                Ok(i) => completion_count += i,
+                Err(x) => return Err(x)
+            }
+
+            let iovec: libc::iovec;
+            let mut msghdr: libc::msghdr;
+            let mut buf: Buf; 
+
+            let pmsghdr  = {
+                // Following lines are only provided buffers specific
+                // Get specific buffer from the buffer ring
+                buf = unsafe {
+                    bufs.get(cqe.flags(), usize::try_from(amount_received_bytes).unwrap())
+                };
+
+                // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
+                iovec = libc::iovec {
+                    iov_base: buf.as_mut_ptr() as *mut libc::c_void,
+                    iov_len: amount_received_bytes as usize
+                };
+
+                msghdr = {
+                    let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
+                    hdr.msg_iov = &iovec as *const _ as *mut _;
+                    hdr.msg_iovlen = 1;
+                    hdr
+                };
+                &mut msghdr
+            };
+
+            // Parse recvmsg msghdr on return
+            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
+            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
+            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
+            match self.handle_recvmsg_return(amount_received_bytes, Some(pmsghdr), user_data) {
+                Ok(_) => {},
+                Err("INIT_MESSAGE_RECEIVED") => {
+                    continue;
+                },
+                Err("LAST_MESSAGE_RECEIVED") => {
+                    for measurement in self.measurements.iter() {
+                        if !measurement.last_packet_received && measurement.first_packet_received {
+                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                        } 
+                    };
+                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
+                    return Err("LAST_MESSAGE_RECEIVED");
+                },
+                Err(x) => {
+                    error!("Error receiving message! Aborting measurement...");
+                    return Err(x);
+                }
+            }
+        }
+
+        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
+        Ok(completion_count)
+    }
+
+
+    fn io_uring_complete_multishot(&mut self,  io_uring_instance: &mut IoUringMultishot) -> Result<bool, &'static str> {
         let mut multishot_armed = true;
         let msghdr = &io_uring_instance.get_msghdr();
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
@@ -253,37 +391,10 @@ impl Server {
             let amount_received_bytes = cqe.result();
             debug!("Received completion event with bytes: {}", amount_received_bytes); 
 
-            completion_count += 1;
-
-            // Same as in socket.recvmsg function: Check if result is negative, and handle the error
-            // Errors are negated, since a positive amount of bytes received is a success
-            match amount_received_bytes {
-                0 => {
-                    warn!("Received empty message");
-                    continue;
-                },
-                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
-                    warn!("ENOBUFS: No buffer space available! Next expected packet ID: {}", self.next_packet_id);
-                    return Ok(crate::io_uring::check_multishot_status(cqe.flags()));
-                },
-                _ if amount_received_bytes < 0 => {
-                    let errno = Error::last_os_error();
-                    match errno.raw_os_error() {
-                        // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
-                        // At the moment, this doesn't happen with nonblocking sockets in io_uring.
-                        // From: https://linux.die.net/man/2/recvmsg
-                        Some(libc::EAGAIN) => { 
-                            warn!("EAGAIN"); 
-                            return Err("EAGAIN"); 
-                        },
-                        _ => {
-                            error!("Error receiving message: {}", errno);
-                            return Err("Failed to receive data!");
-                        } 
-                    }
-                },
-                _ => {} // Positive amount of bytes received
-            }
+            if parse_received_bytes(amount_received_bytes)? == 0 {
+                multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
+                continue; // In provided buffers, we continue when we receive error ENOBUFS. In multishot we've returned with Ok(check_flags). Try to continue with the next cqe in multishot as well.
+            };
 
             multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
 
@@ -345,188 +456,8 @@ impl Server {
             }
         }
 
-        debug!("END io_uring_complete: Completed {} io_uring cqe. Multishot is still armed: {}", completion_count, multishot_armed);
+        debug!("END io_uring_complete: Multishot is still armed: {}", multishot_armed);
         Ok(multishot_armed)
-    }
-
-
-    fn io_uring_complete(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
-        let mut completion_count = 0;
-        let cq = io_uring_instance.get_cq();
-
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
-
-        if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
-        }
-
-        // Pool to store the buffer indexes, which are used in the completion queue to return them later
-        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
-
-        // Drain completion queue events
-        for cqe in cq {
-            let amount_received_bytes = cqe.result();
-            let user_data = cqe.user_data();
-            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
-
-            // Same as in socket.recvmsg function: Check if result is negative, and handle the error
-            // Errors are negated, since a positive amount of bytes received is a success
-            match amount_received_bytes {
-                0 => {
-                    warn!("Received empty message");
-                    completion_count += 1;
-                    continue;
-                },
-                -11 => {
-                    // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
-                    // From: https://linux.die.net/man/2/recvmsg
-                    // libc::EAGAIN == 11
-                    return Err("EAGAIN");
-                },
-                _ if amount_received_bytes < 0 => {
-                    let errno = Error::last_os_error();
-                    error!("Error receiving message: {}", errno);
-                    return Err("Failed to receive data");
-                },
-                _ => { // Positive amount of bytes received
-                    completion_count += 1;
-                }
-            }
-
-            // Parse recvmsg msghdr on return
-            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
-            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
-            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes, None, user_data) {
-                Ok(_) => {},
-                Err("INIT_MESSAGE_RECEIVED") => {
-                    index_pool.push(user_data as usize);
-                    continue;
-                },
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    for measurement in self.measurements.iter() {
-                        if !measurement.last_packet_received && measurement.first_packet_received {
-                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                        } 
-                    };
-                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                    return Err("LAST_MESSAGE_RECEIVED");
-                },
-                Err(x) => {
-                    error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
-
-            index_pool.push(user_data as usize);
-        }
-
-        // Returns used buffers to the buffer ring.
-        self.packet_buffer.return_buffer_index(index_pool);
-
-        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
-        Ok(completion_count)
-    }
-
-
-    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer) -> Result<u32, &'static str> {
-        let mut completion_count = 0;
-        let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
-        let mut bufs = buf_ring.submissions();
-
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
-
-        if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
-        }
-
-        // Drain completion queue events
-        for cqe in cq {
-            let amount_received_bytes = cqe.result();
-            let user_data = cqe.user_data();
-            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
-
-            // Same as in socket.recvmsg function: Check if result is negative, and handle the error
-            // Errors are negated, since a positive amount of bytes received is a success
-            match amount_received_bytes {
-                0 => {
-                    warn!("Received empty message");
-                    completion_count += 1;
-                    continue;
-                },
-                -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
-                    debug!("ENOBUFS: No buffer space available! (Next expected packet ID; {}", self.next_packet_id);
-                    continue;
-                },
-                -11 => {
-                    // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
-                    // From: https://linux.die.net/man/2/recvmsg
-                    // libc::EAGAIN == 11
-                    return Err("EAGAIN");
-                },
-                _ if amount_received_bytes < 0 => {
-                    let errno = Error::last_os_error();
-                    error!("Error receiving message: {}", errno);
-                    return Err("Failed to receive data");
-                },
-                _ => { // Positive amount of bytes received
-                    completion_count += 1;
-                }
-            }
-
-            let iovec: libc::iovec;
-            let mut msghdr: libc::msghdr;
-            let mut buf: Buf; 
-
-            let pmsghdr  = {
-                // Following lines are only provided buffers specific
-                // Get specific buffer from the buffer ring
-                buf = unsafe {
-                    bufs.get(cqe.flags(), usize::try_from(amount_received_bytes).unwrap())
-                };
-
-                // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
-                iovec = libc::iovec {
-                    iov_base: buf.as_mut_ptr() as *mut libc::c_void,
-                    iov_len: amount_received_bytes as usize
-                };
-
-                msghdr = {
-                    let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-                    hdr.msg_iov = &iovec as *const _ as *mut _;
-                    hdr.msg_iovlen = 1;
-                    hdr
-                };
-                &mut msghdr
-            };
-
-            // Parse recvmsg msghdr on return
-            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
-            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
-            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes, Some(pmsghdr), user_data) {
-                Ok(_) => {},
-                Err("INIT_MESSAGE_RECEIVED") => {
-                    continue;
-                },
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    for measurement in self.measurements.iter() {
-                        if !measurement.last_packet_received && measurement.first_packet_received {
-                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                        } 
-                    };
-                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                    return Err("LAST_MESSAGE_RECEIVED");
-                },
-                Err(x) => {
-                    error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
-        }
-
-        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
-        Ok(completion_count)
     }
 
 
