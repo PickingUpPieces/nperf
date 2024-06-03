@@ -1,5 +1,7 @@
+use std::mem::MaybeUninit;
+
 use log::debug;
-use crate::{net::{MessageHeader, MessageType}, LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER};
+use crate::net::{MessageHeader, MessageType};
 
 #[allow(non_camel_case_types)]
 pub struct WrapperMsghdr {
@@ -24,13 +26,13 @@ impl WrapperMsghdr {
         };
 
         let packets_amount = (mss as f64 / datagram_size as f64).ceil() as usize;
-        debug!("Created PacketBuffer with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
+        debug!("Created msghdr with datagram size: {}, last packet size: {}, buffer length: {}, packets amount: {}", datagram_size, _last_packet_size, mss, packets_amount);
 
-        let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice());
+        let buffer = Box::leak(vec![0_u8; mss as usize].into_boxed_slice()); // Could solve using the heap by using always a MAX_PACKET_SIZE buffer (which is 2^16)
         let iov = Self::create_iovec(buffer);
 
         let msghdr = Self::create_msghdr(iov);
-        let sockaddr: libc::sockaddr_in = unsafe { std::mem::zeroed() };
+        let sockaddr: libc::sockaddr_in = unsafe { MaybeUninit::zeroed().assume_init() };
 
         Some(WrapperMsghdr {
             msghdr,
@@ -74,7 +76,7 @@ impl WrapperMsghdr {
     }
 
     fn create_msghdr(iov: &mut libc::iovec) -> libc::msghdr {
-        let mut msghdr: libc::msghdr = unsafe { std::mem::zeroed() };
+        let mut msghdr: libc::msghdr = unsafe { MaybeUninit::zeroed().assume_init() };
         
         msghdr.msg_name = std::ptr::null_mut();
         msghdr.msg_namelen = 0;
@@ -94,9 +96,9 @@ impl WrapperMsghdr {
 
     pub fn add_cmsg_buffer(&mut self) {
         self.with_cmsg = true;
-        let msg_control = Box::leak(Box::new([0_u8; LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER]));
+        let msg_control = Box::leak(Box::new([0_u8; crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER]));
         self.msghdr.msg_control = msg_control as *mut _ as *mut libc::c_void;
-        self.msghdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+        self.msghdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
     }
 
     fn create_iovec(buffer: &mut [u8]) -> &mut libc::iovec {
@@ -118,7 +120,7 @@ impl WrapperMsghdr {
     pub fn get_msghdr(&mut self) -> &mut libc::msghdr {
         if self.with_cmsg {
             // Has to be set, since recvmsg overwrites this value 
-            self.msghdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+            self.msghdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
         }
         self.msghdr.msg_flags = 0;
 
@@ -128,7 +130,7 @@ impl WrapperMsghdr {
     pub fn move_msghdr(mut self) -> libc::msghdr {
         if self.with_cmsg {
             // Has to be set, since recvmsg overwrites this value 
-            self.msghdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+            self.msghdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
         }
         self.msghdr.msg_flags = 0;
 

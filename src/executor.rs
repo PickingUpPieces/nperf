@@ -1,12 +1,15 @@
 use log::{debug, error, info};
 
 use crate::command::nPerf;
+use crate::io_uring::normal::IoUringNormal;
+use crate::io_uring::IoUringOperatingModes;
 use crate::net::socket::Socket;
 use crate::node::{client::Client, server::Server, Node};
 use crate::util::core_affinity_manager::CoreAffinityManager;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::{Statistic, DEFAULT_CLIENT_IP};
 
+use std::os::fd::RawFd;
 use std::sync::{Arc, Mutex};
 use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
 extern crate core_affinity;
@@ -16,9 +19,11 @@ impl nPerf {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
 
-        let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode == NPerfMode::Server)));
+        let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode, None, parameter.numa_affinity)));
+
         if parameter.core_affinity {
-            core_affinity_manager.lock().unwrap().set_affinity().expect("Error setting core affinity");
+            let core_ids = core_affinity::get_core_ids().unwrap_or_default();
+            core_affinity::set_for_current(core_ids[0]);
         }
 
         loop {
@@ -27,6 +32,14 @@ impl nPerf {
     
             // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
             let socket = self.create_socket(parameter);
+
+            // If SQ_POLL and io_uring enabled, create io_uring fd here
+            let io_uring: Option<IoUringNormal> = if parameter.uring_parameter.sqpoll_shared {
+                IoUringNormal::new(parameter, None).ok()
+            } else {
+                None
+            };
+            let io_uring_fd = io_uring.as_ref().map(|io_uring| io_uring.get_raw_fd()); 
 
 
             for i in 0..parameter.amount_threads {
@@ -45,7 +58,7 @@ impl nPerf {
                 let test_id = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
                 let local_port_client: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
 
-                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, server_port, local_port_client, test_id, core_affinity)));
+                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, io_uring_fd, server_port, local_port_client, test_id, core_affinity)));
             }
     
             info!("Waiting for all threads to finish...");
@@ -67,7 +80,8 @@ impl nPerf {
         }
     }
 
-    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) {
+    #[allow(clippy::too_many_arguments)]
+    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, io_uring: Option<RawFd>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) {
         let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
 
         if parameter.core_affinity {
@@ -77,16 +91,16 @@ impl nPerf {
         let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
             Box::new(Client::new(test_id, client_port, sock_address_server, socket, parameter))
         } else {
-            Box::new(Server::new(sock_address_server, socket, parameter))
+            Box::new(Server::new(sock_address_server, socket, io_uring, parameter))
         };
 
         match node.run(parameter.io_model) {
             Ok(statistic) => { 
-                info!("Finished measurement!");
+                info!("{:?}: Finished measurement!", thread::current().id());
                 tx.send(Some(statistic)).unwrap();
             },
             Err(x) => {
-                error!("Error running app: {}", x);
+                error!("{:?}: Error running app: {}", thread::current().id(), x);
                 tx.send(None).unwrap();
             }
         }

@@ -192,12 +192,8 @@ impl Node for Client {
             match self.send_messages() {
                 Ok(_) => {},
                 Err("EAGAIN") => {
-                    self.statistic.amount_io_model_syscalls += 1;
-                    match io_model {
-                        IOModel::BusyWaiting => Ok(()),
-                        IOModel::Select => self.loop_select(),
-                        IOModel::Poll => self.loop_poll(),
-                    }?;
+                    self.statistic.amount_io_model_calls += 1;
+                    self.io_wait(io_model)?;
                 },
                 Err(x) => {
                     error!("Error sending message! Aborting measurement...");
@@ -215,23 +211,23 @@ impl Node for Client {
 
         self.statistic.set_test_duration(start_time, end_time);
         self.statistic.calculate_statistics();
-        Ok(self.statistic)
+        Ok(self.statistic.clone())
     }
 
-
-    fn loop_select(&mut self) -> Result<(), &'static str> {
-        let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
-
+    fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {
         // Normally we would need to iterate over FDs and check which socket is ready
-        // Since we only have one socket, we directly call recv_messages 
-        self.socket.select(None, Some(&mut write_fds), -1)
-    }
+        // Since we only have one socket, we directly call send_messages after io_wait returns
+        match io_model {
+            IOModel::Select => {
+                let mut write_fds: libc::fd_set = unsafe { self.socket.create_fdset() };
+                self.socket.select(None, Some(&mut write_fds), -1)
 
-    fn loop_poll(&mut self) -> Result<(), &'static str> {
-        let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
-
-        // Normally we would need to iterate over FDs and check which socket is ready
-        // Since we only have one socket, we directly call recv_messages 
-        self.socket.poll(&mut pollfd, -1)
+            },
+            IOModel::Poll => {
+                let mut pollfd = self.socket.create_pollfd(libc::POLLOUT);
+                self.socket.poll(&mut pollfd, -1)
+            }
+            _ => Ok(())
+        }
     }
 }

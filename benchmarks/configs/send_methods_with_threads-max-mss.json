@@ -8,12 +8,12 @@
         "with-gso-buffer": 65507,
         "with-mss": 65507,
         "with-gsro": false,
-        "with-mmsg-amount": 20,
+        "with-mmsg-amount": 10,
         "with-ip-frag": false,
         "without-non-blocking": false,
         "multiplex-port": "individual",
         "multiplex-port-server": "individual",
-        "io-model": "select"
+        "io-model": "poll"
     },
     "sendmmsg": {
         "1": {

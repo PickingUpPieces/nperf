@@ -2,8 +2,10 @@ use std::{ops::Add, time::{Duration, Instant}};
 use log::debug;
 use serde::Serialize;
 use serde_json;
+use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
+use serde::{Deserialize, Deserializer, Serializer};
+use std::collections::HashMap;
 
-use crate::net::socket_options::SocketOptions;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
@@ -27,7 +29,7 @@ pub enum SimulateConnection {
     Multiple
 }
 
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
     pub parameter: Parameter,
     pub test_duration: std::time::Duration,
@@ -38,13 +40,21 @@ pub struct Statistic {
     pub amount_duplicated_datagrams: u64,
     pub amount_omitted_datagrams: i64,
     pub amount_syscalls: u64,
-    pub amount_io_model_syscalls: u64,
+    pub amount_io_model_calls: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
+    pub uring_canceled_multishot: u64,
+    #[serde(with = "utilization")]
+    pub uring_sq_utilization: Box<[usize]>,
+    #[serde(with = "utilization")]
+    pub uring_cq_utilization: Box<[usize]>,
+    #[serde(with = "utilization")]
+    pub uring_inflight_utilization: Box<[usize]>,
 }
 
+
 // Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct Measurement {
     pub start_time: std::time::Instant,
     pub end_time: std::time::Instant,
@@ -65,9 +75,13 @@ impl Statistic {
             amount_duplicated_datagrams: 0,
             amount_omitted_datagrams: 0,
             amount_syscalls: 0,
-            amount_io_model_syscalls: 0,
+            amount_io_model_calls: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
+            uring_canceled_multishot: 0,
+            uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
+            uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
+            uring_inflight_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()
         }
     }
 
@@ -97,10 +111,38 @@ impl Statistic {
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
-                println!("Amount of IO model syscalls: {}", self.amount_io_model_syscalls);
+                println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
                 println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
                 println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
+                if self.parameter.io_model == super::IOModel::IoUring {
+                    println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
+
+                    println!();
+                    println!("Uring SQ utilization:");
+                    for (index, &utilization) in self.uring_sq_utilization.iter().enumerate() {
+                        if utilization != 0 && utilization != 1 {
+                            println!("SQ[{}]: {}", index, utilization);
+                        }
+                    }
+
+                    println!();
+                    println!("Uring CQ utilization:");
+                    for (index, &utilization) in self.uring_cq_utilization.iter().enumerate() {
+                        if utilization != 0 && utilization != 1 {
+                            println!("CQ[{}]: {}", index, utilization);
+                        }
+                    }
+
+                    println!();
+                    println!("Uring Inflight utilization:");
+                    for(index, &utilization) in self.uring_inflight_utilization.iter().enumerate() {
+                        if utilization != 0 && utilization != 1 {
+                            println!("Inflight[{}]: {}", index, utilization);
+                        }
+                    }
+                    println!(); 
+                }
             }
         }
     }
@@ -155,6 +197,22 @@ impl Add for Statistic {
             self.test_duration
         };
 
+        // Add the arrays field by field
+        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+        for i in 0..uring_sq_utilization.len() {
+            uring_sq_utilization[i] = self.uring_sq_utilization[i] + other.uring_sq_utilization[i];
+        }
+
+        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
+        for i in 0..uring_cq_utilization.len() {
+            uring_cq_utilization[i] = self.uring_cq_utilization[i] + other.uring_cq_utilization[i];
+        }
+
+        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
+        for i in 0..uring_inflight_utilization.len() {
+            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] + other.uring_inflight_utilization[i];
+        }
+
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
             test_duration, 
@@ -165,9 +223,13 @@ impl Add for Statistic {
             amount_duplicated_datagrams: self.amount_duplicated_datagrams + other.amount_duplicated_datagrams,
             amount_omitted_datagrams: self.amount_omitted_datagrams + other.amount_omitted_datagrams,
             amount_syscalls: self.amount_syscalls + other.amount_syscalls,
-            amount_io_model_syscalls: self.amount_io_model_syscalls + other.amount_io_model_syscalls,
+            amount_io_model_calls: self.amount_io_model_calls + other.amount_io_model_calls,
             data_rate_gbit, 
             packet_loss,
+            uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
+            uring_sq_utilization,
+            uring_cq_utilization,
+            uring_inflight_utilization
         }
     }
 }
@@ -200,12 +262,14 @@ pub struct Parameter {
     pub multiplex_port: MultiplexPort,
     pub multiplex_port_server: MultiplexPort,
     pub simulate_connection: SimulateConnection,
-    pub core_affinity: bool
+    pub core_affinity: bool,
+    pub numa_affinity: bool,
+    pub uring_parameter: UringParameter,
 }
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, multiplex_port: MultiplexPort, multiplex_port_server: MultiplexPort, simulate_connection: SimulateConnection, core_affinity: bool) -> Parameter {
+    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, multiplex_port: MultiplexPort, multiplex_port_server: MultiplexPort, simulate_connection: SimulateConnection, core_affinity: bool, numa_affinity: bool, uring_parameter: UringParameter) -> Parameter {
         Parameter {
             mode,
             ip,
@@ -221,7 +285,59 @@ impl Parameter {
             multiplex_port,
             multiplex_port_server,
             simulate_connection,
-            core_affinity
+            core_affinity,
+            numa_affinity,
+            uring_parameter
         }
+    }
+}
+
+#[derive(Debug, Serialize, Copy, Clone)]
+pub struct UringParameter {
+    pub uring_mode: UringMode,
+    pub ring_size: u32,
+    pub burst_size: u32,
+    pub buffer_size: u32,
+    pub sqpoll: bool,
+    pub sqpoll_shared: bool,
+    pub sq_filling_mode: UringSqFillingMode,
+    pub task_work: UringTaskWork
+}
+
+
+pub mod utilization {
+
+    use super::*;
+    const LIMIT_LENGTH_OUTPUT: usize = 15;
+
+    pub fn serialize<S>(array: &[usize], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut values = array.iter().enumerate()
+            .filter(|&(_, &value)| value != 0 && value != 1)
+            .collect::<Vec<_>>();
+        values.sort_by(|a, b| b.1.cmp(a.1));
+        values.truncate(LIMIT_LENGTH_OUTPUT);
+    
+        let mut map = HashMap::new();
+        for &(index, &value) in &values {
+            map.insert(index, value);
+        }
+        map.serialize(serializer)
+    }
+
+    #[allow(dead_code)] // Maybe needed in the future
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map: HashMap<usize, usize> = HashMap::deserialize(deserializer)?;
+        let max_index = map.keys().max().unwrap_or(&0);
+        let mut array = vec![0; max_index + 1];
+        for (&index, &value) in map.iter() {
+            array[index] = value;
+        }
+        Ok(array)
     }
 }

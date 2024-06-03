@@ -12,8 +12,8 @@ import scipy.stats as stats
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
-#PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
-PATH_TO_NPERF_REPO = '/opt/nperf'
+PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
+#PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 
 def parse_config_file(json_file_path):
@@ -53,9 +53,16 @@ def parse_config_file(json_file_path):
 
     return test_configs
 
+def load_json(json_str):
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        return None
 
 def run_test(run_config):
     logging.debug('Running test with config: %s', run_config)
+
+    time.sleep(5) # Short timeout to give system some time
 
     server_command = [PATH_TO_NPERF_BIN, 'server', '--output-format=json']
     
@@ -109,8 +116,8 @@ def run_test(run_config):
     if client_error:
         logging.error('Server error: %s', server_error.decode())
 
-    client_results = json.loads(client_output)
-    server_results = json.loads(server_output)
+    client_results = load_json(client_output)
+    server_results = load_json(server_output)
     
     # Add run_name to results
     server_results['run_name'] = run_config['run_name']
@@ -122,7 +129,7 @@ def run_test(run_config):
 
 def write_results_to_csv(test_results, test_name, csv_file_path):
     # FIXME: If new measurement parameters are added, the header should be updated
-    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_syscalls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'core_affinity', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size']
+    header = ['test_name', 'run_number', 'run_name', 'amount_threads_client', 'amount_threads_server', 'test_runtime_length', 'datagram_size', 'packet_buffer_size', 'exchange_function', 'io_model', 'uring-ring-size', 'uring-burst-size', 'uring-provided-buffer', 'uring-multishot', 'uring-sqpoll', 'uring-sqpoll-shared', 'amount_uring_multishot_canceled', 'total_data_gbyte', 'amount_datagrams', 'amount_data_bytes', 'amount_reordered_datagrams', 'amount_duplicated_datagrams', 'amount_omitted_datagrams', 'amount_syscalls', 'amount_io_model_calls', 'data_rate_gbit', 'packet_loss', 'nonblocking', 'ip_fragmentation', 'multiplex_port_client', 'multiplex_port_server', 'simulate_connection', 'core_affinity', 'numa_affinity', 'gso', 'gro', 'receive_buffer_size', 'send_buffer_size', 'uring_inflight_utilization', 'uring_cq_utilization', 'uring_sq_utilization']
     file_exists = os.path.isfile(csv_file_path)
 
     with open(csv_file_path, 'a', newline='') as csvfile:
@@ -148,6 +155,13 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'packet_buffer_size': server_result['parameter']['packet_buffer_size'],
                 'exchange_function': server_result['parameter']['exchange_function'],
                 'io_model': server_result['parameter']['io_model'],
+                'uring-ring-size': server_result['parameter']['uring_parameter']['ring_size'],
+                'uring-burst-size': server_result['parameter']['uring_parameter']['burst_size'],
+                'uring-provided-buffer': server_result['parameter']['uring_parameter']['provided_buffer'],
+                'uring-multishot': server_result['parameter']['uring_parameter']['multishot'],
+                'uring-sqpoll': server_result['parameter']['uring_parameter']['sqpoll'],
+                'uring-sqpoll-shared': server_result['parameter']['uring_parameter']['sqpoll_shared'],
+                'amount_uring_multishot_canceled': server_result['uring_canceled_multishot'],
                 'total_data_gbyte': server_result['total_data_gbyte'],
                 'amount_datagrams': server_result['amount_datagrams'],
                 'amount_data_bytes': server_result['amount_data_bytes'],
@@ -155,19 +169,23 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'amount_duplicated_datagrams': server_result['amount_duplicated_datagrams'],
                 'amount_omitted_datagrams': server_result['amount_omitted_datagrams'],
                 'data_rate_gbit': server_result['data_rate_gbit'],
-                'amount_syscalls': server_result['amount_syscalls'],
-                'amount_io_model_syscalls': server_result['amount_io_model_syscalls'],
                 'packet_loss': server_result['packet_loss'],
+                'amount_syscalls': server_result['amount_syscalls'],
+                'amount_io_model_calls': server_result['amount_io_model_calls'],
                 'nonblocking': server_result['parameter']['socket_options']['nonblocking'],
                 'ip_fragmentation': client_result['parameter']['socket_options']['ip_fragmentation'],
                 'multiplex_port_client': client_result['parameter']['multiplex_port'],
                 'multiplex_port_server': server_result['parameter']['multiplex_port_server'],
                 'simulate_connection': client_result['parameter']['simulate_connection'],
                 'core_affinity': server_result['parameter']['core_affinity'],
+                'numa_affinity': server_result['parameter']['numa_affinity'],
                 'gso': client_result['parameter']['socket_options']['gso'],
                 'gro': server_result['parameter']['socket_options']['gro'],
                 'receive_buffer_size': server_result['parameter']['socket_options']['recv_buffer_size'],
-                'send_buffer_size': server_result['parameter']['socket_options']['send_buffer_size']
+                'send_buffer_size': server_result['parameter']['socket_options']['send_buffer_size'],
+                'uring_inflight_utilization': server_result['uring_inflight_utilization'],
+                'uring_cq_utilization': server_result['uring_cq_utilization'],
+                'uring_sq_utilization': server_result['uring_sq_utilization']
             }
             writer.writerow(row)
 
@@ -254,12 +272,13 @@ def main():
             run_results = []
             for i in range(run["repetitions"]):
                 logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
-                for _ in range(0,2): # Retries, in case of an error
+                for _ in range(0,3): # Retries, in case of an error
                     result = run_test(run)
                     if result is not None: 
                         run_results.append(result)
                         break
-            test_results.append(get_median_result(run_results))
+            if len(run_results) != 0:
+                test_results.append(get_median_result(run_results))
 
         logging.info('Writing results to CSV file: %s', csv_file_name)
         write_results_to_csv(test_results, test_name, PATH_TO_RESULTS_FOLDER + csv_file_name)

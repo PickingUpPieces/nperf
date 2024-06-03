@@ -1,7 +1,7 @@
 use clap::Parser;
 use log::{error, info, warn};
 
-use crate::util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection}, ExchangeFunction, IOModel, NPerfMode};
+use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, util::{self, statistic::{MultiplexPort, OutputFormat, Parameter, SimulateConnection, UringParameter}, ExchangeFunction, IOModel, NPerfMode}};
 use crate::net::{self, socket_options::SocketOptions};
 
 #[derive(Parser,Default,Debug)]
@@ -40,9 +40,13 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Pin each thread to an individual core
+    /// Pin each thread to an individual core. The server threads start from the last core, the client threads from the second core. This way each server/client pair should operate on the same NUMA core.
     #[arg(long, default_value_t = false)]
     with_core_affinity: bool,
+
+    /// Pin client/server threads to different NUMA nodes
+    #[arg(long, default_value_t = false)]
+    with_numa_affinity: bool,
 
     /// Enable GSO/GRO on socket
     #[arg(long, default_value_t = false)]
@@ -95,6 +99,34 @@ pub struct nPerf {
     /// CURRENTLY IGNORED. Simulate a single QUIC connection or one QUIC connection per thread.
     #[arg(long, default_value_t, value_enum)]
     simulate_connection: SimulateConnection,
+
+    /// io_uring: Which mode to use
+    #[arg(long, default_value_t, value_enum)]
+    uring_mode: UringMode,
+
+    /// io_uring: Use a SQ_POLL thread per executing thread, pinned to CPU 0
+    #[arg(long, default_value_t = false)]
+    uring_sqpoll: bool,
+
+    /// io_uring: Share the SQ_POLL thread between all executing threads
+    #[arg(long, default_value_t = false)]
+    uring_sqpoll_shared: bool,
+
+    /// io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
+    #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND)]
+    uring_burst_size: u32,
+
+    /// io_uring: Size of the ring buffer
+    #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE)]
+    uring_ring_size: u32,
+
+    /// io_uring: How the SQ is filled
+    #[arg(long, default_value_t, value_enum)]
+    uring_sq_mode: UringSqFillingMode,
+
+    /// io_uring: Set the operation mode of task_work
+    #[arg(long, default_value_t, value_enum)]
+    uring_task_work: UringTaskWork,
 
     /// Show help in markdown format
     #[arg(long, hide = true)]
@@ -151,6 +183,17 @@ impl nPerf {
 
         let socket_options = self.parse_socket_options(self.mode);
 
+        let uring_parameters = UringParameter {
+            uring_mode: self.uring_mode,
+            ring_size: self.uring_ring_size,
+            burst_size: if self.uring_burst_size == crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND { (self.uring_ring_size as f32 / crate::URING_BURST_SIZE_DIVIDEND as f32).ceil() as u32 } else { self.uring_burst_size } ,
+            buffer_size: self.uring_ring_size * crate::URING_BUFFER_SIZE_MULTIPLICATOR,
+            sqpoll: self.uring_sqpoll,
+            sqpoll_shared: self.uring_sqpoll_shared,
+            sq_filling_mode: self.uring_sq_mode,
+            task_work: self.uring_task_work,
+        };
+
         let parameter = util::statistic::Parameter::new(
             self.mode, 
             ipv4, 
@@ -166,13 +209,15 @@ impl nPerf {
             self.multiplex_port,
             self.multiplex_port_server,
             simulate_connection,
-            self.with_core_affinity
+            self.with_core_affinity,
+            self.with_numa_affinity,
+            uring_parameters
         );
 
         self.parameter_check(parameter) 
     }
 
-    fn parameter_check(&self, parameter: util::statistic::Parameter)-> Option<Parameter> {
+    fn parameter_check(&self, mut parameter: util::statistic::Parameter)-> Option<Parameter> {
         if parameter.datagram_size > crate::MAX_UDP_DATAGRAM_SIZE {
             error!("UDP datagram size is too big! Maximum is {}", crate::MAX_UDP_DATAGRAM_SIZE);
             return None;
@@ -197,6 +242,41 @@ impl nPerf {
 
         if parameter.mode == util::NPerfMode::Server && self.time != crate::DEFAULT_DURATION {
             warn!("Time is ignored in server mode!");
+        }
+
+        if parameter.io_model != IOModel::IoUring && (self.uring_mode != UringMode::Normal || self.uring_ring_size != crate::DEFAULT_URING_RING_SIZE) {
+            warn!("Uring specific parameters are only used with io-model io_uring enabled!");
+        }
+
+        if !self.uring_ring_size.is_power_of_two() {
+            error!("Uring ring size must be a power of 2!");
+            return None;
+        }
+
+        if parameter.uring_parameter.burst_size > self.uring_ring_size {
+            error!("Uring burst size {} must be smaller than the ring size {}!", parameter.uring_parameter.burst_size, self.uring_ring_size);
+            return None;
+        }
+
+        if self.uring_ring_size > crate::URING_MAX_RING_SIZE {
+            error!("Uring ring size is too big! Maximum is {}", crate::URING_MAX_RING_SIZE);
+            return None;
+        }
+
+        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal {
+            warn!("Setting packet_buffer_size to {}!", parameter.uring_parameter.buffer_size);
+            parameter.packet_buffer_size = parameter.uring_parameter.buffer_size as usize;
+        }
+
+        if self.uring_sqpoll_shared && !self.uring_sqpoll {
+            warn!("Uring sqpoll_shared can't be used without sqpoll!");
+            warn!("Setting sqpoll to true!");
+            parameter.uring_parameter.sqpoll = true;
+        }
+
+        if parameter.uring_parameter.sqpoll && parameter.uring_parameter.task_work != UringTaskWork::Default {
+            warn!("Neither DEFER nor COOP can be used with SQ_POLL! Setting task_work to Default!");
+            parameter.uring_parameter.task_work = UringTaskWork::Default;
         }
 
         Some(parameter)

@@ -1,12 +1,13 @@
 use log::debug;
 
-use crate::{net::MessageHeader, LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER};
+use crate::net::MessageHeader;
 use super::msghdr_vec::MsghdrVec;
 
 pub struct PacketBuffer {
     pub mmsghdr_vec: Vec<libc::mmsghdr>,
     datagram_size: usize, // ASSUMPTION: It's the same for all msghdrs
     packets_amount_per_msghdr: usize, // ASSUMPTION: It's the same for all msghdrs
+    index_pool: Vec<usize> // When buffers are used for io_uring, we need to know which buffers can be reused 
 }
 
 impl PacketBuffer {
@@ -24,11 +25,13 @@ impl PacketBuffer {
             };
             mmsghdr_vec.push(mmsghdr);
         }
+        let index_pool = Vec::from_iter(0..mmsghdr_vec.len());
 
         PacketBuffer {
             mmsghdr_vec,
             datagram_size,
-            packets_amount_per_msghdr
+            packets_amount_per_msghdr,
+            index_pool
         }
     }
 
@@ -59,7 +62,7 @@ impl PacketBuffer {
         // Reset msg_flags to 0 and msg_controllen to LENGTH_CONTROL_MESSAGE_BUFFER. 
         self.mmsghdr_vec.iter_mut().for_each(|mmsghdr| {
             mmsghdr.msg_hdr.msg_flags = 0;
-            mmsghdr.msg_hdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+            mmsghdr.msg_hdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
         });
     }
 
@@ -88,5 +91,16 @@ impl PacketBuffer {
 
     pub fn datagram_size(&self) -> usize {
         self.datagram_size
+    }
+
+    pub fn get_buffer_index(&mut self) -> Result<usize, &'static str> {
+        match self.index_pool.pop() {
+            Some(index) => Ok(index),
+            None => Err("No buffers left in packet_buffer")
+        }
+    }
+
+    pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
+        self.index_pool.append(buf_index_vec.as_mut())
     }
 }

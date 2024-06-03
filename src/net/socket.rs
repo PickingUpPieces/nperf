@@ -1,6 +1,6 @@
 
 use log::{debug, error, info, trace, warn};
-use std::{self, io::Error, net::SocketAddrV4};
+use std::{self, io::Error, mem::MaybeUninit, net::SocketAddrV4};
 
 use super::socket_options::{self, SocketOptions};
 
@@ -235,7 +235,7 @@ impl Socket {
     }
 
     pub fn recvmsg(&self, msghdr: &mut libc::msghdr) -> Result<usize, &'static str> {
-        debug!("Trying to receive message with msghdr length: {}, iov_len: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len);
+        debug!("Trying to receive message with msghdr length: {}, iov_len: {}, controllen: {}", msghdr.msg_iovlen, unsafe {*msghdr.msg_iov}.iov_len, msghdr.msg_controllen);
         trace!("Trying to receive message with iov_buffer: {:?}", unsafe { std::slice::from_raw_parts((*msghdr.msg_iov).iov_base as *const u8, (*msghdr.msg_iov).iov_len)});
 
         let recv_result: isize = unsafe {
@@ -249,6 +249,8 @@ impl Socket {
         if recv_result <= -1 {
             let errno = Error::last_os_error();
             match errno.raw_os_error() {
+                // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -1 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                // From: https://linux.die.net/man/2/recvmsg
                 Some(libc::EAGAIN) => {
                     return Err("EAGAIN");
                 },
@@ -330,7 +332,7 @@ impl Socket {
     }
 
     pub unsafe fn create_fdset(&self) -> libc::fd_set {
-        let mut fd_set: libc::fd_set = std::mem::zeroed();
+        let mut fd_set: libc::fd_set = MaybeUninit::zeroed().assume_init();
         libc::FD_ZERO(&mut fd_set); 
         libc::FD_SET(self.socket, &mut fd_set);
         fd_set
@@ -338,7 +340,7 @@ impl Socket {
 
     pub fn create_pollfd(&self, event: libc::c_short) -> Vec<libc::pollfd> {
         let mut pollfd_vec: Vec<libc::pollfd> = Vec::new();
-        let mut pollfd: libc::pollfd = unsafe { std::mem::zeroed() };
+        let mut pollfd: libc::pollfd = unsafe { MaybeUninit::zeroed().assume_init() };
         pollfd.fd = self.socket;
         pollfd.events = event;
         pollfd_vec.push(pollfd);

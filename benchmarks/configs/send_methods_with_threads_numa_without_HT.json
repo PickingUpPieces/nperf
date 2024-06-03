@@ -1,0 +1,212 @@
+{
+    "parameters": {
+        "repetitions": 3,
+        "ip": "0.0.0.0",
+        "port": 45001,
+        "datagram-size": 1472,
+        "time": 30,
+        "with-gso-buffer": 65507,
+        "with-mss": 1472,
+        "with-socket-buffer": false,
+        "multiplex-port": "individual",
+        "multiplex-port-server": "individual",
+        "with-gsro": true,
+        "with-mmsg-amount": 10,
+        "with-core-affinity": true,
+        "with-ip-frag": false,
+        "without-non-blocking": false,
+        "io-model": "poll"
+    },
+    "sendmmsg-numa": {
+        "1": {
+            "client": {
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "parallel": 2,
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "parallel": 4,
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "parallel": 6,
+                "with-numa-affinity": true,
+                "exchange-function": "mmsg"
+            }
+        }
+    },
+    "sendmsg-numa": {
+        "1": {
+            "client": {
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 2,
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 4,
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 6,
+                "with-numa-affinity": true,
+                "exchange-function": "msg"
+            }
+        }
+    },
+    "sendmmsg": {
+        "1": {
+            "client": {
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "parallel": 2,
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "parallel": 4,
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            },
+            "server": {
+                "parallel": 6,
+                "with-numa-affinity": false,
+                "exchange-function": "mmsg"
+            }
+        }
+    },
+    "sendmsg": {
+        "1": {
+            "client": {
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 2,
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 4,
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 6,
+                "with-numa-affinity": false,
+                "exchange-function": "msg"
+            }
+        }
+    }
+}
