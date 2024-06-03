@@ -1,6 +1,6 @@
 use log::debug;
 
-use crate::{net::MessageHeader, LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER};
+use crate::net::MessageHeader;
 use super::msghdr_vec::MsghdrVec;
 
 pub struct PacketBuffer {
@@ -62,7 +62,7 @@ impl PacketBuffer {
         // Reset msg_flags to 0 and msg_controllen to LENGTH_CONTROL_MESSAGE_BUFFER. 
         self.mmsghdr_vec.iter_mut().for_each(|mmsghdr| {
             mmsghdr.msg_hdr.msg_flags = 0;
-            mmsghdr.msg_hdr.msg_controllen = LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+            mmsghdr.msg_hdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
         });
     }
 

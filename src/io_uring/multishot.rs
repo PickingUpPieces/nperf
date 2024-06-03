@@ -71,7 +71,7 @@ impl IoUringOperatingModes for IoUringMultishot {
         // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
         let msghdr = {
             let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-            hdr.msg_controllen = 24;
+            hdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
             hdr
         };
 

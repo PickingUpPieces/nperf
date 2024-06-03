@@ -5,7 +5,6 @@ use std::time::Instant;
 use log::{debug, error, info, trace, warn};
 
 use io_uring::types::RecvMsgOut;
-use io_uring::buf_ring::Buf;
 use crate::io_uring::multishot::IoUringMultishot;
 use crate::io_uring::normal::IoUringNormal;
 use crate::io_uring::provided_buffer::IoUringProvidedBuffer;
@@ -178,10 +177,12 @@ impl Server {
                     }
                     let msghdr = &mut mmsghdr.msg_hdr;
                     let msghdr_bytes = mmsghdr.msg_len as usize;
+                
 
                     let datagrams_received;
                     (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, statistic);
                     absolut_datagrams_received += datagrams_received;
+                    // TODO: Reset msg_controllen and msg_flags fields, if needed here
                 }
 
                 statistic.amount_datagrams += absolut_datagrams_received;
@@ -239,15 +240,13 @@ impl Server {
     fn io_uring_complete(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
         let cq = io_uring_instance.get_cq();
-
+        // Pool to store the buffer indexes, which are used in the completion queue to return them later
+        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
             warn!("Dropped messages in completion queue: {}", cq.overflow());
         }
-
-        // Pool to store the buffer indexes, which are used in the completion queue to return them later
-        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
 
         // Drain completion queue events
         for cqe in cq {
@@ -257,30 +256,14 @@ impl Server {
 
             completion_count += parse_received_bytes(amount_received_bytes)?;
 
-            // Parse recvmsg msghdr on return
-            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
-            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
-            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
             match self.handle_recvmsg_return(amount_received_bytes, None, user_data) {
                 Ok(_) => {},
-                Err("INIT_MESSAGE_RECEIVED") => {
+                Err("INIT_MESSAGE_RECEIVED") => { // Checking for INIT message, and returning the buffer index to the buffer ring
                     index_pool.push(user_data as usize);
                     continue;
                 },
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    for measurement in self.measurements.iter() {
-                        if !measurement.last_packet_received && measurement.first_packet_received {
-                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                        } 
-                    };
-                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                    return Err("LAST_MESSAGE_RECEIVED");
-                },
-                Err(x) => {
-                    error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
+                Err(x) => return Err(x)
+            };
 
             index_pool.push(user_data as usize);
         }
@@ -297,7 +280,6 @@ impl Server {
         let mut completion_count = 0;
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
-
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -319,55 +301,25 @@ impl Server {
                 Err(x) => return Err(x)
             }
 
-            let iovec: libc::iovec;
-            let mut msghdr: libc::msghdr;
-            let mut buf: Buf; 
-
-            let pmsghdr  = {
-                // Following lines are only provided buffers specific
-                // Get specific buffer from the buffer ring
-                buf = unsafe {
-                    bufs.get(cqe.flags(), usize::try_from(amount_received_bytes).unwrap())
-                };
-
-                // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
-                iovec = libc::iovec {
-                    iov_base: buf.as_mut_ptr() as *mut libc::c_void,
-                    iov_len: amount_received_bytes as usize
-                };
-
-                msghdr = {
-                    let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-                    hdr.msg_iov = &iovec as *const _ as *mut _;
-                    hdr.msg_iovlen = 1;
-                    hdr
-                };
-                &mut msghdr
+            // Create a msghdr from the provided buffer to better parse the received message
+            let mut buf = unsafe {
+                bufs.get(cqe.flags(), usize::try_from(amount_received_bytes).unwrap())
             };
 
-            // Parse recvmsg msghdr on return
-            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
-            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
-            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes, Some(pmsghdr), user_data) {
-                Ok(_) => {},
-                Err("INIT_MESSAGE_RECEIVED") => {
-                    continue;
-                },
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    for measurement in self.measurements.iter() {
-                        if !measurement.last_packet_received && measurement.first_packet_received {
-                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                        } 
-                    };
-                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                    return Err("LAST_MESSAGE_RECEIVED");
-                },
-                Err(x) => {
-                    error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
+            // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
+            let iovec = libc::iovec {
+                iov_base: buf.as_mut_ptr() as *mut libc::c_void,
+                iov_len: amount_received_bytes as usize
+            };
+
+            let mut msghdr = {
+                let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
+                hdr.msg_iov = &iovec as *const _ as *mut _;
+                hdr.msg_iovlen = 1;
+                hdr
+            };
+
+            self.handle_recvmsg_return(amount_received_bytes, Some(&mut msghdr), user_data)?; 
         }
 
         debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
@@ -380,7 +332,6 @@ impl Server {
         let msghdr = &io_uring_instance.get_msghdr();
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
-
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -418,7 +369,7 @@ impl Server {
                 debug!("The name data was truncated");
             }
 
-            // Build iovec struct for recvmsg to reuse handle_recvmsg_return code
+            // Create a msghdr from the provided buffer to better parse the received message
             let iovec: libc::iovec = libc::iovec {
                 iov_base: msg.payload_data().as_ptr() as *mut libc::c_void,
                 iov_len: (amount_received_bytes - crate::URING_ADDITIONAL_BUFFER_LENGTH) as usize
@@ -432,28 +383,8 @@ impl Server {
                 hdr.msg_controllen = msg.control_data().len();
                 hdr
             };
-            
-            // Parse recvmsg msghdr on return
-            // TODO: Should do the same (AND return the same errors) as the normal recvmsg function.
-            // TODO: Struct to catch this should be the same as the match block from original recv_messages loop
-            // Maybe when using multishot recvmsg, we can add an own io_uring function to recv_messages() and use the same loop
-            match self.handle_recvmsg_return(amount_received_bytes - crate::URING_ADDITIONAL_BUFFER_LENGTH,  Some(&mut msghdr), 0) {
-                Ok(_) => {},
-                Err("INIT_MESSAGE_RECEIVED") => break,
-                Err("LAST_MESSAGE_RECEIVED") => {
-                    for measurement in self.measurements.iter() {
-                        if !measurement.last_packet_received && measurement.first_packet_received {
-                            debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
-                        } 
-                    };
-                    info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
-                    return Err("LAST_MESSAGE_RECEIVED");
-                },
-                Err(x) => {
-                    error!("Error receiving message! Aborting measurement...");
-                    return Err(x);
-                }
-            }
+ 
+            self.handle_recvmsg_return(amount_received_bytes - crate::URING_ADDITIONAL_BUFFER_LENGTH,  Some(&mut msghdr), 0)?;
         }
 
         debug!("END io_uring_complete: Multishot is still armed: {}", multishot_armed);
@@ -479,10 +410,17 @@ impl Server {
                         }
                         armed = multishot_armed
                     },
+                    Err("INIT_MESSAGE_RECEIVED") => {},
                     Err("LAST_MESSAGE_RECEIVED") => {
+                        for measurement in self.measurements.iter() {
+                            if !measurement.last_packet_received && measurement.first_packet_received {
+                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                            } 
+                        };
+                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
                         return Ok(statistic + io_uring_instance.get_statistic());
-                        // TODO: Check if all measurements are done
                     },
+                    Err("EAGAIN") => continue,
                     Err(x) => {
                         error!("Error completing io_uring sqe: {}", x);
                         return Err(x);
@@ -492,7 +430,7 @@ impl Server {
                 statistic.amount_io_model_calls += 1;
             }
         } else if self.parameter.uring_parameter.provided_buffer {
-            let mut io_uring_instance = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
+            let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
             let mut amount_inflight = 0;
 
             loop {
@@ -502,9 +440,15 @@ impl Server {
                     Ok(completed) => {
                         amount_inflight -= completed
                     },
+                    Err("INIT_MESSAGE_RECEIVED") => {},
                     Err("LAST_MESSAGE_RECEIVED") => {
+                        for measurement in self.measurements.iter() {
+                            if !measurement.last_packet_received && measurement.first_packet_received {
+                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                            } 
+                        };
+                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
                         return Ok(statistic + io_uring_instance.get_statistic());
-                        // TODO: Check if all measurements are done
                     },
                     Err("EAGAIN") => continue,
                     Err(x) => {
@@ -527,9 +471,15 @@ impl Server {
                     Ok(completed) => {
                         amount_inflight -= completed
                     },
+                    Err("INIT_MESSAGE_RECEIVED") => {},
                     Err("LAST_MESSAGE_RECEIVED") => {
+                        for measurement in self.measurements.iter() {
+                            if !measurement.last_packet_received && measurement.first_packet_received {
+                                debug!("{:?}: Last message received, but not all measurements are finished!", thread::current().id());
+                            } 
+                        };
+                        info!("{:?}: Last message received and all measurements are finished!", thread::current().id());
                         return Ok(statistic + io_uring_instance.get_statistic());
-                        // TODO: Check if all measurements are done
                     },
                     Err("EAGAIN") => continue,
                     Err(x) => {

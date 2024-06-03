@@ -17,7 +17,6 @@ pub struct IoUringProvidedBuffer {
 }
 
 impl IoUringProvidedBuffer {
-
     pub fn submit(&mut self, amount_recvmsg: u32, socket_fd: i32) -> Result<u32, &'static str> {
         let mut submission_count = 0;
         let mut sq = self.ring.submission();
@@ -69,8 +68,6 @@ impl IoUringProvidedBuffer {
     pub fn get_bufs_and_cq(&mut self) -> (&mut BufRing, CompletionQueue<'_, Entry>) {
         (&mut self.buf_ring, self.ring.completion())
     }
-
-
 }
 
 impl IoUringOperatingModes for IoUringProvidedBuffer {
@@ -85,7 +82,7 @@ impl IoUringOperatingModes for IoUringProvidedBuffer {
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
         let msghdr = {
             let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
-            hdr.msg_controllen = 24;
+            hdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
             hdr
         };
 

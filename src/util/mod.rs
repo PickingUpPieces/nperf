@@ -107,7 +107,7 @@ pub fn process_packet_msghdr(msghdr: &mut libc::msghdr, amount_received_bytes: u
         }
     };
 
-    debug!("Process packet msghdr to extract the packets received. Received {} iov packets. Start iterating over them...", msghdr.msg_iovlen);
+    debug!("Process packet msghdr to extract the packets received. Received {} iov packets, with controllen {} Start iterating over them...", msghdr.msg_iovlen, msghdr.msg_controllen);
     // Make sure that iovlen == 1, since we only support one packet per msghdr.
     let iovec = if msghdr.msg_iovlen == 1 {
         unsafe { *msghdr.msg_iov }

@@ -86,7 +86,6 @@ pub trait IoUringOperatingModes {
         .expect("Creation of BufRing failed.");
 
         debug!("Registered buffer ring at io_uring instance with capacity: {} and single buffer size: {}", buffer_size, mss + crate::URING_ADDITIONAL_BUFFER_LENGTH as u32);
-
         ring_buf
     }
 
