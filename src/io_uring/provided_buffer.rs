@@ -17,12 +17,12 @@ pub struct IoUringProvidedBuffer {
 }
 
 impl IoUringProvidedBuffer {
-    pub fn submit(&mut self, amount_recvmsg: u32, socket_fd: i32) -> Result<u32, &'static str> {
+    fn submit(&mut self, amount_requests: usize, socket_fd: i32) -> Result<u32, &'static str> {
         let mut submission_count = 0;
         let mut sq = self.ring.submission();
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
-        for _ in 0..amount_recvmsg {
+        for _ in 0..amount_requests {
             let sqe = opcode::RecvMsg::new(types::Fd(socket_fd), &mut self.msghdr)
                 .buf_group(crate::URING_BUFFER_GROUP) 
                 .build()

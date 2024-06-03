@@ -12,7 +12,7 @@ use crate::io_uring::{parse_received_bytes, IoUringOperatingModes, UringMode};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
-use crate::util::{self, statistic::{self, *}, ExchangeFunction, IOModel};
+use crate::util::{self, statistic::*, ExchangeFunction, IOModel};
 use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds

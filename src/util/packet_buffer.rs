@@ -66,7 +66,7 @@ impl PacketBuffer {
         });
     }
 
-    pub fn add_packet_ids(&mut self, packet_id: u64) -> Result<u64, &'static str> {
+    pub fn add_packet_ids(&mut self, packet_id: u64, amount_packet_ids: Option<usize>) -> Result<u64, &'static str> {
         let mut amount_used_packet_ids: u64 = 0;
 
         // Iterate over all mmsghdr structs
@@ -74,6 +74,11 @@ impl PacketBuffer {
             let msghdr_buffer = Self::get_buffer_pointer_from_mmsghdr(mmsghdr);
 
             for i in 0..self.packets_amount_per_msghdr {
+                if let Some(amount_packet_ids) = amount_packet_ids {
+                    if amount_used_packet_ids >= amount_packet_ids as u64 {
+                        break;
+                    }
+                }
                 let start_of_packet = i * self.datagram_size;
                 MessageHeader::set_packet_id_raw(&mut msghdr_buffer[start_of_packet..], packet_id + amount_used_packet_ids);
                 amount_used_packet_ids += 1;

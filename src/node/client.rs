@@ -3,7 +3,7 @@ use std::os::fd::RawFd;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
-use crate::io_uring::normal::IoUringNormal;
+use crate::io_uring::send::IoUringSend;
 use crate::io_uring::{IoUringOperatingModes, UringMode};
 use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::msghdr_vec::MsghdrVec;
@@ -87,7 +87,7 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id, None)?;
         self.next_packet_id += amount_datagrams;
 
         // Only one buffer is used, so we can directly access the first element
@@ -113,7 +113,7 @@ impl Client {
     }
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id, None)?;
         self.next_packet_id += amount_datagrams;
 
         // Only one buffer is used, so we can directly access the first element
@@ -138,7 +138,7 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id, None)?;
         self.next_packet_id += amount_datagrams;
 
         match self.socket.sendmmsg(&mut self.packet_buffer.mmsghdr_vec) {
@@ -179,11 +179,13 @@ impl Client {
         PacketBuffer::new(packet_buffer)
     }
 
-    fn io_uring_complete_normal(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
+    fn io_uring_complete_send(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
         let mut completion_count = 0;
+        let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
         let cq = io_uring_instance.get_cq();
-        // Pool to store the buffer indexes, which are used in the completion queue to return them later
+        // Pool to store the buffer indexes, which have not been send successfully
         let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
+
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -192,49 +194,57 @@ impl Client {
 
         // Drain completion queue events
         for cqe in cq {
-            let amount_received_bytes = cqe.result();
+            let amount_bytes = cqe.result();
             let user_data = cqe.user_data();
-            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_bytes); 
 
-
-            index_pool.push(user_data as usize);
+            match amount_bytes {
+                -11 => { // libc::EAGAIN == 11
+                    // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                    // From: https://linux.die.net/man/2/recvmsg
+                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    index_pool.push(user_data as usize);
+                },
+                -111 => { // libc::ECONNREFUSED == 111
+                    return Err("Start the server first! Abort measurement...");
+                }
+                _ if amount_bytes < 0 => {
+                    error!("Error receiving message! Negated error code: {}", amount_bytes);
+                    return Err("Failed to receive data!")
+                },
+                _ => { // Positive amount of bytes received
+                    self.statistic.amount_datagrams += amount_datagrams;
+                    self.statistic.amount_data_bytes += amount_bytes as usize;
+                    completion_count += 1;
+                    trace!("Sent datagram to remote host");
+                }
+            }
         }
 
-        // Returns used buffers to the buffer ring.
-        self.packet_buffer.return_buffer_index(index_pool);
-
+        if !index_pool.is_empty() {
+            warn!("Follwing packet_ids were not sent successfully: {:?}", index_pool);
+        }
         debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
         Ok(completion_count)
     }
 
     fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
         let socket_fd = self.socket.get_socket_id();
-        let mut amount_inflight = 0;
+        let mut amount_inflight: usize = 0;
 
         match self.parameter.uring_parameter.uring_mode {
             UringMode::Normal => {
-                let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut io_uring_instance = crate::io_uring::send::IoUringSend::new(self.parameter, self.io_uring_sqpoll_fd)?;
 
                 while start_time.elapsed().as_secs() < self.run_time_length {
-                    self.statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    self.statistic.uring_inflight_utilization[amount_inflight ] += 1;
                     self.statistic.amount_io_model_calls += 1;
 
-                    // TODO: get_amount_to_submit()
-                    //       Von fillmode Anzahl der to_submit/min_complete Pakete bekommen
-                    // TODO: submit()
-                    //       Packet IDs in buffer schreiben
-                    //       Dafür muss man einen Parameter hinzufügen, der die Anzahl der zu schreibenden Pakete angibt, damit nur diese gefüllt werden
-                    //       Resubmitt so lange bis sq.len() == 0
-                    //       Idee: In submit loop wird einzeln der Buffer gefüllt und dann in sq gepusht -> Bulk fillen (einmal drüber iterieren) ist wahrscheinlich besser
-                    //       packet_number in user_data ablegen
-                    // TODO: complete()
-                    //       Completion Queue abarbeiten
-                    //       next_packet_id erst hier inkrementieren
-                    //       Falls senden fehlgeschlagen ist, dann diese packet_id noch einmal senden
-                    //       Eventuell backlog der beim nächsten Mal gesendet werden soll
-                    info!("Send messages with io_uring");
+                    let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
+                    amount_inflight += submitted;
+                    self.next_packet_id += (submitted * self.packet_buffer.packets_amount_per_msghdr()) as u64;
 
-                    match self.io_uring_complete_normal(&mut io_uring_instance) {
+                    match self.io_uring_complete_send(&mut io_uring_instance) {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },

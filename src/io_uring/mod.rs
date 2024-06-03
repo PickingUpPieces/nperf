@@ -1,6 +1,7 @@
 pub mod normal;
 pub mod provided_buffer;
 pub mod multishot;
+pub mod send;
 
 use std::os::fd::RawFd;
 use io_uring::{buf_ring::BufRing, cqueue, types::{SubmitArgs, Timespec}, IoUring, Submitter};
@@ -132,7 +133,7 @@ pub fn check_multishot_status(flags: u32) -> bool {
     }
 }
 
-fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut IoUring) -> (u32, usize) {
+fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut IoUring) -> (usize, usize) {
     let uring_burst_size = parameter.burst_size;
     let uring_buffer_size = parameter.buffer_size;
     let min_complete;
@@ -185,7 +186,7 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
         //          If other task_work is implemented, we need to force this probably.
         min_complete = if parameter.sqpoll { 0 } else { uring_burst_size } as usize;
     }
-    (to_submit, min_complete)
+    (to_submit as usize, min_complete)
 }
 
 
