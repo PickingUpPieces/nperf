@@ -418,6 +418,7 @@ impl Server {
                         Err("LAST_MESSAGE_RECEIVED") => {
                             if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
+                        Err("EAGAIN") => {},
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -442,6 +443,7 @@ impl Server {
                         Err("LAST_MESSAGE_RECEIVED") => {
                             if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
+                        Err("EAGAIN") => {},
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -466,6 +468,7 @@ impl Server {
                         Err("LAST_MESSAGE_RECEIVED") => {
                             if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } 
                         },
+                        Err("EAGAIN") => {},
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
