@@ -89,7 +89,7 @@ impl nPerf {
         }
         
         let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
-            Box::new(Client::new(test_id, client_port, sock_address_server, socket, parameter))
+            Box::new(Client::new(test_id, client_port, sock_address_server, socket, io_uring, parameter))
         } else {
             Box::new(Server::new(sock_address_server, socket, io_uring, parameter))
         };

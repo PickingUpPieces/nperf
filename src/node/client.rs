@@ -1,7 +1,10 @@
 use std::net::SocketAddrV4;
+use std::os::fd::RawFd;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
+use crate::io_uring::normal::IoUringNormal;
+use crate::io_uring::{IoUringOperatingModes, UringMode};
 use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
@@ -13,6 +16,8 @@ pub struct Client {
     test_id: u64,
     packet_buffer: PacketBuffer,
     socket: Socket,
+    parameter: Parameter,
+    io_uring_sqpoll_fd: Option<RawFd>,
     statistic: Statistic,
     run_time_length: u64,
     next_packet_id: u64,
@@ -20,7 +25,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Self {
+    pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Self {
         let socket = if socket.is_none() {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             if let Some(port) = local_port {
@@ -42,6 +47,8 @@ impl Client {
             test_id,
             packet_buffer,
             socket,
+            parameter,
+            io_uring_sqpoll_fd: io_uring,
             statistic: Statistic::new(parameter),
             run_time_length: parameter.test_runtime_length,
             next_packet_id: 0,
@@ -171,6 +178,78 @@ impl Client {
 
         PacketBuffer::new(packet_buffer)
     }
+
+    fn io_uring_complete_normal(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
+        let mut completion_count = 0;
+        let cq = io_uring_instance.get_cq();
+        // Pool to store the buffer indexes, which are used in the completion queue to return them later
+        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
+        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        if cq.overflow() > 0 {
+            warn!("Dropped messages in completion queue: {}", cq.overflow());
+        }
+
+        // Drain completion queue events
+        for cqe in cq {
+            let amount_received_bytes = cqe.result();
+            let user_data = cqe.user_data();
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_received_bytes); 
+
+
+            index_pool.push(user_data as usize);
+        }
+
+        // Returns used buffers to the buffer ring.
+        self.packet_buffer.return_buffer_index(index_pool);
+
+        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
+        Ok(completion_count)
+    }
+
+    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
+        let socket_fd = self.socket.get_socket_id();
+        let mut amount_inflight = 0;
+
+        match self.parameter.uring_parameter.uring_mode {
+            UringMode::Normal => {
+                let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
+
+                while start_time.elapsed().as_secs() < self.run_time_length {
+                    self.statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    self.statistic.amount_io_model_calls += 1;
+
+                    // TODO: get_amount_to_submit()
+                    //       Von fillmode Anzahl der to_submit/min_complete Pakete bekommen
+                    // TODO: submit()
+                    //       Packet IDs in buffer schreiben
+                    //       Dafür muss man einen Parameter hinzufügen, der die Anzahl der zu schreibenden Pakete angibt, damit nur diese gefüllt werden
+                    //       Resubmitt so lange bis sq.len() == 0
+                    //       Idee: In submit loop wird einzeln der Buffer gefüllt und dann in sq gepusht -> Bulk fillen (einmal drüber iterieren) ist wahrscheinlich besser
+                    //       packet_number in user_data ablegen
+                    // TODO: complete()
+                    //       Completion Queue abarbeiten
+                    //       next_packet_id erst hier inkrementieren
+                    //       Falls senden fehlgeschlagen ist, dann diese packet_id noch einmal senden
+                    //       Eventuell backlog der beim nächsten Mal gesendet werden soll
+                    info!("Send messages with io_uring");
+
+                    match self.io_uring_complete_normal(&mut io_uring_instance) {
+                        Ok(completed) => {
+                            amount_inflight -= completed
+                        },
+                        Err("EAGAIN") => {},
+                        Err(x) => {
+                            error!("Error completing io_uring sqe: {}", x);
+                            return Err(x);
+                        }
+                    };
+                }
+            },
+            _ => return Err("Invalid io_uring mode for client"),
+        }
+        Ok(())
+    }
 }
 
 
@@ -188,19 +267,23 @@ impl Node for Client {
         let start_time = Instant::now();
         info!("Start measurement...");
 
-        while start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages() {
-                Ok(_) => {},
-                Err("EAGAIN") => {
-                    self.statistic.amount_io_model_calls += 1;
-                    self.io_wait(io_model)?;
-                },
-                Err(x) => {
-                    error!("Error sending message! Aborting measurement...");
-                    return Err(x)
+        if io_model == IOModel::IoUring {
+            self.io_uring_loop(start_time)?;
+        } else {
+            while start_time.elapsed().as_secs() < self.run_time_length {
+                match self.send_messages() {
+                    Ok(_) => {},
+                    Err("EAGAIN") => {
+                        self.statistic.amount_io_model_calls += 1;
+                        self.io_wait(io_model)?;
+                    },
+                    Err(x) => {
+                        error!("Error sending message! Aborting measurement...");
+                        return Err(x)
+                    }
                 }
+                self.statistic.amount_syscalls += 1;
             }
-            self.statistic.amount_syscalls += 1;
         }
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));

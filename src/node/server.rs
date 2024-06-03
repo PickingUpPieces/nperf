@@ -12,7 +12,7 @@ use crate::io_uring::{parse_received_bytes, IoUringOperatingModes, UringMode};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::net::{socket::Socket, MessageHeader, MessageType};
-use crate::util::{self, statistic::*, ExchangeFunction, IOModel};
+use crate::util::{self, statistic::{self, *}, ExchangeFunction, IOModel};
 use super::Node;
 
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
@@ -393,8 +393,9 @@ impl Server {
     }
 
 
-    fn io_uring_loop(&mut self, mut statistic: Statistic) -> Result<Statistic, &'static str> {
+    fn io_uring_loop(&mut self) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
+        let mut statistic = Statistic::new(self.parameter);
         let mut amount_inflight = 0;
 
         match self.parameter.uring_parameter.uring_mode {
@@ -516,7 +517,7 @@ impl Node for Server {
 
         // TODO: Very ugly at the moment
         if io_model == IOModel::IoUring {
-            statistic = self.io_uring_loop(statistic)?;
+            statistic = self.io_uring_loop()?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;
