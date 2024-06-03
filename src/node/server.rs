@@ -403,7 +403,7 @@ impl Server {
                 // Indicator if multishot request is still armed
                 let mut armed = false;
 
-                'outer: loop {
+                loop {
                     statistic.amount_io_model_calls += 1;
                     io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
@@ -414,9 +414,9 @@ impl Server {
                             }
                             armed = multishot_armed
                         },
-                        Err("INIT_MESSAGE_RECEIVED") => continue,
+                        Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } else { continue 'outer }
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
@@ -428,7 +428,7 @@ impl Server {
             UringMode::ProvidedBuffer => {
                 let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
 
-                'outer: loop {
+                loop {
                     statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
                     statistic.amount_io_model_calls += 1;
 
@@ -438,9 +438,9 @@ impl Server {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
-                        Err("INIT_MESSAGE_RECEIVED") => continue,
+                        Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } else { continue 'outer }
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
@@ -452,7 +452,7 @@ impl Server {
             UringMode::Normal => {
                 let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
 
-                'outer: loop {
+                loop {
                     statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
                     statistic.amount_io_model_calls += 1;
 
@@ -462,9 +462,9 @@ impl Server {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
-                        Err("INIT_MESSAGE_RECEIVED") => continue,
+                        Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } else { continue 'outer }
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } 
                         },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
@@ -515,7 +515,9 @@ impl Node for Server {
         if io_model == IOModel::IoUring {
             statistic = self.io_uring_loop(statistic)?;
         } else {
-            'outer: loop {
+            loop {
+                statistic.amount_syscalls += 1;
+
                 match self.recv_messages() {
                     Ok(_) => {},
                     Err("EAGAIN") => {
@@ -526,25 +528,22 @@ impl Node for Server {
                                 // If port sharing is used, or single connection not every thread receives the LAST message. 
                                 // To avoid that the thread waits forever, we need to return here.
                                 error!("{:?}: Timeout waiting for a subsequent packet from the client!", thread::current().id());
-                                break 'outer;
+                                break;
                             },
                             Err(x) => {
                                 return Err(x);
                             }
                         }
                     },
+                    Err("INIT_MESSAGE_RECEIVED") => {},
                     Err("LAST_MESSAGE_RECEIVED") => {
-                        if self.all_measurements_finished() { break 'outer } else { continue 'outer }
-                    },
-                    Err("INIT_MESSAGE_RECEIVED") => {
-                        continue 'outer;
+                        if self.all_measurements_finished() { break }
                     },
                     Err(x) => {
                         error!("Error receiving message! Aborting measurement...");
                         return Err(x)
                     }
                 }
-                statistic.amount_syscalls += 1;
             }
         }
 
