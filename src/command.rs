@@ -100,6 +100,10 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     simulate_connection: SimulateConnection,
 
+    /// Enable zero copy for sendmsg
+    #[arg(long, default_value_t = false)]
+    with_zerocopy: bool,
+
     /// io_uring: Which mode to use
     #[arg(long, default_value_t, value_enum)]
     uring_mode: UringMode,
@@ -209,6 +213,7 @@ impl nPerf {
             self.multiplex_port,
             self.multiplex_port_server,
             simulate_connection,
+            self.with_zerocopy,
             self.with_core_affinity,
             self.with_numa_affinity,
             uring_parameters
@@ -272,6 +277,12 @@ impl nPerf {
             warn!("Uring sqpoll_shared can't be used without sqpoll!");
             warn!("Setting sqpoll to true!");
             parameter.uring_parameter.sqpoll = true;
+        }
+
+        if self.with_zerocopy && (self.io_model != IOModel::IoUring || parameter.mode != util::NPerfMode::Client) {
+            warn!("Zero copy is only available with io_uring on the client!");
+            warn!("Setting zerocopy to false!");
+            parameter.zerocopy = false;
         }
 
         if parameter.uring_parameter.sqpoll && parameter.uring_parameter.task_work != UringTaskWork::Default {

@@ -262,6 +262,7 @@ pub struct Parameter {
     pub multiplex_port: MultiplexPort,
     pub multiplex_port_server: MultiplexPort,
     pub simulate_connection: SimulateConnection,
+    pub zerocopy: bool,
     pub core_affinity: bool,
     pub numa_affinity: bool,
     pub uring_parameter: UringParameter,
@@ -269,7 +270,26 @@ pub struct Parameter {
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, multiplex_port: MultiplexPort, multiplex_port_server: MultiplexPort, simulate_connection: SimulateConnection, core_affinity: bool, numa_affinity: bool, uring_parameter: UringParameter) -> Parameter {
+    pub fn new(
+        mode: super::NPerfMode, 
+        ip: std::net::Ipv4Addr, 
+        amount_threads: u16, 
+        output_format: OutputFormat, 
+        io_model: super::IOModel, 
+        test_runtime_length: u64, 
+        mss: u32, 
+        datagram_size: u32, 
+        packet_buffer_size: usize, 
+        socket_options: SocketOptions, 
+        exchange_function: super::ExchangeFunction, 
+        multiplex_port: MultiplexPort, 
+        multiplex_port_server: MultiplexPort, 
+        simulate_connection: SimulateConnection, 
+        zerocopy: bool,
+        core_affinity: bool, 
+        numa_affinity: bool, 
+        uring_parameter: UringParameter
+    ) -> Parameter {
         Parameter {
             mode,
             ip,
@@ -285,6 +305,7 @@ impl Parameter {
             multiplex_port,
             multiplex_port_server,
             simulate_connection,
+            zerocopy,
             core_affinity,
             numa_affinity,
             uring_parameter
