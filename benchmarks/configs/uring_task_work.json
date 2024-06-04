@@ -1,6 +1,6 @@
 {
     "parameters": {
-        "repetitions": 1,
+        "repetitions": 3,
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
@@ -17,11 +17,11 @@
         "with-numa-affinity": true,
         "without-non-blocking": false,
         "io-model": "io-uring",
-        "uring-provided-buffer": false,
-        "uring-multishot": false,
+        "uring-mode": "normal",
         "uring-sqpoll": false,
         "uring-sqpoll-shared": false,
         "uring-task-work": "default",
+        "uring-sq-mode": "topup",
         "uring-ring-size": 512
     },
     "default": {
@@ -345,6 +345,114 @@
             "server": {
                 "parallel": 16,
                 "uring-task-work": "defer"
+            }
+        }
+    },
+    "COOP-DEFER": {
+        "1": {
+            "client": {
+                "with-gsro": true,
+                "io-model": "poll",
+                "exchange-function": "msg"
+            },
+            "server": {
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "2": {
+            "client": {
+                "parallel": 2,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 2,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "4": {
+            "client": {
+                "parallel": 4,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 4,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "6": {
+            "client": {
+                "parallel": 6,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 6,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "8": {
+            "client": {
+                "parallel": 8,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 8,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "10": {
+            "client": {
+                "parallel": 10,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 10,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "12": {
+            "client": {
+                "parallel": 12,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 12,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "14": {
+            "client": {
+                "parallel": 14,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 14,
+                "uring-task-work": "coop-defer"
+            }
+        },
+        "16": {
+            "client": {
+                "parallel": 16,
+                "io-model": "poll",
+                "with-gsro": true,
+                "exchange-function": "msg"
+            },
+            "server": {
+                "parallel": 16,
+                "uring-task-work": "coop-defer"
             }
         }
     }

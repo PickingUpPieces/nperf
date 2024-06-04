@@ -70,22 +70,22 @@ pub trait IoUringOperatingModes {
 }
 
 fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<IoUring, &'static str> {
-        info!("Setup io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
+        info!("Setting up io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
+
+        info!("Setting up io_uring with SINGLE_ISSUER");
+        ring_builder.setup_single_issuer();
 
         if parameters.task_work == UringTaskWork::Coop {
             info!("Setting up io_uring with cooperative task work (IORING_SETUP_COOP_TASKRUN)");
             ring_builder.setup_coop_taskrun();
         } else if parameters.task_work == UringTaskWork::Defer {
             info!("Setting up io_uring with deferred task work (IORING_SETUP_DEFER_TASKRUN)");
-            ring_builder.setup_single_issuer()
-            .setup_defer_taskrun();
+            ring_builder.setup_defer_taskrun();
         } else if parameters.task_work == UringTaskWork::CoopDefer {
             info!("Setting up io_uring with cooperative and deferred task work (IORING_SETUP_COOP_TASKRUN | IORING_SETUP_DEFER_TASKRUN)");
-            ring_builder.setup_coop_taskrun()
-            .setup_single_issuer()
-            .setup_defer_taskrun();
+            ring_builder.setup_coop_taskrun().setup_defer_taskrun();
         }
 
         if parameters.sqpoll {
