@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::{util::statistic::{Parameter, UringParameter}, Statistic};
 
 const URING_SQ_POLL_TIMEOUT: u32 = 2_000;
+pub const IORING_CQE_F_NOTIF: u32 = 8;
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
 pub enum UringSqFillingMode {

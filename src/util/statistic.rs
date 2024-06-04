@@ -43,6 +43,7 @@ pub struct Statistic {
     pub amount_io_model_calls: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
+    pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization")]
     pub uring_sq_utilization: Box<[usize]>,
@@ -78,6 +79,7 @@ impl Statistic {
             amount_io_model_calls: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
+            uring_copied_zc: 0,
             uring_canceled_multishot: 0,
             uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
             uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
@@ -116,9 +118,10 @@ impl Statistic {
                 println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
+                    println!("Io-Uring");
+                    println!("------------------------");
+                    println!("Copied zero-copy: {}", self.uring_copied_zc);
                     println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
-
-                    println!();
                     println!("Uring SQ utilization:");
                     for (index, &utilization) in self.uring_sq_utilization.iter().enumerate() {
                         if utilization != 0 && utilization != 1 {
@@ -226,6 +229,7 @@ impl Add for Statistic {
             amount_io_model_calls: self.amount_io_model_calls + other.amount_io_model_calls,
             data_rate_gbit, 
             packet_loss,
+            uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
             uring_cq_utilization,

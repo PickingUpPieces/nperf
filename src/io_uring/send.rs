@@ -5,6 +5,8 @@ use log::{debug, trace, warn};
 
 use crate::{util::{packet_buffer::PacketBuffer, statistic::{Parameter, UringParameter}}, Statistic};
 
+pub const IORING_SEND_ZC_REPORT_USAGE: u16 = 8;
+
 use super::IoUringOperatingModes;
 pub struct IoUringSend {
     ring: IoUring,
@@ -62,8 +64,11 @@ impl IoUringSend {
             // Add packet_ids to specific msghdr
             amount_datagrams += packet_buffer.add_packet_ids_to_msghdr(next_packet_id + amount_datagrams, packet_buffer_index)?;
 
+            // Set IORING_SEND_ZC_REPORT_USAGE in ioprio flags to check if a copy is done nevertheless -> IORING_NOTIF_USAGE_ZC_COPIED in cqe.flags
+            // https://github.com/axboe/liburing/blob/b68cf47a120d6b117a81ed9f7617aad13314258c/src/include/liburing/io_uring.h#L343
             let sqe = 
                 opcode::SendMsgZc::new(types::Fd(socket_fd), packet_buffer.get_msghdr_from_index(packet_buffer_index)?)
+                .ioprio(0 | IORING_SEND_ZC_REPORT_USAGE)
                 .build()
                 .user_data(packet_buffer_index as u64);
 
