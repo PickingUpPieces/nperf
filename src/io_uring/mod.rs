@@ -25,7 +25,8 @@ pub enum UringTaskWork {
     #[default]
     Default,
     Coop,
-    Defer
+    Defer,
+    CoopDefer
 }
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
@@ -79,6 +80,11 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
         } else if parameters.task_work == UringTaskWork::Defer {
             info!("Setting up io_uring with deferred task work (IORING_SETUP_DEFER_TASKRUN)");
             ring_builder.setup_single_issuer()
+            .setup_defer_taskrun();
+        } else if parameters.task_work == UringTaskWork::CoopDefer {
+            info!("Setting up io_uring with cooperative and deferred task work (IORING_SETUP_COOP_TASKRUN | IORING_SETUP_DEFER_TASKRUN)");
+            ring_builder.setup_coop_taskrun()
+            .setup_single_issuer()
             .setup_defer_taskrun();
         }
 
