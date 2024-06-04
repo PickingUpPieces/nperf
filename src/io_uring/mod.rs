@@ -2,7 +2,6 @@ pub mod normal;
 pub mod provided_buffer;
 pub mod multishot;
 pub mod send;
-pub mod send_zc;
 
 use std::os::fd::RawFd;
 use io_uring::{buf_ring::BufRing, cqueue, opcode, types::{SubmitArgs, Timespec}, IoUring, Probe, Submitter};
