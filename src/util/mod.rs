@@ -70,7 +70,7 @@ fn process_packet_number(packet_id: u64, next_packet_id: u64, statistic: &mut St
                 debug!("Received reordered packet number {}, but expected {}", packet_id, next_packet_id);
             } else { 
                 statistic.amount_duplicated_datagrams += 1;
-                debug!("Received duplicated packet");
+                debug!("Received duplicated packet: {}", packet_id);
             }
             0
         }

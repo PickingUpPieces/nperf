@@ -19,13 +19,11 @@ impl IoUringSend {
     fn submit(&mut self, amount_requests: usize, packet_buffer: &mut PacketBuffer, next_packet_id: u64, socket_fd: i32) -> Result<usize, &'static str> {
         let mut submission_count = 0;
         let mut sq = self.ring.submission();
+        let packets_per_buffer = packet_buffer.packets_amount_per_msghdr();
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
         // Add all packet_ids in one go -> Probably more efficient, but not benched
-        let assigned_packet_ids = packet_buffer.add_packet_ids(next_packet_id, Some(amount_requests))? as usize;
-        // TODO: Needs to be relaxed for GSRO, since we will just round up to the next multiple of packets_per_buffer
-        assert!(assigned_packet_ids == amount_requests); 
-        let packets_per_buffer = packet_buffer.packets_amount_per_msghdr();
+        packet_buffer.add_packet_ids(next_packet_id, Some(amount_requests))?;
 
         for i in 0..amount_requests {
             let packet_id = next_packet_id + ( i * packets_per_buffer ) as u64;
@@ -55,12 +53,10 @@ impl IoUringSend {
         let mut sq = self.ring.submission();
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
-        // Add all packet_ids in one go -> Probably more efficient, but not benched
-        // TODO: Needs to be relaxed for GSRO, since we will just round up to the next multiple of packets_per_buffer
-
         for i in 0..amount_requests {
             let packet_buffer_index = packet_buffer.get_buffer_index()?;
             trace!("Message number {}/{}: Used buffer index {}", i, amount_requests, i);
+
             // Add packet_ids to specific msghdr
             amount_datagrams += packet_buffer.add_packet_ids_to_msghdr(next_packet_id + amount_datagrams, packet_buffer_index)?;
 
