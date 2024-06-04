@@ -68,7 +68,7 @@ impl IoUringSend {
             // https://github.com/axboe/liburing/blob/b68cf47a120d6b117a81ed9f7617aad13314258c/src/include/liburing/io_uring.h#L343
             let sqe = 
                 opcode::SendMsgZc::new(types::Fd(socket_fd), packet_buffer.get_msghdr_from_index(packet_buffer_index)?)
-                .ioprio(0 | IORING_SEND_ZC_REPORT_USAGE)
+                .ioprio(IORING_SEND_ZC_REPORT_USAGE)
                 .build()
                 .user_data(packet_buffer_index as u64);
 
