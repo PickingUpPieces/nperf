@@ -177,7 +177,6 @@ def write_results_to_csv(test_results, test_name, csv_file_path):
                 'multiplex_port_client': client_result['parameter']['multiplex_port'],
                 'multiplex_port_server': server_result['parameter']['multiplex_port_server'],
                 'simulate_connection': client_result['parameter']['simulate_connection'],
-                'zerocopy': client_result['parameter']['zerocopy'],
                 'core_affinity': server_result['parameter']['core_affinity'],
                 'numa_affinity': server_result['parameter']['numa_affinity'],
                 'gso': client_result['parameter']['socket_options']['gso'],

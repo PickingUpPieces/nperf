@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use log::debug;
 
 use crate::net::MessageHeader;
@@ -7,7 +9,7 @@ pub struct PacketBuffer {
     pub mmsghdr_vec: Vec<libc::mmsghdr>,
     datagram_size: usize, // ASSUMPTION: It's the same for all msghdrs
     packets_amount_per_msghdr: usize, // ASSUMPTION: It's the same for all msghdrs
-    index_pool: Vec<usize> // When buffers are used for io_uring, we need to know which buffers can be reused 
+    index_pool: VecDeque<usize> // When buffers are used for io_uring, we need to know which buffers can be reused 
 }
 
 impl PacketBuffer {
@@ -25,13 +27,12 @@ impl PacketBuffer {
             };
             mmsghdr_vec.push(mmsghdr);
         }
-        let index_pool = Vec::from_iter(0..mmsghdr_vec.len());
 
         PacketBuffer {
+            index_pool: (0..mmsghdr_vec.len()).collect(),
             mmsghdr_vec,
             datagram_size,
-            packets_amount_per_msghdr,
-            index_pool
+            packets_amount_per_msghdr
         }
     }
 
@@ -90,6 +91,22 @@ impl PacketBuffer {
         Ok(amount_used_packet_ids)
     }
 
+    pub fn add_packet_ids_to_msghdr(&mut self, packet_id: u64, index: usize) -> Result<u64, &'static str> {
+        let mut amount_used_packet_ids: u64 = 0;
+        let datagram_size = self.datagram_size;
+        let packets_amount_per_msghdr = self.packets_amount_per_msghdr;
+        let msghdr_buffer = self.get_buffer_pointer_from_index(index)?;
+
+        for i in 0..packets_amount_per_msghdr {
+            let start_of_packet = i * datagram_size;
+            MessageHeader::set_packet_id_raw(&mut msghdr_buffer[start_of_packet..], packet_id + amount_used_packet_ids);
+            amount_used_packet_ids += 1;
+        }
+
+        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
+        Ok(amount_used_packet_ids)
+    }
+
     pub fn packets_amount_per_msghdr(&self) -> usize {
         self.packets_amount_per_msghdr
     }
@@ -99,13 +116,14 @@ impl PacketBuffer {
     }
 
     pub fn get_buffer_index(&mut self) -> Result<usize, &'static str> {
-        match self.index_pool.pop() {
+        match self.index_pool.pop_front() {
             Some(index) => Ok(index),
             None => Err("No buffers left in packet_buffer")
         }
     }
 
-    pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
-        self.index_pool.append(buf_index_vec.as_mut())
+    pub fn return_buffer_index(&mut self, mut buf_index_vec: VecDeque<usize>) {
+        // Push_back with whole vector
+        self.index_pool.append(&mut buf_index_vec)
     }
 }

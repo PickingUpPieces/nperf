@@ -262,7 +262,6 @@ pub struct Parameter {
     pub multiplex_port: MultiplexPort,
     pub multiplex_port_server: MultiplexPort,
     pub simulate_connection: SimulateConnection,
-    pub zerocopy: bool,
     pub core_affinity: bool,
     pub numa_affinity: bool,
     pub uring_parameter: UringParameter,
@@ -285,7 +284,6 @@ impl Parameter {
         multiplex_port: MultiplexPort, 
         multiplex_port_server: MultiplexPort, 
         simulate_connection: SimulateConnection, 
-        zerocopy: bool,
         core_affinity: bool, 
         numa_affinity: bool, 
         uring_parameter: UringParameter
@@ -305,7 +303,6 @@ impl Parameter {
             multiplex_port,
             multiplex_port_server,
             simulate_connection,
-            zerocopy,
             core_affinity,
             numa_affinity,
             uring_parameter

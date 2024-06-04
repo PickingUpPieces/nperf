@@ -2,6 +2,7 @@ pub mod normal;
 pub mod provided_buffer;
 pub mod multishot;
 pub mod send;
+pub mod send_zc;
 
 use std::os::fd::RawFd;
 use io_uring::{buf_ring::BufRing, cqueue, types::{SubmitArgs, Timespec}, IoUring, Submitter};
@@ -20,9 +21,9 @@ pub enum UringSqFillingMode {
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
 pub enum UringTaskWork {
+    #[default]
     Default,
     Coop,
-    #[default]
     Defer
 }
 
@@ -30,6 +31,7 @@ pub enum UringTaskWork {
 pub enum UringMode {
     #[default]
     Normal,
+    Zerocopy,
     ProvidedBuffer,
     Multishot
 }
@@ -126,7 +128,7 @@ fn create_buf_ring(submitter: &mut Submitter, buffer_size: u16, mss: u32) -> Buf
 // Check flags, if multishot request is still armed
 pub fn check_multishot_status(flags: u32) -> bool {
     if !cqueue::more(flags) {
-        debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed");
+        debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed or in case of using send zero-copy, that the buffer can be reused.");
         false
     } else {
         true

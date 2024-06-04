@@ -9,6 +9,7 @@ use super::IoUringOperatingModes;
 pub struct IoUringSend {
     ring: IoUring,
     parameter: UringParameter,
+    pub zerocopy: bool,
     statistic: Statistic
 }
 
@@ -19,9 +20,9 @@ impl IoUringSend {
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
         // Add all packet_ids in one go -> Probably more efficient, but not benched
-        let assigned_packet_ids = packet_buffer.add_packet_ids(next_packet_id, Some(amount_requests))?;
+        let assigned_packet_ids = packet_buffer.add_packet_ids(next_packet_id, Some(amount_requests))? as usize;
         // TODO: Needs to be relaxed for GSRO, since we will just round up to the next multiple of packets_per_buffer
-        assert!(assigned_packet_ids == amount_requests as u64); 
+        assert!(assigned_packet_ids == amount_requests); 
         let packets_per_buffer = packet_buffer.packets_amount_per_msghdr();
 
         for i in 0..amount_requests {
@@ -29,8 +30,42 @@ impl IoUringSend {
             trace!("Message number {}/{}: Used buffer index {}", i, amount_requests, i);
 
             let sqe = opcode::SendMsg::new(types::Fd(socket_fd), packet_buffer.get_msghdr_from_index(i)?)
-            .build()
-            .user_data(packet_id);
+                .build()
+                .user_data(packet_id);
+
+            match unsafe { sq.push(&sqe) } {
+                Ok(_) => submission_count += 1,
+                Err(err) => {
+                    // When using submission queue polling, it can happen that the reported queue length is not the same as the actual queue length.
+                    warn!("Error pushing io_uring sqe: {}. Stopping submit() after submitting {} entries", err, submission_count);
+                    break;
+                }
+            };
+        }
+
+        debug!("END io_uring_submit: Submitted {} io_uring sqe. Current sq len: {}. Dropped messages: {}", submission_count, sq.len(), sq.dropped());
+        Ok(submission_count)
+    }
+
+    fn submit_zc(&mut self, amount_requests: usize, packet_buffer: &mut PacketBuffer, next_packet_id: u64, socket_fd: i32) -> Result<usize, &'static str> {
+        let mut submission_count = 0;
+        let mut amount_datagrams = 0;
+        let mut sq = self.ring.submission();
+        debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
+
+        // Add all packet_ids in one go -> Probably more efficient, but not benched
+        // TODO: Needs to be relaxed for GSRO, since we will just round up to the next multiple of packets_per_buffer
+
+        for i in 0..amount_requests {
+            let packet_buffer_index = packet_buffer.get_buffer_index()?;
+            trace!("Message number {}/{}: Used buffer index {}", i, amount_requests, i);
+            // Add packet_ids to specific msghdr
+            amount_datagrams += packet_buffer.add_packet_ids_to_msghdr(next_packet_id + amount_datagrams, packet_buffer_index)?;
+
+            let sqe = 
+                opcode::SendMsgZc::new(types::Fd(socket_fd), packet_buffer.get_msghdr_from_index(packet_buffer_index)?)
+                .build()
+                .user_data(packet_buffer_index as u64);
 
             match unsafe { sq.push(&sqe) } {
                 Ok(_) => submission_count += 1,
@@ -52,7 +87,12 @@ impl IoUringSend {
         let min_complete = match super::calc_sq_fill_mode(amount_inflight as u32, self.parameter, &mut self.ring) {
             (0,0) => return Ok(0),
             (to_submit, min_complete) => {
-                amount_new_requests += self.submit(to_submit, packet_buffer, next_packet_id, socket_fd)?;
+                amount_new_requests += if self.zerocopy {
+                    self.submit_zc(to_submit, packet_buffer, next_packet_id, socket_fd)?
+                } else {
+                    self.submit(to_submit, packet_buffer, next_packet_id, socket_fd)?
+                };
+                
                 min_complete
             }
         };
@@ -82,6 +122,7 @@ impl IoUringOperatingModes for IoUringSend {
         Ok(IoUringSend {
             ring,
             parameter: parameter.uring_parameter,
+            zerocopy: parameter.uring_parameter.uring_mode == super::UringMode::Zerocopy,
             statistic: Statistic::new(parameter)
         })
     }
