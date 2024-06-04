@@ -1,6 +1,6 @@
 use io_uring::{cqueue::Entry, opcode, types, CompletionQueue, IoUring};
 use log::{debug, trace, warn};
-use std::{collections::VecDeque, os::{fd::RawFd, unix::io::AsRawFd}};
+use std::os::{fd::RawFd, unix::io::AsRawFd};
 
 use crate::{util::{packet_buffer::PacketBuffer, statistic::{Parameter, UringParameter}}, Statistic};
 
@@ -30,7 +30,7 @@ impl IoUringNormal {
                 Err(err) => {
                     // When using submission queue polling, it can happen that the reported queue length is not the same as the actual queue length.
                     warn!("Error pushing io_uring sqe: {}. Stopping submit() after submitting {} entries", err, submission_count);
-                    packet_buffer.return_buffer_index(VecDeque::from([packet_buffer_index]));
+                    packet_buffer.return_buffer_index(vec![packet_buffer_index]);
                     break;
                 }
             };

@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
 use std::thread::{self, sleep};
@@ -211,7 +210,7 @@ impl Server {
         let mut completion_count = 0;
         let cq = io_uring_instance.get_cq();
         // Pool to store the buffer indexes, which are used in the completion queue to return them later
-        let mut index_pool: VecDeque<usize> = VecDeque::with_capacity(cq.len());
+        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
         if cq.overflow() > 0 {
@@ -229,13 +228,13 @@ impl Server {
             match self.handle_recvmsg_return(amount_received_bytes, None, user_data) {
                 Ok(_) => {},
                 Err("INIT_MESSAGE_RECEIVED") => { // Checking for INIT message, and returning the buffer index to the buffer ring
-                    index_pool.push_back(user_data as usize);
+                    index_pool.push(user_data as usize);
                     continue;
                 },
                 Err(x) => return Err(x)
             };
 
-            index_pool.push_back(user_data as usize);
+            index_pool.push(user_data as usize);
         }
 
         // Returns used buffers to the buffer ring.

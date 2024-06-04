@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use log::debug;
 
 use crate::net::MessageHeader;
@@ -9,7 +7,7 @@ pub struct PacketBuffer {
     pub mmsghdr_vec: Vec<libc::mmsghdr>,
     datagram_size: usize, // ASSUMPTION: It's the same for all msghdrs
     packets_amount_per_msghdr: usize, // ASSUMPTION: It's the same for all msghdrs
-    index_pool: VecDeque<usize> // When buffers are used for io_uring, we need to know which buffers can be reused 
+    index_pool: Vec<usize> // When buffers are used for io_uring, we need to know which buffers can be reused. VecDeque (RingBuffer) would be more logical, but is less performant.
 }
 
 impl PacketBuffer {
@@ -112,14 +110,13 @@ impl PacketBuffer {
     }
 
     pub fn get_buffer_index(&mut self) -> Result<usize, &'static str> {
-        match self.index_pool.pop_front() {
+        match self.index_pool.pop() {
             Some(index) => Ok(index),
             None => Err("No buffers left in packet_buffer")
         }
     }
 
-    pub fn return_buffer_index(&mut self, mut buf_index_vec: VecDeque<usize>) {
-        // Push_back with whole vector
+    pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
         self.index_pool.append(&mut buf_index_vec)
     }
 }

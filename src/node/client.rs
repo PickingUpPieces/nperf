@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
 use std::{thread::sleep, time::Instant};
@@ -228,7 +227,7 @@ impl Client {
         let mut completion_count = 0;
         let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
         let cq = io_uring_instance.get_cq();
-        let mut index_pool: VecDeque<usize> = VecDeque::with_capacity(cq.len());
+        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
 
         debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
 
@@ -247,7 +246,7 @@ impl Client {
                     // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
                     // From: https://linux.die.net/man/2/recvmsg
                     warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
-                    index_pool.push_back(user_data as usize);
+                    index_pool.push(user_data as usize);
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
@@ -259,7 +258,7 @@ impl Client {
                     if !check_multishot_status(cqe.flags()) && cqe.flags() & crate::io_uring::IORING_CQE_F_NOTIF != 0 {
                         self.statistic.uring_copied_zc += 1;
                         debug!("Received second send zero copy cqe. Returning buffer {}", user_data);
-                        index_pool.push_back(user_data as usize);
+                        index_pool.push(user_data as usize);
                         completion_count += 1; // Completion count should only be increased when the buffer is returned. Otherwise too many requests could be inflight at once.
                     }
                 }
@@ -272,7 +271,7 @@ impl Client {
                     // The second one will have 0 bytes set, and confirms that the buffer can be reused. The second message doesn't have the flag IORING_CQE_F_MORE set, but the flag IORING_CQE_F_NOTIF.
                     if !check_multishot_status(cqe.flags()) && cqe.flags() & crate::io_uring::IORING_CQE_F_NOTIF != 0 {
                         debug!("Received second send zero copy cqe. Returning buffer {}", user_data);
-                        index_pool.push_back(user_data as usize);
+                        index_pool.push(user_data as usize);
                         completion_count += 1; // Completion count should only be increased when the buffer is returned. Otherwise too many requests could be inflight at once.
                     }
                 },
