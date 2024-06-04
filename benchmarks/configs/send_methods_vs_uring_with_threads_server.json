@@ -17,9 +17,11 @@
         "with-numa-affinity": true,
         "without-non-blocking": false,
         "io-model": "poll",
-        "uring-provided-buffer": false,
-        "uring-multishot": false,
+        "uring-mode": "normal",
+        "uring-task-work": "default",
+        "uring-sq-mode": "topup",
         "uring-sqpoll": false,
+        "uring-sqpoll-shared": false,
         "uring-ring-size": 512
     },
     "sendmmsg": {
