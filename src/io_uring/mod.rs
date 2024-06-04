@@ -5,7 +5,7 @@ pub mod send;
 pub mod send_zc;
 
 use std::os::fd::RawFd;
-use io_uring::{buf_ring::BufRing, cqueue, types::{SubmitArgs, Timespec}, IoUring, Submitter};
+use io_uring::{buf_ring::BufRing, cqueue, opcode, types::{SubmitArgs, Timespec}, IoUring, Probe, Submitter};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use crate::{util::statistic::{Parameter, UringParameter}, Statistic};
@@ -111,12 +111,7 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
 
         let sq_cap = ring.submission().capacity();
         debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
-
-        if !ring.params().is_feature_fast_poll() {
-            warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
-        } else {
-            info!("IORING_FEAT_FAST_POLL is available and used!");
-        }
+        check_io_uring_features_available(&ring, parameters)?;
 
         Ok(ring)
 }
@@ -222,4 +217,32 @@ pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static 
         },
         _ => Ok(1) // Positive amount of bytes received
     }
+}
+
+fn check_io_uring_features_available(ring: &IoUring, parameter: UringParameter) -> Result<(), &'static str> {
+    let mut probe = Probe::new();
+    if ring.submitter().register_probe(&mut probe).is_err() {
+        warn!("Unable to check for availability of io-uring features, since probe is not supported!");
+        return Ok(());
+    }
+
+    if parameter.uring_mode == UringMode::Multishot {
+        if !probe.is_supported(opcode::RecvMsgMulti::CODE) {
+            return Err("IORING_OP_RECVMSG_MULTI is not supported in the kernel!");
+        }
+        if !probe.is_supported(opcode::ProvideBuffers::CODE) {
+            return Err("IORING_OP_PROVIDE_BUFFERS is not supported in the kernel!");
+        }
+    } else if parameter.uring_mode == UringMode::ProvidedBuffer && !probe.is_supported(opcode::ProvideBuffers::CODE) {
+        return Err("IORING_OP_PROVIDE_BUFFERS is not supported in the kernel!");
+    } else if parameter.uring_mode == UringMode::Zerocopy && !probe.is_supported(opcode::SendMsgZc::CODE) {
+        return Err("IORING_OP_SENDMSG_ZC is not supported in the kernel!");
+    }
+
+    if !ring.params().is_feature_fast_poll() {
+        warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
+    } else {
+        info!("IORING_FEAT_FAST_POLL is available and used!");
+    }
+    Ok(())
 }
