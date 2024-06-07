@@ -1,17 +1,19 @@
-use std::{ops::Add, time::{Duration, Instant}};
-use log::debug;
+use std::{ops::Add, path, time::{Duration, Instant}};
+use log::{debug, error, info};
 use serde::Serialize;
 use serde_json;
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
-
+use std::fs::File;
+use std::io::Write;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
     #[default]
     Text,
     Json,
+    File
 }
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
@@ -43,6 +45,7 @@ pub struct Statistic {
     pub amount_io_model_calls: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
+    pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization")]
     pub uring_sq_utilization: Box<[usize]>,
@@ -78,6 +81,7 @@ impl Statistic {
             amount_io_model_calls: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
+            uring_copied_zc: 0,
             uring_canceled_multishot: 0,
             uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
             uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
@@ -116,9 +120,10 @@ impl Statistic {
                 println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
+                    println!("Io-Uring");
+                    println!("------------------------");
+                    println!("Copied zero-copy: {}", self.uring_copied_zc);
                     println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
-
-                    println!();
                     println!("Uring SQ utilization:");
                     for (index, &utilization) in self.uring_sq_utilization.iter().enumerate() {
                         if utilization != 0 && utilization != 1 {
@@ -142,6 +147,30 @@ impl Statistic {
                         }
                     }
                     println!(); 
+                }
+            },
+            OutputFormat::File => {
+                let mut output_file = self.parameter.output_file_path.clone();
+                output_file.set_extension("csv");
+
+                // Check if the output dir exists. If not, try to create it
+                if !output_file.exists() {
+                    if let Some(parent_dir) = output_file.parent() {
+                        if let Err(err) = std::fs::create_dir_all(parent_dir) {
+                            error!("Failed to create output directory: {:?}", err);
+                            return;
+                        } else {
+                            debug!("Output directory created: {:?}", parent_dir);
+                        }
+                    }
+                }
+
+                if let Ok(mut file) = File::create(&output_file) {
+                    let json = serde_json::to_string(&self).unwrap();
+                    file.write_all(json.as_bytes()).unwrap();
+                    info!("Results saved to {}", output_file.display());
+                } else {
+                    error!("Failed to create file: {}", output_file.display());
                 }
             }
         }
@@ -226,6 +255,7 @@ impl Add for Statistic {
             amount_io_model_calls: self.amount_io_model_calls + other.amount_io_model_calls,
             data_rate_gbit, 
             packet_loss,
+            uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
             uring_cq_utilization,
@@ -246,12 +276,13 @@ impl Measurement {
     }
 }
 
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Parameter {
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
     pub output_format: OutputFormat,
+    pub output_file_path: path::PathBuf,
     pub io_model: super::IOModel,
     pub test_runtime_length: u64,
     pub mss: u32,
@@ -269,12 +300,32 @@ pub struct Parameter {
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(mode: super::NPerfMode, ip: std::net::Ipv4Addr, amount_threads: u16, output_format: OutputFormat, io_model: super::IOModel, test_runtime_length: u64, mss: u32, datagram_size: u32, packet_buffer_size: usize, socket_options: SocketOptions, exchange_function: super::ExchangeFunction, multiplex_port: MultiplexPort, multiplex_port_server: MultiplexPort, simulate_connection: SimulateConnection, core_affinity: bool, numa_affinity: bool, uring_parameter: UringParameter) -> Parameter {
+    pub fn new(
+        mode: super::NPerfMode, 
+        ip: std::net::Ipv4Addr, 
+        amount_threads: u16, 
+        output_format: OutputFormat, 
+        output_file_path: path::PathBuf,
+        io_model: super::IOModel, 
+        test_runtime_length: u64, 
+        mss: u32, 
+        datagram_size: u32, 
+        packet_buffer_size: usize, 
+        socket_options: SocketOptions, 
+        exchange_function: super::ExchangeFunction, 
+        multiplex_port: MultiplexPort, 
+        multiplex_port_server: MultiplexPort, 
+        simulate_connection: SimulateConnection, 
+        core_affinity: bool, 
+        numa_affinity: bool, 
+        uring_parameter: UringParameter
+    ) -> Parameter {
         Parameter {
             mode,
             ip,
             amount_threads,
             output_format,
+            output_file_path,
             io_model,
             test_runtime_length,
             mss,

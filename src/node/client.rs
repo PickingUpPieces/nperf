@@ -1,7 +1,10 @@
 use std::net::SocketAddrV4;
+use std::os::fd::RawFd;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
+use crate::io_uring::send::IoUringSend;
+use crate::io_uring::{check_multishot_status, IoUringOperatingModes, UringMode};
 use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
@@ -13,6 +16,8 @@ pub struct Client {
     test_id: u64,
     packet_buffer: PacketBuffer,
     socket: Socket,
+    parameter: Parameter,
+    io_uring_sqpoll_fd: Option<RawFd>,
     statistic: Statistic,
     run_time_length: u64,
     next_packet_id: u64,
@@ -20,7 +25,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, parameter: Parameter) -> Self {
+    pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Self {
         let socket = if socket.is_none() {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             if let Some(port) = local_port {
@@ -42,7 +47,9 @@ impl Client {
             test_id,
             packet_buffer,
             socket,
-            statistic: Statistic::new(parameter),
+            parameter: parameter.clone(),
+            io_uring_sqpoll_fd: io_uring,
+            statistic: Statistic::new(parameter.clone()),
             run_time_length: parameter.test_runtime_length,
             next_packet_id: 0,
             exchange_function: parameter.exchange_function
@@ -80,7 +87,7 @@ impl Client {
     }
 
     fn send(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id, None)?;
         self.next_packet_id += amount_datagrams;
 
         // Only one buffer is used, so we can directly access the first element
@@ -106,7 +113,7 @@ impl Client {
     }
 
     fn sendmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id, None)?;
         self.next_packet_id += amount_datagrams;
 
         // Only one buffer is used, so we can directly access the first element
@@ -131,7 +138,7 @@ impl Client {
     }
 
     fn sendmmsg(&mut self) -> Result<(), &'static str> {
-        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id)?;
+        let amount_datagrams = self.packet_buffer.add_packet_ids(self.next_packet_id, None)?;
         self.next_packet_id += amount_datagrams;
 
         match self.socket.sendmmsg(&mut self.packet_buffer.mmsghdr_vec) {
@@ -171,6 +178,152 @@ impl Client {
 
         PacketBuffer::new(packet_buffer)
     }
+
+    fn io_uring_complete_send(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
+        let mut completion_count = 0;
+        let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
+        let cq = io_uring_instance.get_cq();
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        if cq.overflow() > 0 {
+            warn!("Dropped messages in completion queue: {}", cq.overflow());
+        }
+
+        // Drain completion queue events
+        for cqe in cq {
+            let amount_bytes = cqe.result();
+            let user_data = cqe.user_data();
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_bytes); 
+
+            match amount_bytes {
+                -11 => { // libc::EAGAIN == 11
+                    // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                    // From: https://linux.die.net/man/2/recvmsg
+                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
+                },
+                -111 => { // libc::ECONNREFUSED == 111
+                    return Err("Start the server first! Abort measurement...");
+                },
+                _ if amount_bytes < 0 => {
+                    error!("Error receiving message! Negated error code: {}", amount_bytes);
+                    return Err("Failed to receive data!")
+                },
+                _ => { // Positive amount of bytes received
+                    self.statistic.amount_datagrams += amount_datagrams;
+                    self.statistic.amount_data_bytes += amount_bytes as usize;
+                    completion_count += 1;
+                    trace!("Sent datagram to remote host");
+                }
+            }
+        }
+
+        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
+        Ok(completion_count)
+    }
+
+    fn io_uring_complete_send_zc(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
+        let mut completion_count = 0;
+        let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
+        let cq = io_uring_instance.get_cq();
+        let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        if cq.overflow() > 0 {
+            warn!("Dropped messages in completion queue: {}", cq.overflow());
+        }
+
+        // Drain completion queue events
+        for cqe in cq {
+            let amount_bytes = cqe.result();
+            let user_data = cqe.user_data();
+            debug!("Received completion event with user_data: {}, and received bytes: {}", user_data, amount_bytes); 
+
+            match amount_bytes {
+                -11 => { // libc::EAGAIN == 11
+                    // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
+                    // From: https://linux.die.net/man/2/recvmsg
+                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    index_pool.push(user_data as usize);
+                    self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
+                },
+                -111 => { // libc::ECONNREFUSED == 111
+                    return Err("Start the server first! Abort measurement...");
+                }
+                -2147483648 => { // IORING_NOTIF_USAGE_ZC_COPIED -> Error returned if data was copied in zero copy mode
+                    // Check if the error code is set in second cqe event
+                    // https://github.com/axboe/liburing/blob/b68cf47a120d6b117a81ed9f7617aad13314258c/src/include/liburing/io_uring.h#L343
+                    if !check_multishot_status(cqe.flags()) && cqe.flags() & crate::io_uring::IORING_CQE_F_NOTIF != 0 {
+                        self.statistic.uring_copied_zc += 1;
+                        debug!("Received second send zero copy cqe. Returning buffer {}", user_data);
+                        index_pool.push(user_data as usize);
+                        completion_count += 1; // Completion count should only be increased when the buffer is returned. Otherwise too many requests could be inflight at once.
+                    }
+                }
+                _ if amount_bytes < 0 => {
+                    error!("Error receiving message! Negated error code: {}", amount_bytes);
+                    return Err("Failed to receive data!")
+                },
+                0 => {
+                    // Send zero copy will publish two cqe events for the same buffer. The first one will have the amount of bytes sent, and confirmes that the request is queued. It has the flag IORING_CQE_F_MORE set.
+                    // The second one will have 0 bytes set, and confirms that the buffer can be reused. The second message doesn't have the flag IORING_CQE_F_MORE set, but the flag IORING_CQE_F_NOTIF.
+                    if !check_multishot_status(cqe.flags()) && cqe.flags() & crate::io_uring::IORING_CQE_F_NOTIF != 0 {
+                        debug!("Received second send zero copy cqe. Returning buffer {}", user_data);
+                        index_pool.push(user_data as usize);
+                        completion_count += 1; // Completion count should only be increased when the buffer is returned. Otherwise too many requests could be inflight at once.
+                    }
+                },
+                _ => { // Positive amount of bytes received
+                    self.statistic.amount_datagrams += amount_datagrams;
+                    self.statistic.amount_data_bytes += amount_bytes as usize;
+                    trace!("Sent datagram to remote host");
+                }
+            }
+        }
+
+        // Returns used buffers to the buffer ring.
+        self.packet_buffer.return_buffer_index(index_pool);
+
+        debug!("END io_uring_complete: Completed {} io_uring cqe", completion_count);
+        Ok(completion_count)
+    }
+
+
+    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
+        let socket_fd = self.socket.get_socket_id();
+        let uring_mode = self.parameter.uring_parameter.uring_mode;
+        let mut amount_inflight: usize = 0;
+
+        match uring_mode {
+            UringMode::Normal | UringMode::Zerocopy => {
+                let mut io_uring_instance = crate::io_uring::send::IoUringSend::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
+
+                while start_time.elapsed().as_secs() < self.run_time_length {
+                    self.statistic.uring_inflight_utilization[amount_inflight] += 1;
+                    self.statistic.amount_io_model_calls += 1;
+
+                    let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
+                    amount_inflight += submitted;
+                    self.next_packet_id += (submitted * self.packet_buffer.packets_amount_per_msghdr()) as u64;
+
+                    match if uring_mode == UringMode::Zerocopy { self.io_uring_complete_send_zc(&mut io_uring_instance) } else { self.io_uring_complete_send(&mut io_uring_instance) } {
+                        Ok(completed) => {
+                            amount_inflight -= completed
+                        },
+                        Err("EAGAIN") => {},
+                        Err(x) => {
+                            error!("Error completing io_uring sqe: {}", x);
+                            return Err(x);
+                        }
+                    };
+                }
+            },
+            _ => return Err("Invalid io_uring mode for client"),
+        }
+        Ok(())
+    }
 }
 
 
@@ -188,19 +341,23 @@ impl Node for Client {
         let start_time = Instant::now();
         info!("Start measurement...");
 
-        while start_time.elapsed().as_secs() < self.run_time_length {
-            match self.send_messages() {
-                Ok(_) => {},
-                Err("EAGAIN") => {
-                    self.statistic.amount_io_model_calls += 1;
-                    self.io_wait(io_model)?;
-                },
-                Err(x) => {
-                    error!("Error sending message! Aborting measurement...");
-                    return Err(x)
+        if io_model == IOModel::IoUring {
+            self.io_uring_loop(start_time)?;
+        } else {
+            while start_time.elapsed().as_secs() < self.run_time_length {
+                match self.send_messages() {
+                    Ok(_) => {},
+                    Err("EAGAIN") => {
+                        self.statistic.amount_io_model_calls += 1;
+                        self.io_wait(io_model)?;
+                    },
+                    Err(x) => {
+                        error!("Error sending message! Aborting measurement...");
+                        return Err(x)
+                    }
                 }
+                self.statistic.amount_syscalls += 1;
             }
-            self.statistic.amount_syscalls += 1;
         }
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));

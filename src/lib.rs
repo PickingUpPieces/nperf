@@ -12,7 +12,7 @@ pub use util::statistic::Statistic;
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_MSS: u32= 1472;
 const DEFAULT_UDP_DATAGRAM_SIZE: u32 = 1472;
-const DEFAULT_GSO_BUFFER_SIZE: u32= 65507;
+const DEFAULT_GSO_BUFFER_SIZE: u32= 64768 ; // 65507 is the possible maximum , but then the last packet is only have full -> 1472 * 44 = 64768
 const MAX_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const MAX_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400 ; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 212992; 
@@ -36,5 +36,6 @@ const URING_MAX_RING_SIZE: u32 = 2048; // Maximum ring size
 const URING_BUFFER_GROUP: u16 = 0;
 const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
+const URING_SQPOLL_CPU: u32 = 0;
 
 pub use command::nPerf;

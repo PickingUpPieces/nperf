@@ -46,7 +46,7 @@ impl Server {
             socket,
             io_uring_sqpoll_fd: io_uring,
             next_packet_id: 0,
-            parameter,
+            parameter: parameter.clone(),
             measurements: Vec::new(),
             exchange_function: parameter.exchange_function
         }
@@ -81,7 +81,7 @@ impl Server {
                 let mtype = MessageHeader::get_message_type(buffer_pointer);
                 debug!("Received packet with test id: {}", test_id);
 
-                Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
+                Self::parse_message_type(mtype, test_id, &mut self.measurements, &self.parameter)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let datagram_size = self.packet_buffer.datagram_size();
@@ -106,7 +106,7 @@ impl Server {
                 let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
                 let mtype = MessageHeader::get_message_type(buffer_pointer);
         
-                Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
+                Self::parse_message_type(mtype, test_id, &mut self.measurements, &self.parameter)?;
         
                 let msghdr = self.packet_buffer.get_msghdr_from_index(0).unwrap();
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
@@ -134,7 +134,7 @@ impl Server {
                 let mtype = MessageHeader::get_message_type(self.packet_buffer.get_buffer_pointer_from_index(0).unwrap());
                 let amount_received_bytes = util::get_total_bytes(&self.packet_buffer.mmsghdr_vec, amount_received_mmsghdr);
 
-                Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
+                Self::parse_message_type(mtype, test_id, &mut self.measurements, &self.parameter)?;
 
                 let statistic = &mut self.measurements.get_mut(test_id).expect("Error getting statistic: test id not found").statistic;
                 let mut absolut_datagrams_received = 0;
@@ -163,13 +163,13 @@ impl Server {
         }
     }
 
-    fn parse_message_type(mtype: MessageType, test_id: usize, measurements: &mut Vec<Measurement>, parameter: Parameter) -> Result<(), &'static str> {
+    fn parse_message_type(mtype: MessageType, test_id: usize, measurements: &mut Vec<Measurement>, parameter: &Parameter) -> Result<(), &'static str> {
         match mtype {
             MessageType::INIT => {
                 info!("{:?}: INIT packet received from test {}!", thread::current().id(), test_id);
                 // Resize the vector if neeeded, and create a new measurement struct
                 if measurements.len() <= test_id {
-                    measurements.resize(test_id + 1, Measurement::new(parameter));
+                    measurements.resize(test_id + 1, Measurement::new(parameter.clone()));
                 }
                 Err("INIT_MESSAGE_RECEIVED")
             },
@@ -179,7 +179,7 @@ impl Server {
                 } else {
                     // No INIT message received before, so we need to resize and create/add a new measurement struct
                     if measurements.len() <= test_id {
-                        measurements.resize(test_id + 1, Measurement::new(parameter));
+                        measurements.resize(test_id + 1, Measurement::new(parameter.clone()));
                     }
                     measurements.get_mut(test_id).expect("Error getting statistic in measurement message: test id not found")
                 };
@@ -375,7 +375,7 @@ impl Server {
         let test_id = MessageHeader::get_test_id(buffer_pointer) as usize;
         let mtype = MessageHeader::get_message_type(buffer_pointer);
 
-        Self::parse_message_type(mtype, test_id, &mut self.measurements, self.parameter)?;
+        Self::parse_message_type(mtype, test_id, &mut self.measurements, &self.parameter)?;
 
         let msghdr = match self.parameter.uring_parameter.uring_mode {
             UringMode::Normal => self.packet_buffer.get_msghdr_from_index(msghdr_index as usize).unwrap(),
@@ -393,13 +393,14 @@ impl Server {
     }
 
 
-    fn io_uring_loop(&mut self, mut statistic: Statistic) -> Result<Statistic, &'static str> {
+    fn io_uring_loop(&mut self) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
+        let mut statistic = Statistic::new(self.parameter.clone());
         let mut amount_inflight = 0;
 
         match self.parameter.uring_parameter.uring_mode {
             UringMode::Multishot => {
-                let mut io_uring_instance = crate::io_uring::multishot::IoUringMultishot::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut io_uring_instance = crate::io_uring::multishot::IoUringMultishot::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
                 // Indicator if multishot request is still armed
                 let mut armed = false;
 
@@ -427,7 +428,7 @@ impl Server {
                 }
             },
             UringMode::ProvidedBuffer => {
-                let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 loop {
                     statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
@@ -452,7 +453,7 @@ impl Server {
                 }
             },
             UringMode::Normal => {
-                let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 loop {
                     statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
@@ -475,6 +476,10 @@ impl Server {
                         }
                     };
                 }
+            },
+            _ => {
+                error!("Invalid io_uring mode selected for server!");
+                Err("Invalid io_uring mode selected for server!")
             }
         }
     }
@@ -496,7 +501,7 @@ impl Server {
 impl Node for Server { 
     fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
         info!("Start server loop...");
-        let mut statistic = Statistic::new(self.parameter);
+        let mut statistic = Statistic::new(self.parameter.clone());
 
         // Timeout waiting for first message 
         // With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.
@@ -516,7 +521,7 @@ impl Node for Server {
 
         // TODO: Very ugly at the moment
         if io_model == IOModel::IoUring {
-            statistic = self.io_uring_loop(statistic)?;
+            statistic = self.io_uring_loop()?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;

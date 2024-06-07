@@ -7,7 +7,7 @@ pub struct PacketBuffer {
     pub mmsghdr_vec: Vec<libc::mmsghdr>,
     datagram_size: usize, // ASSUMPTION: It's the same for all msghdrs
     packets_amount_per_msghdr: usize, // ASSUMPTION: It's the same for all msghdrs
-    index_pool: Vec<usize> // When buffers are used for io_uring, we need to know which buffers can be reused 
+    index_pool: Vec<usize> // When buffers are used for io_uring, we need to know which buffers can be reused. VecDeque (RingBuffer) would be more logical, but is less performant.
 }
 
 impl PacketBuffer {
@@ -25,13 +25,12 @@ impl PacketBuffer {
             };
             mmsghdr_vec.push(mmsghdr);
         }
-        let index_pool = Vec::from_iter(0..mmsghdr_vec.len());
 
         PacketBuffer {
+            index_pool: (0..mmsghdr_vec.len()).collect(),
             mmsghdr_vec,
             datagram_size,
-            packets_amount_per_msghdr,
-            index_pool
+            packets_amount_per_msghdr
         }
     }
 
@@ -66,11 +65,12 @@ impl PacketBuffer {
         });
     }
 
-    pub fn add_packet_ids(&mut self, packet_id: u64) -> Result<u64, &'static str> {
+    pub fn add_packet_ids(&mut self, packet_id: u64, amount_packets: Option<usize>) -> Result<u64, &'static str> {
         let mut amount_used_packet_ids: u64 = 0;
+        let mmsghdr_vec_len = self.mmsghdr_vec.len();
 
-        // Iterate over all mmsghdr structs
-        for mmsghdr in self.mmsghdr_vec.iter_mut() { 
+        // Iterate over all mmsghdr structs (or up to amount_packets if specified)
+        for mmsghdr in self.mmsghdr_vec.iter_mut().take(amount_packets.unwrap_or(mmsghdr_vec_len)) {
             let msghdr_buffer = Self::get_buffer_pointer_from_mmsghdr(mmsghdr);
 
             for i in 0..self.packets_amount_per_msghdr {
@@ -82,6 +82,22 @@ impl PacketBuffer {
 
         debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
         // Return amount of used packet IDs
+        Ok(amount_used_packet_ids)
+    }
+
+    pub fn add_packet_ids_to_msghdr(&mut self, packet_id: u64, index: usize) -> Result<u64, &'static str> {
+        let mut amount_used_packet_ids: u64 = 0;
+        let datagram_size = self.datagram_size;
+        let packets_amount_per_msghdr = self.packets_amount_per_msghdr;
+        let msghdr_buffer = self.get_buffer_pointer_from_index(index)?;
+
+        for i in 0..packets_amount_per_msghdr {
+            let start_of_packet = i * datagram_size;
+            MessageHeader::set_packet_id_raw(&mut msghdr_buffer[start_of_packet..], packet_id + amount_used_packet_ids);
+            amount_used_packet_ids += 1;
+        }
+
+        debug!("Added packet IDs to buffer! Used packet IDs: {}, Next packet ID: {}", amount_used_packet_ids, packet_id + amount_used_packet_ids);
         Ok(amount_used_packet_ids)
     }
 
@@ -101,6 +117,6 @@ impl PacketBuffer {
     }
 
     pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
-        self.index_pool.append(buf_index_vec.as_mut())
+        self.index_pool.append(&mut buf_index_vec)
     }
 }

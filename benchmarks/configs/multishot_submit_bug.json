@@ -4,7 +4,7 @@
         "ip": "0.0.0.0",
         "port": 45001,
         "datagram-size": 1472,
-        "time": 30,
+        "time": 10,
         "with-gso-buffer": 65507,
         "with-mss": 1472,
         "multiplex-port": "individual",
@@ -15,12 +15,14 @@
         "with-ip-frag": false,
         "without-non-blocking": false,
         "io-model": "poll",
-        "uring-provided-buffer": false,
-        "uring-multishot": true,
-        "uring-ring-size": 1024
+        "uring-mode": "multishot",
+        "uring-sqpoll": false,
+        "uring-sqpoll-shared": false,
+        "uring-task-work": "default",
+        "uring-sq-mode": "topup"
     },
-    "uring-multishot": {
-        "1": {
+    "uring-topup": {
+        "2": {
             "client": {
                 "exchange-function": "msg",
                 "with-gsro": true
@@ -30,16 +32,6 @@
                 "uring-ring-size": 2
             }
         },
-        "2": {
-            "client": {
-                "exchange-function": "msg",
-                "with-gsro": true
-            },
-            "server": {
-                "io-model": "io-uring",
-                "uring-burst-size": 2 
-            }
-        },
         "4": {
             "client": {
                 "exchange-function": "msg",
@@ -47,7 +39,7 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 4
+                "uring-ring-size": 4
             }
         },
         "16": {
@@ -57,7 +49,7 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 16
+                "uring-ring-size": 16
             }
         },
         "64": {
@@ -67,7 +59,7 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 64
+                "uring-ring-size": 64
             }
         },
         "128": {
@@ -77,7 +69,7 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 128
+                "uring-ring-size": 128
             }
         },
         "256": {
@@ -87,7 +79,7 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 256
+                "uring-ring-size": 256
             }
         },
         "512": {
@@ -97,7 +89,7 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 512
+                "uring-ring-size": 512
             }
         },
         "1024": {
@@ -107,22 +99,11 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-burst-size": 1024
+                "uring-ring-size": 1024
             }
         }
     },
-    "uring-normal": {
-        "1": {
-            "client": {
-                "exchange-function": "msg",
-                "with-gsro": true
-            },
-            "server": {
-                "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-ring-size": 2
-            }
-        },
+    "uring-syscall": {
         "2": {
             "client": {
                 "exchange-function": "msg",
@@ -130,8 +111,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 2
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 2
             }
         },
         "4": {
@@ -141,8 +122,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 4
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 4
             }
         },
         "16": {
@@ -152,8 +133,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 16
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 16
             }
         },
         "64": {
@@ -163,8 +144,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 64 
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 64 
             }
         },
         "128": {
@@ -174,8 +155,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 128
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 128
             }
         },
         "256": {
@@ -185,8 +166,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 256
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 256
             }
         },
         "512": {
@@ -196,8 +177,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 512
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 512
             }
         },
         "1024": {
@@ -207,8 +188,8 @@
             },
             "server": {
                 "io-model": "io-uring",
-                "uring-multishot": false,
-                "uring-burst-size": 1024
+                "uring-sq-mode": "syscall",
+                "uring-ring-size": 1024
             }
         }
     }

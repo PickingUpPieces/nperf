@@ -31,11 +31,11 @@ impl nPerf {
             let (tx, rx) = mpsc::channel();
     
             // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
-            let socket = self.create_socket(parameter);
+            let socket = self.create_socket(&parameter);
 
             // If SQ_POLL and io_uring enabled, create io_uring fd here
             let io_uring: Option<IoUringNormal> = if parameter.uring_parameter.sqpoll_shared {
-                IoUringNormal::new(parameter, None).ok()
+                IoUringNormal::new(parameter.clone(), None).ok()
             } else {
                 None
             };
@@ -57,12 +57,13 @@ impl nPerf {
                 // Use same test id for all threads if one connection is simulated
                 let test_id = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
                 let local_port_client: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
+                let parameter_clone = parameter.clone();
 
-                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter, tx, socket, io_uring_fd, server_port, local_port_client, test_id, core_affinity)));
+                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter_clone, tx, socket, io_uring_fd, server_port, local_port_client, test_id, core_affinity)));
             }
     
             info!("Waiting for all threads to finish...");
-            let mut statistics = Self::get_statistics(fetch_handle, rx, parameter);
+            let mut statistics = Self::get_statistics(fetch_handle, rx, &parameter);
 
             info!("All threads finished!");
             if let Some(socket) = socket {
@@ -89,9 +90,9 @@ impl nPerf {
         }
         
         let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
-            Box::new(Client::new(test_id, client_port, sock_address_server, socket, parameter))
+            Box::new(Client::new(test_id, client_port, sock_address_server, socket, io_uring, parameter.clone()))
         } else {
-            Box::new(Server::new(sock_address_server, socket, io_uring, parameter))
+            Box::new(Server::new(sock_address_server, socket, io_uring, parameter.clone()))
         };
 
         match node.run(parameter.io_model) {
@@ -106,16 +107,16 @@ impl nPerf {
         }
     }
 
-    fn get_statistics(fetch_handle: Vec<thread::JoinHandle<()>>, rx: mpsc::Receiver<Option<Statistic>>, parameter: Parameter) -> Statistic {
-        fetch_handle.into_iter().fold(Statistic::new(parameter), |acc: Statistic, handle| { 
+    fn get_statistics(fetch_handle: Vec<thread::JoinHandle<()>>, rx: mpsc::Receiver<Option<Statistic>>, parameter: &Parameter) -> Statistic {
+        fetch_handle.into_iter().fold(Statistic::new(parameter.clone()), |acc: Statistic, handle| { 
             let statistic = acc + match rx.recv_timeout(std::time::Duration::from_secs(max(parameter.test_runtime_length * 2, 120))) {
                 Ok(x) => {
                     match x {
                     Some(x) => x,
-                    None => Statistic::new(parameter)
+                    None => Statistic::new(parameter.clone())
                     }
                 },
-                Err(_) => Statistic::new(parameter)
+                Err(_) => Statistic::new(parameter.clone())
             };
                 
             handle.join().unwrap(); 
@@ -123,7 +124,7 @@ impl nPerf {
         })
     }
 
-    fn create_socket(&self, parameter: Parameter) -> Option<Socket> {
+    fn create_socket(&self, parameter: &Parameter) -> Option<Socket> {
         if parameter.mode == NPerfMode::Client && parameter.multiplex_port == MultiplexPort::Sharing {
             let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             let sock_address_in = SocketAddrV4::new(DEFAULT_CLIENT_IP, self.client_port);

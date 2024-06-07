@@ -12,14 +12,14 @@ pub struct IoUringNormal {
 }
 
 impl IoUringNormal {
-    pub fn submit(&mut self, amount_recvmsg: u32, packet_buffer: &mut PacketBuffer, socket_fd: i32) -> Result<u32, &'static str> {
+    fn submit(&mut self, amount_requests: usize, packet_buffer: &mut PacketBuffer, socket_fd: i32) -> Result<u32, &'static str> {
         let mut submission_count = 0;
         let mut sq = self.ring.submission();
         debug!("BEGIN io_uring_submit: Current sq len: {}. Dropped messages: {}", sq.len(), sq.dropped());
 
-        for i in 0..amount_recvmsg {
+        for i in 0..amount_requests {
             let packet_buffer_index = packet_buffer.get_buffer_index()?;
-            trace!("Message number {}/{}: Used buffer index {}", i, amount_recvmsg, packet_buffer_index);
+            trace!("Message number {}/{}: Used buffer index {}", i, amount_requests, packet_buffer_index);
 
             let sqe = opcode::RecvMsg::new(types::Fd(socket_fd), packet_buffer.get_msghdr_from_index(packet_buffer_index)?)
             .build()

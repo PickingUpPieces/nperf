@@ -1,34 +1,39 @@
 pub mod normal;
 pub mod provided_buffer;
 pub mod multishot;
+pub mod send;
 
 use std::os::fd::RawFd;
-use io_uring::{buf_ring::BufRing, cqueue, types::{SubmitArgs, Timespec}, IoUring, Submitter};
+use io_uring::{buf_ring::BufRing, cqueue, opcode, types::{SubmitArgs, Timespec}, IoUring, Probe, Submitter};
 use log::{debug, error, info, warn};
 use serde::Serialize;
 use crate::{util::statistic::{Parameter, UringParameter}, Statistic};
 
 const URING_SQ_POLL_TIMEOUT: u32 = 2_000;
+pub const IORING_CQE_F_NOTIF: u32 = 8;
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
 pub enum UringSqFillingMode {
     #[default]
     Topup,
+    TopupNoWait,
     Syscall 
 }
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
 pub enum UringTaskWork {
+    #[default]
     Default,
     Coop,
-    #[default]
-    Defer
+    Defer,
+    CoopDefer
 }
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
 pub enum UringMode {
     #[default]
     Normal,
+    Zerocopy,
     ProvidedBuffer,
     Multishot
 }
@@ -65,17 +70,22 @@ pub trait IoUringOperatingModes {
 }
 
 fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result<IoUring, &'static str> {
-        info!("Setup io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
+        info!("Setting up io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
+
+        info!("Setting up io_uring with SINGLE_ISSUER");
+        ring_builder.setup_single_issuer();
 
         if parameters.task_work == UringTaskWork::Coop {
             info!("Setting up io_uring with cooperative task work (IORING_SETUP_COOP_TASKRUN)");
             ring_builder.setup_coop_taskrun();
         } else if parameters.task_work == UringTaskWork::Defer {
             info!("Setting up io_uring with deferred task work (IORING_SETUP_DEFER_TASKRUN)");
-            ring_builder.setup_single_issuer()
-            .setup_defer_taskrun();
+            ring_builder.setup_defer_taskrun();
+        } else if parameters.task_work == UringTaskWork::CoopDefer {
+            info!("Setting up io_uring with cooperative and deferred task work (IORING_SETUP_COOP_TASKRUN | IORING_SETUP_DEFER_TASKRUN)");
+            ring_builder.setup_coop_taskrun().setup_defer_taskrun();
         }
 
         if parameters.sqpoll {
@@ -87,11 +97,10 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
                     .setup_attach_wq(fd);
                 },
                 None => {
-                    const SQPOLL_CPU: u32 = 0;
-                    info!("Starting uring with SQ_POLL thread. Pinned to CPU: {}. Poll timeout: {}ms", SQPOLL_CPU, URING_SQ_POLL_TIMEOUT);
+                    info!("Starting uring with SQ_POLL thread. Pinned to CPU: {}. Poll timeout: {}ms", crate::URING_SQPOLL_CPU, URING_SQ_POLL_TIMEOUT);
                     ring_builder
                     .setup_sqpoll(URING_SQ_POLL_TIMEOUT)
-                    .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
+                    .setup_sqpoll_cpu(crate::URING_SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
                 }
             }
         };
@@ -101,12 +110,7 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
 
         let sq_cap = ring.submission().capacity();
         debug!("Created io_uring instance successfully with CQ size: {} and SQ size: {}", ring.completion().capacity(), sq_cap);
-
-        if !ring.params().is_feature_fast_poll() {
-            warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
-        } else {
-            info!("IORING_FEAT_FAST_POLL is available and used!");
-        }
+        check_io_uring_features_available(&ring, parameters)?;
 
         Ok(ring)
 }
@@ -125,14 +129,14 @@ fn create_buf_ring(submitter: &mut Submitter, buffer_size: u16, mss: u32) -> Buf
 // Check flags, if multishot request is still armed
 pub fn check_multishot_status(flags: u32) -> bool {
     if !cqueue::more(flags) {
-        debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed");
+        debug!("Missing flag IORING_CQE_F_MORE indicating, that multishot has been disarmed or in case of using send zero-copy, that the buffer can be reused.");
         false
     } else {
         true
     }
 }
 
-fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut IoUring) -> (u32, usize) {
+fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut IoUring) -> (usize, usize) {
     let uring_burst_size = parameter.burst_size;
     let uring_buffer_size = parameter.buffer_size;
     let min_complete;
@@ -163,7 +167,7 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
                     to_submit = 0;
                 }
             },
-            UringSqFillingMode::Topup => {
+            UringSqFillingMode::Topup | UringSqFillingMode::TopupNoWait => {
                 // Fill up the submission queue to the maximum
                 let sq_entries_left = {
                     let sq = ring.submission();
@@ -183,9 +187,9 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
         //          Due to the library we're using, the library function will only trigger the syscall io_uring_enter, if the sq_poll thread is asleep.
         //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
         //          If other task_work is implemented, we need to force this probably.
-        min_complete = if parameter.sqpoll { 0 } else { uring_burst_size } as usize;
+        min_complete = if parameter.sqpoll || parameter.sq_filling_mode == UringSqFillingMode::TopupNoWait { 0 } else { uring_burst_size } as usize;
     }
-    (to_submit, min_complete)
+    (to_submit as usize, min_complete)
 }
 
 
@@ -212,4 +216,32 @@ pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static 
         },
         _ => Ok(1) // Positive amount of bytes received
     }
+}
+
+fn check_io_uring_features_available(ring: &IoUring, parameter: UringParameter) -> Result<(), &'static str> {
+    let mut probe = Probe::new();
+    if ring.submitter().register_probe(&mut probe).is_err() {
+        warn!("Unable to check for availability of io-uring features, since probe is not supported!");
+        return Ok(());
+    }
+
+    if parameter.uring_mode == UringMode::Multishot {
+        if !probe.is_supported(opcode::RecvMsgMulti::CODE) {
+            return Err("IORING_OP_RECVMSG_MULTI is not supported in the kernel!");
+        }
+        if !probe.is_supported(opcode::ProvideBuffers::CODE) {
+            return Err("IORING_OP_PROVIDE_BUFFERS is not supported in the kernel!");
+        }
+    } else if parameter.uring_mode == UringMode::ProvidedBuffer && !probe.is_supported(opcode::ProvideBuffers::CODE) {
+        return Err("IORING_OP_PROVIDE_BUFFERS is not supported in the kernel!");
+    } else if parameter.uring_mode == UringMode::Zerocopy && !probe.is_supported(opcode::SendMsgZc::CODE) {
+        return Err("IORING_OP_SENDMSG_ZC is not supported in the kernel!");
+    }
+
+    if !ring.params().is_feature_fast_poll() {
+        warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
+    } else {
+        info!("IORING_FEAT_FAST_POLL is available and used!");
+    }
+    Ok(())
 }
