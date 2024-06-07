@@ -96,11 +96,10 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
                     .setup_attach_wq(fd);
                 },
                 None => {
-                    const SQPOLL_CPU: u32 = 0;
-                    info!("Starting uring with SQ_POLL thread. Pinned to CPU: {}. Poll timeout: {}ms", SQPOLL_CPU, URING_SQ_POLL_TIMEOUT);
+                    info!("Starting uring with SQ_POLL thread. Pinned to CPU: {}. Poll timeout: {}ms", crate::URING_SQPOLL_CPU, URING_SQ_POLL_TIMEOUT);
                     ring_builder
                     .setup_sqpoll(URING_SQ_POLL_TIMEOUT)
-                    .setup_sqpoll_cpu(SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
+                    .setup_sqpoll_cpu(crate::URING_SQPOLL_CPU); // CPU to run the SQ poll thread on core 0 by default
                 }
             }
         };
