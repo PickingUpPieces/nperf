@@ -16,6 +16,7 @@ pub const IORING_CQE_F_NOTIF: u32 = 8;
 pub enum UringSqFillingMode {
     #[default]
     Topup,
+    TopupNoWait,
     Syscall 
 }
 
@@ -166,7 +167,7 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
                     to_submit = 0;
                 }
             },
-            UringSqFillingMode::Topup => {
+            UringSqFillingMode::Topup | UringSqFillingMode::TopupNoWait => {
                 // Fill up the submission queue to the maximum
                 let sq_entries_left = {
                     let sq = ring.submission();
@@ -186,7 +187,7 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
         //          Due to the library we're using, the library function will only trigger the syscall io_uring_enter, if the sq_poll thread is asleep.
         //          If min_complete > 0, io_uring_enter syscall is triggered, so for SQ_POLL we don't want this normally.
         //          If other task_work is implemented, we need to force this probably.
-        min_complete = if parameter.sqpoll { 0 } else { uring_burst_size } as usize;
+        min_complete = if parameter.sqpoll || parameter.sq_filling_mode == UringSqFillingMode::TopupNoWait { 0 } else { uring_burst_size } as usize;
     }
     (to_submit as usize, min_complete)
 }
