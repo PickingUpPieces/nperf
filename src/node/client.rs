@@ -340,12 +340,21 @@ impl Node for Client {
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
+        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
 
         if io_model == IOModel::IoUring {
             self.io_uring_loop(start_time)?;
         } else {
             while start_time.elapsed().as_secs() < self.run_time_length {
+                // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
+                if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+
+                    if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
+                        tx.send(Some(stat)).unwrap();
+                    } 
+                }
+
                 match self.send_messages() {
                     Ok(_) => {},
                     Err("EAGAIN") => {
