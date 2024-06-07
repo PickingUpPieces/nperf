@@ -91,7 +91,7 @@ pub struct nPerf {
     output_format: OutputFormat,
 
     /// Define the path in which the results file should be saved. Make sure the path exists and the application has the rights to write in it.
-    #[arg(long, default_value = "log.csv")]
+    #[arg(long, default_value = "output.json")]
     output_file_path: path::PathBuf,
 
     /// Use different port number for each client thread, share a single port or shard a single port with reuseport
@@ -290,7 +290,7 @@ impl nPerf {
             parameter.uring_parameter.task_work = UringTaskWork::Default;
         }
 
-        if parameter.output_file_path != path::PathBuf::from("log.csv") {
+        if parameter.output_file_path != path::PathBuf::from("output.json") {
             parameter.output_format = OutputFormat::File;
         }
 

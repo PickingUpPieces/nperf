@@ -1,11 +1,10 @@
-use std::{ops::Add, path, time::{Duration, Instant}};
+use std::{fs::OpenOptions, ops::Add, path, time::{Duration, Instant}};
 use log::{debug, error, info};
 use serde::Serialize;
 use serde_json;
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Write;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
@@ -34,6 +33,7 @@ pub enum SimulateConnection {
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
     pub parameter: Parameter,
+    #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
@@ -151,11 +151,11 @@ impl Statistic {
             },
             OutputFormat::File => {
                 let mut output_file = self.parameter.output_file_path.clone();
-                output_file.set_extension("csv");
+                output_file.set_extension("json");
 
                 // Check if the output dir exists. If not, try to create it
-                if !output_file.exists() {
-                    if let Some(parent_dir) = output_file.parent() {
+                if let Some(parent_dir) = output_file.parent() {
+                    if !parent_dir.exists() {
                         if let Err(err) = std::fs::create_dir_all(parent_dir) {
                             error!("Failed to create output directory: {:?}", err);
                             return;
@@ -164,10 +164,15 @@ impl Statistic {
                         }
                     }
                 }
+                let file = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .create(true)
+                    .open(&output_file);
 
-                if let Ok(mut file) = File::create(&output_file) {
+                if let Ok(mut file) = file {
                     let json = serde_json::to_string(&self).unwrap();
-                    file.write_all(json.as_bytes()).unwrap();
+                    file.write_all((json + "\n").as_bytes()).unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {
                     error!("Failed to create file: {}", output_file.display());
@@ -281,7 +286,9 @@ pub struct Parameter {
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
+    #[serde(skip_serializing)]
     pub output_format: OutputFormat,
+    #[serde(skip_serializing)]
     pub output_file_path: path::PathBuf,
     pub io_model: super::IOModel,
     pub test_runtime_length: u64,
