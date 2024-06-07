@@ -47,9 +47,9 @@ impl Client {
             test_id,
             packet_buffer,
             socket,
-            parameter,
+            parameter: parameter.clone(),
             io_uring_sqpoll_fd: io_uring,
-            statistic: Statistic::new(parameter),
+            statistic: Statistic::new(parameter.clone()),
             run_time_length: parameter.test_runtime_length,
             next_packet_id: 0,
             exchange_function: parameter.exchange_function
@@ -298,7 +298,7 @@ impl Client {
 
         match uring_mode {
             UringMode::Normal | UringMode::Zerocopy => {
-                let mut io_uring_instance = crate::io_uring::send::IoUringSend::new(self.parameter, self.io_uring_sqpoll_fd)?;
+                let mut io_uring_instance = crate::io_uring::send::IoUringSend::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 while start_time.elapsed().as_secs() < self.run_time_length {
                     self.statistic.uring_inflight_utilization[amount_inflight] += 1;

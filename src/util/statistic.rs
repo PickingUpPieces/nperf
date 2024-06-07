@@ -1,17 +1,19 @@
-use std::{ops::Add, time::{Duration, Instant}};
-use log::debug;
+use std::{ops::Add, path, time::{Duration, Instant}};
+use log::{debug, error, info};
 use serde::Serialize;
 use serde_json;
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
-
+use std::fs::File;
+use std::io::Write;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
     #[default]
     Text,
     Json,
+    File
 }
 
 #[derive(clap::ValueEnum, Debug, PartialEq, Serialize, Clone, Copy, Default)]
@@ -146,6 +148,30 @@ impl Statistic {
                     }
                     println!(); 
                 }
+            },
+            OutputFormat::File => {
+                let mut output_file = self.parameter.output_file_path.clone();
+                output_file.set_extension("csv");
+
+                // Check if the output dir exists. If not, try to create it
+                if !output_file.exists() {
+                    if let Some(parent_dir) = output_file.parent() {
+                        if let Err(err) = std::fs::create_dir_all(parent_dir) {
+                            error!("Failed to create output directory: {:?}", err);
+                            return;
+                        } else {
+                            debug!("Output directory created: {:?}", parent_dir);
+                        }
+                    }
+                }
+
+                if let Ok(mut file) = File::create(&output_file) {
+                    let json = serde_json::to_string(&self).unwrap();
+                    file.write_all(json.as_bytes()).unwrap();
+                    info!("Results saved to {}", output_file.display());
+                } else {
+                    error!("Failed to create file: {}", output_file.display());
+                }
             }
         }
     }
@@ -250,12 +276,13 @@ impl Measurement {
     }
 }
 
-#[derive(Debug, Serialize, Copy, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub struct Parameter {
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
     pub output_format: OutputFormat,
+    pub output_file_path: path::PathBuf,
     pub io_model: super::IOModel,
     pub test_runtime_length: u64,
     pub mss: u32,
@@ -278,6 +305,7 @@ impl Parameter {
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
         output_format: OutputFormat, 
+        output_file_path: path::PathBuf,
         io_model: super::IOModel, 
         test_runtime_length: u64, 
         mss: u32, 
@@ -297,6 +325,7 @@ impl Parameter {
             ip,
             amount_threads,
             output_format,
+            output_file_path,
             io_model,
             test_runtime_length,
             mss,

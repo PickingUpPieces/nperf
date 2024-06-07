@@ -1,3 +1,5 @@
+use std::path;
+
 use clap::Parser;
 use log::{error, info, warn};
 
@@ -84,9 +86,13 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     io_model: IOModel,
 
-    /// Define the data structure type the output 
+    /// Define the type the output 
     #[arg(long, default_value_t, value_enum)]
     output_format: OutputFormat,
+
+    /// Define the path in which the results file should be saved. Make sure the path exists and the application has the rights to write in it.
+    #[arg(long, default_value = "log.csv")]
+    output_file_path: path::PathBuf,
 
     /// Use different port number for each client thread, share a single port or shard a single port with reuseport
     #[arg(long, default_value_t, value_enum)]
@@ -178,7 +184,6 @@ impl nPerf {
         info!("Exchange function used: {:?}", self.exchange_function);
         info!("MSS used: {}", mss);
         info!("IO model used: {:?}", self.io_model);
-        info!("Output format: {:?}", self.output_format);
         info!("UDP datagram size used: {}", self.datagram_size);
 
         let socket_options = self.parse_socket_options(self.mode);
@@ -199,6 +204,7 @@ impl nPerf {
             ipv4, 
             self.parallel,
             self.output_format, 
+            self.output_file_path.clone(),
             self.io_model, 
             self.time, 
             mss, 
@@ -282,6 +288,10 @@ impl nPerf {
         if parameter.uring_parameter.sqpoll && parameter.uring_parameter.task_work != UringTaskWork::Default {
             warn!("Neither DEFER nor COOP can be used with SQ_POLL! Setting task_work to Default!");
             parameter.uring_parameter.task_work = UringTaskWork::Default;
+        }
+
+        if parameter.output_file_path != path::PathBuf::from("log.csv") {
+            parameter.output_format = OutputFormat::File;
         }
 
         Some(parameter)
