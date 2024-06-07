@@ -21,6 +21,7 @@ const DEFAULT_DURATION: u64 = 10; // /* seconds */
 const DEFAULT_SERVER_PORT: u16 = 45001;
 const DEFAULT_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(0,0,0,0);
 const DEFAULT_CLIENT_PORT: u16 = 46001;
+const DEFAULT_INTERVAL: u64 = 0; // /* seconds */
 const WAIT_CONTROL_MESSAGE: u64 = 500; // /* milliseconds */
 
 // Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes 

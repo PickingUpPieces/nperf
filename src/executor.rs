@@ -15,7 +15,7 @@ use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
 extern crate core_affinity;
 
 impl nPerf {
-    pub fn exec(self, parameter: Parameter) -> Option<Statistic> {
+    pub fn exec(self, mut parameter: Parameter) -> Option<Statistic> {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
 
@@ -63,18 +63,29 @@ impl nPerf {
             }
     
             info!("Waiting for all threads to finish...");
-            let mut statistics = Self::get_statistics(fetch_handle, rx, &parameter);
+            let mut statistics: Statistic = Statistic::new(parameter.clone());
+
+            // Set them equal so statistics are printed at the end
+            if parameter.output_interval == 0 {
+                parameter.output_interval = parameter.test_runtime_length;
+            }
+
+            for _ in 0..(parameter.test_runtime_length / parameter.output_interval) {
+                statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+                if statistics.amount_datagrams != 0 {
+                    statistics.print(parameter.output_format);
+                }
+            };
+
+            for handle in fetch_handle {
+                handle.join().expect("Error joining thread");
+            }
 
             info!("All threads finished!");
             if let Some(socket) = socket {
                 socket.close().expect("Error closing socket");
             }
     
-            if statistics.amount_datagrams != 0 {
-                statistics.calculate_statistics();
-                statistics.print(parameter.output_format);
-            }
-
             if !(self.run_infinite && parameter.mode == NPerfMode::Server) {
                 return Some(statistics);
             }
@@ -95,7 +106,7 @@ impl nPerf {
             Box::new(Server::new(sock_address_server, socket, io_uring, parameter.clone()))
         };
 
-        match node.run(parameter.io_model) {
+        match node.run(parameter.io_model, tx.clone()) {
             Ok(statistic) => { 
                 info!("{:?}: Finished measurement!", thread::current().id());
                 tx.send(Some(statistic)).unwrap();
@@ -107,9 +118,9 @@ impl nPerf {
         }
     }
 
-    fn get_statistics(fetch_handle: Vec<thread::JoinHandle<()>>, rx: mpsc::Receiver<Option<Statistic>>, parameter: &Parameter) -> Statistic {
-        fetch_handle.into_iter().fold(Statistic::new(parameter.clone()), |acc: Statistic, handle| { 
-            let statistic = acc + match rx.recv_timeout(std::time::Duration::from_secs(max(parameter.test_runtime_length * 2, 120))) {
+    fn get_statistics(fetch_handle: &[thread::JoinHandle<()>], rx: &mpsc::Receiver<Option<Statistic>>, parameter: &Parameter) -> Statistic {
+        fetch_handle.iter().fold(Statistic::new(parameter.clone()), |acc: Statistic, _| { 
+            acc + match rx.recv_timeout(std::time::Duration::from_secs(max(parameter.test_runtime_length * 2, 120))) {
                 Ok(x) => {
                     match x {
                     Some(x) => x,
@@ -117,10 +128,7 @@ impl nPerf {
                     }
                 },
                 Err(_) => Statistic::new(parameter.clone())
-            };
-                
-            handle.join().unwrap(); 
-            statistic 
+            }
         })
     }
 

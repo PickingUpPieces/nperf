@@ -1,5 +1,6 @@
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
+use std::sync::mpsc;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
@@ -328,7 +329,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
+    fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);
         }
@@ -367,6 +368,7 @@ impl Node for Client {
         let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
         self.statistic.set_test_duration(start_time, end_time);
+        self.statistic.interval_id = self.statistic.parameter.test_runtime_length;
         self.statistic.calculate_statistics();
         Ok(self.statistic.clone())
     }

@@ -34,11 +34,15 @@ pub struct nPerf {
     #[arg(short, long, default_value_t = false)]
     pub run_infinite: bool,
 
+    /// Interval printouts of the statistic in seconds (0 to disable).
+    #[arg(short, long, default_value_t = crate::DEFAULT_INTERVAL)]
+    interval: u64,
+
     /// Set length of single datagram (Without IP and UDP headers)
     #[arg(short = 'l', long, default_value_t = crate::DEFAULT_UDP_DATAGRAM_SIZE)]
     datagram_size: u32,
 
-    /// Time to run the test
+    /// Amount of seconds to run the test for
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
@@ -203,6 +207,7 @@ impl nPerf {
             self.mode, 
             ipv4, 
             self.parallel,
+            self.interval,
             self.output_format, 
             self.output_file_path.clone(),
             self.io_model, 

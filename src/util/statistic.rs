@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, ops::Add, path, time::{Duration, Instant}};
+use std::{fs::OpenOptions, ops::{Add, Sub}, path, time::{Duration, Instant}};
 use log::{debug, error, info};
 use serde::Serialize;
 use serde_json;
@@ -30,11 +30,52 @@ pub enum SimulateConnection {
     Multiple
 }
 
+#[derive(Debug, Clone)]
+pub struct StatisticInterval {
+    interval_id: u64,
+    pub output_interval: u64,
+    pub last_send_instant: Instant,
+    runtime_length: u64,
+    statistic_old: Statistic,
+}
+
+impl StatisticInterval {
+    pub fn new(last_send_instant: Instant, output_interval: u64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
+        StatisticInterval {
+            interval_id: 0,
+            output_interval,
+            last_send_instant,
+            runtime_length,
+            statistic_old: statistic
+        }
+    }
+
+    pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
+        self.interval_id += self.output_interval;
+        if self.interval_id >= self.runtime_length {
+            return None;
+        }
+
+        statistic_new.set_test_duration(self.last_send_instant, Instant::now());
+        statistic_new.interval_id = self.interval_id;
+
+        let statistic_interval_new = statistic_new.clone();
+        statistic_new = statistic_new - self.statistic_old.clone();
+        self.statistic_old = statistic_interval_new;
+        // Update the last send operation instant to the current instant
+        self.last_send_instant = Instant::now();
+
+        Some(statistic_new)
+    }
+}
+
+
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
     pub parameter: Parameter,
     #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
+    pub interval_id: u64,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
@@ -70,6 +111,7 @@ impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
         Statistic {
             parameter,
+            interval_id: 0,
             test_duration: Duration::new(0, 0),
             total_data_gbyte: 0.0,
             amount_datagrams: 0,
@@ -105,8 +147,21 @@ impl Statistic {
                 println!("{}", serde_json::to_string(&self).unwrap());
             },
             OutputFormat::Text => {
+                if self.interval_id != self.parameter.test_runtime_length {
+                    println!(
+                        "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
+                        self.interval_id, 
+                        (self.interval_id - self.parameter.output_interval) as f64, 
+                        self.interval_id as f64, 
+                        self.total_data_gbyte, 
+                        self.data_rate_gbit, 
+                        self.amount_omitted_datagrams, 
+                        self.amount_datagrams, 
+                        self.packet_loss
+                    );
+                } else {
                 println!("------------------------");
-                println!("Statistics");
+                println!("Summary Measurement");
                 println!("------------------------");
                 println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
                 println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
@@ -148,6 +203,7 @@ impl Statistic {
                     }
                     println!(); 
                 }
+            }
             },
             OutputFormat::File => {
                 let mut output_file = self.parameter.output_file_path.clone();
@@ -222,14 +278,6 @@ impl Add for Statistic {
             ( self.packet_loss + other.packet_loss ) / 2.0 // Average of packet loss
         };
 
-        // Assumption is that both statistics have the same test duration. 
-        // Check if one is zero, to avoid division by zero.
-        // Alternativly, could be added to a list of test_durations, but then we would need to change the type in the struct.
-        let test_duration = if self.test_duration.as_secs() == 0 {
-            other.test_duration
-        } else {
-            self.test_duration
-        };
 
         // Add the arrays field by field
         let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
@@ -249,7 +297,8 @@ impl Add for Statistic {
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
-            test_duration, 
+            test_duration: std::cmp::max(self.test_duration, other.test_duration),
+            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -262,6 +311,68 @@ impl Add for Statistic {
             packet_loss,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
+            uring_sq_utilization,
+            uring_cq_utilization,
+            uring_inflight_utilization
+        }
+    }
+}
+
+
+impl Sub for Statistic {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        // Check if one is zero, to avoid division by zero
+        let data_rate_gbit = if self.data_rate_gbit == 0.0 {
+            other.data_rate_gbit
+        } else if other.data_rate_gbit == 0.0 {
+            self.data_rate_gbit
+        } else {
+            ( self.data_rate_gbit - other.data_rate_gbit ) / 2.0 // Data rate is the average of both
+        };
+
+        // Check if one is zero, to avoid division by zero
+        let packet_loss = if self.packet_loss == 0.0 {
+            other.packet_loss
+        } else if other.packet_loss == 0.0 {
+            self.packet_loss
+        } else {
+            ( self.packet_loss - other.packet_loss ) / 2.0 // Average of packet loss
+        };
+
+         // Add the arrays field by field
+        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+        for i in 0..uring_sq_utilization.len() {
+            uring_sq_utilization[i] = self.uring_sq_utilization[i] - other.uring_sq_utilization[i];
+        }
+
+        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
+        for i in 0..uring_cq_utilization.len() {
+            uring_cq_utilization[i] = self.uring_cq_utilization[i] - other.uring_cq_utilization[i];
+        }
+
+        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
+        for i in 0..uring_inflight_utilization.len() {
+            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] - other.uring_inflight_utilization[i];
+        }
+
+        Statistic {
+            parameter: self.parameter, // Assumption is that both statistics have the same test parameters
+            test_duration: std::cmp::max(self.test_duration, other.test_duration),
+            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
+            total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
+            amount_datagrams: self.amount_datagrams - other.amount_datagrams,
+            amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,
+            amount_reordered_datagrams: self.amount_reordered_datagrams - other.amount_reordered_datagrams,
+            amount_duplicated_datagrams: self.amount_duplicated_datagrams - other.amount_duplicated_datagrams,
+            amount_omitted_datagrams: self.amount_omitted_datagrams - other.amount_omitted_datagrams,
+            amount_syscalls: self.amount_syscalls - other.amount_syscalls,
+            amount_io_model_calls: self.amount_io_model_calls - other.amount_io_model_calls,
+            data_rate_gbit, 
+            packet_loss,
+            uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
+            uring_canceled_multishot: self.uring_canceled_multishot - other.uring_canceled_multishot,
             uring_sq_utilization,
             uring_cq_utilization,
             uring_inflight_utilization
@@ -287,6 +398,8 @@ pub struct Parameter {
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
     #[serde(skip_serializing)]
+    pub output_interval: u64,
+    #[serde(skip_serializing)]
     pub output_format: OutputFormat,
     #[serde(skip_serializing)]
     pub output_file_path: path::PathBuf,
@@ -311,6 +424,7 @@ impl Parameter {
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
+        output_interval: u64,
         output_format: OutputFormat, 
         output_file_path: path::PathBuf,
         io_model: super::IOModel, 
@@ -331,6 +445,7 @@ impl Parameter {
             mode,
             ip,
             amount_threads,
+            output_interval,
             output_format,
             output_file_path,
             io_model,
