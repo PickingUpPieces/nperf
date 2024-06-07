@@ -292,9 +292,10 @@ impl Client {
     }
 
 
-    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
+    fn io_uring_loop(&mut self, start_time: Instant, tx: mpsc::Sender<Option<Statistic>>) -> Result<(), &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let uring_mode = self.parameter.uring_parameter.uring_mode;
+        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         let mut amount_inflight: usize = 0;
 
         match uring_mode {
@@ -304,6 +305,13 @@ impl Client {
                 while start_time.elapsed().as_secs() < self.run_time_length {
                     self.statistic.uring_inflight_utilization[amount_inflight] += 1;
                     self.statistic.amount_io_model_calls += 1;
+
+                    // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
+                    if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                        if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
+                            tx.send(Some(stat)).unwrap();
+                        } 
+                    }
 
                     let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
                     amount_inflight += submitted;
@@ -340,16 +348,16 @@ impl Node for Client {
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
-        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
 
         if io_model == IOModel::IoUring {
-            self.io_uring_loop(start_time)?;
+            self.io_uring_loop(start_time, tx)?;
         } else {
+            let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
+
             while start_time.elapsed().as_secs() < self.run_time_length {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                 if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
-
                     if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
                         tx.send(Some(stat)).unwrap();
                     } 
