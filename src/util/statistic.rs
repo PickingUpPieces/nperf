@@ -5,7 +5,6 @@ use serde_json;
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
-use std::io::Write;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
@@ -72,6 +71,7 @@ impl StatisticInterval {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
+    #[serde(flatten)]
     pub parameter: Parameter,
     #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
@@ -207,7 +207,7 @@ impl Statistic {
             },
             OutputFormat::File => {
                 let mut output_file = self.parameter.output_file_path.clone();
-                output_file.set_extension("json");
+                output_file.set_extension("csv");
 
                 // Check if the output dir exists. If not, try to create it
                 if let Some(parent_dir) = output_file.parent() {
@@ -226,9 +226,24 @@ impl Statistic {
                     .create(true)
                     .open(&output_file);
 
-                if let Ok(mut file) = file {
-                    let json = serde_json::to_string(&self).unwrap();
-                    file.write_all((json + "\n").as_bytes()).unwrap();
+                if let Ok(file) = file {
+                    // Check if the file exists is empty
+                    let is_empty = file.metadata().unwrap().len() == 0;
+
+                    // Use csv writer to write the results to a file
+                    let mut wtr = if is_empty {
+                        // If the file is empty, use automatically write the header and data
+                        csv::Writer::from_writer(file)
+                    } else {
+                        // If the file is not empty, manually write the data without the header
+                        csv::WriterBuilder::new().has_headers(false).from_writer(file)
+                    };
+
+                    wtr.serialize(&self).unwrap();
+                    wtr.flush().unwrap();
+
+                    //let json = serde_json::to_string(&self).unwrap();
+                    //file.write_all((json + "\n").as_bytes()).unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {
                     error!("Failed to create file: {}", output_file.display());
@@ -408,6 +423,7 @@ pub struct Parameter {
     pub mss: u32,
     pub datagram_size: u32,
     pub packet_buffer_size: usize,
+    #[serde(flatten)]
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
     pub multiplex_port: MultiplexPort,
@@ -415,6 +431,7 @@ pub struct Parameter {
     pub simulate_connection: SimulateConnection,
     pub core_affinity: bool,
     pub numa_affinity: bool,
+    #[serde(flatten)]
     pub uring_parameter: UringParameter,
 }
 
@@ -492,12 +509,17 @@ pub mod utilization {
             .collect::<Vec<_>>();
         values.sort_by(|a, b| b.1.cmp(a.1));
         values.truncate(LIMIT_LENGTH_OUTPUT);
-    
+
         let mut map = HashMap::new();
         for &(index, &value) in &values {
             map.insert(index, value);
         }
-        map.serialize(serializer)
+
+        let map_string = map.iter()
+            .map(|(k, v)| format!("'{}': {}", k, v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        serializer.serialize_str(&format!("{{{}}}", map_string))
     }
 
     #[allow(dead_code)] // Maybe needed in the future

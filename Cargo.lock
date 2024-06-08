@@ -66,7 +66,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00ad3f3a942eee60335ab4342358c161ee296829e0d16ff42fc1d6cb07815467"
 dependencies = [
  "anstyle",
- "bstr",
+ "bstr 1.9.0",
  "doc-comment",
  "predicates",
  "predicates-core",
@@ -88,12 +88,24 @@ checksum = "327762f6e5a765692301e5bb513e0d9fef63be86bbc14528052b1cd3e6f03e07"
 
 [[package]]
 name = "bstr"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba3569f383e8f1598449f1a423e72e99569137b47740b1da11ef19af3d5c3223"
+dependencies = [
+ "lazy_static",
+ "memchr",
+ "regex-automata 0.1.10",
+ "serde",
+]
+
+[[package]]
+name = "bstr"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c48f0051a4b4c5e0b6d365cd04af53aeaa209e3cc15ec2cdb69e73cc87fbd0dc"
 dependencies = [
  "memchr",
- "regex-automata",
+ "regex-automata 0.4.3",
  "serde",
 ]
 
@@ -161,6 +173,26 @@ dependencies = [
  "libc",
  "num_cpus",
  "winapi",
+]
+
+[[package]]
+name = "csv"
+version = "1.1.5"
+source = "git+https://github.com/gootorov/rust-csv.git?rev=31d1105f9ee50bf02dff178f20be4a1ec9fdff2d#31d1105f9ee50bf02dff178f20be4a1ec9fdff2d"
+dependencies = [
+ "bstr 0.2.17",
+ "csv-core",
+ "itoa 0.4.8",
+ "ryu",
+ "serde",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.10"
+source = "git+https://github.com/gootorov/rust-csv.git?rev=31d1105f9ee50bf02dff178f20be4a1ec9fdff2d#31d1105f9ee50bf02dff178f20be4a1ec9fdff2d"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -238,9 +270,21 @@ dependencies = [
 
 [[package]]
 name = "itoa"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b71991ff56294aa922b450139ee08b3bfc70982c6b2c7562771375cf73542dd4"
+
+[[package]]
+name = "itoa"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
@@ -274,6 +318,7 @@ dependencies = [
  "clap",
  "clap-markdown",
  "core_affinity",
+ "csv",
  "env_logger",
  "io-uring",
  "libc",
@@ -345,9 +390,15 @@ checksum = "380b951a9c5e80ddfd6136919eef32310721aa4aacd4889a8d39124b026ab343"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-automata",
+ "regex-automata 0.4.3",
  "regex-syntax",
 ]
+
+[[package]]
+name = "regex-automata"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c230d73fb8d8c1b9c0b3135c5142a8acee3a0558fb8db5cf1cb65f8d7862132"
 
 [[package]]
 name = "regex-automata"
@@ -411,7 +462,7 @@ version = "1.0.113"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69801b70b1c3dac963ecb03a364ba0ceda9cf60c71cfe475e99864759c8b8a79"
 dependencies = [
- "itoa",
+ "itoa 1.0.10",
  "ryu",
  "serde",
 ]
