@@ -409,6 +409,8 @@ impl Measurement {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Parameter {
+    pub test_name: String,
+    pub run_name: String,
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
@@ -438,6 +440,8 @@ pub struct Parameter {
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        test_name: String,
+        run_name: String,
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
@@ -459,6 +463,8 @@ impl Parameter {
         uring_parameter: UringParameter
     ) -> Parameter {
         Parameter {
+            test_name,
+            run_name,
             mode,
             ip,
             amount_threads,

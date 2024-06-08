@@ -98,6 +98,14 @@ pub struct nPerf {
     #[arg(long, default_value = "output.json")]
     output_file_path: path::PathBuf,
 
+    /// Test label which appears in the output file, if multiple tests are run in parallel
+    #[arg(long, default_value_t = String::from("nperf-test"))]
+    label_test: String,
+
+    /// Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
+    #[arg(long, default_value_t = String::from("run-nperf"))]
+    label_run: String,
+
     /// Use different port number for each client thread, share a single port or shard a single port with reuseport
     #[arg(long, default_value_t, value_enum)]
     multiplex_port: MultiplexPort,
@@ -204,6 +212,8 @@ impl nPerf {
         };
 
         let parameter = util::statistic::Parameter::new(
+            self.label_test.clone(),
+            self.label_run.clone(),
             self.mode, 
             ipv4, 
             self.parallel,
