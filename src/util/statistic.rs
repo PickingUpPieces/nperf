@@ -233,7 +233,6 @@ impl Statistic {
                     }
                 }
                 let file = OpenOptions::new()
-                    .write(true)
                     .append(true)
                     .create(true)
                     .open(&output_file);
