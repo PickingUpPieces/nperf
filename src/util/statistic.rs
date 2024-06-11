@@ -31,31 +31,42 @@ pub enum SimulateConnection {
 
 #[derive(Debug, Clone)]
 pub struct StatisticInterval {
-    interval_id: u64,
-    pub output_interval: u64,
+    interval_id: f64,
+    pub output_interval: f64,
     pub last_send_instant: Instant,
+    last_interval_sent: bool,
     runtime_length: u64,
     statistic_old: Statistic,
 }
 
 impl StatisticInterval {
-    pub fn new(last_send_instant: Instant, output_interval: u64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
+    pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
         StatisticInterval {
-            interval_id: 0,
+            interval_id: 0.0,
             output_interval,
             last_send_instant,
+            last_interval_sent: false,
             runtime_length,
             statistic_old: statistic
         }
     }
 
     pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
-        self.interval_id += self.output_interval;
-        if self.interval_id >= self.runtime_length {
-            return None;
+        self.interval_id = ((self.interval_id + self.output_interval) * 10.0).round() / 10.0;
+        if self.interval_id >= self.runtime_length as f64{
+            if self.last_interval_sent {
+                return None;
+            } else {
+                self.last_interval_sent = true;
+            }
         }
 
-        statistic_new.set_test_duration(self.last_send_instant, Instant::now());
+        if self.last_interval_sent {
+            statistic_new.set_test_duration(self.last_send_instant, Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
+        } else {
+            statistic_new.set_test_duration(self.last_send_instant, Instant::now());
+        }
+
         statistic_new.interval_id = self.interval_id;
 
         let statistic_interval_new = statistic_new.clone();
@@ -75,7 +86,7 @@ pub struct Statistic {
     pub parameter: Parameter,
     #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
-    pub interval_id: u64,
+    pub interval_id: f64,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
@@ -111,7 +122,7 @@ impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
         Statistic {
             parameter,
-            interval_id: 0,
+            interval_id: 0.0,
             test_duration: Duration::new(0, 0),
             total_data_gbyte: 0.0,
             amount_datagrams: 0,
@@ -139,7 +150,7 @@ impl Statistic {
         debug!("Statistic updated: {:?}", self);
     }
 
-    pub fn print(&mut self, output_format: OutputFormat) {
+    pub fn print(&mut self, output_format: OutputFormat, interval_print: bool) {
         self.calculate_statistics();
 
         match output_format {
@@ -147,12 +158,12 @@ impl Statistic {
                 println!("{}", serde_json::to_string(&self).unwrap());
             },
             OutputFormat::Text => {
-                if self.interval_id != self.parameter.test_runtime_length {
+                if interval_print {
                     println!(
                         "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
                         self.interval_id, 
-                        (self.interval_id - self.parameter.output_interval) as f64, 
-                        self.interval_id as f64, 
+                        (self.interval_id - self.parameter.output_interval), 
+                        self.interval_id, 
                         self.total_data_gbyte, 
                         self.data_rate_gbit, 
                         self.amount_omitted_datagrams, 
@@ -165,14 +176,15 @@ impl Statistic {
                 println!("------------------------");
                 println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
                 println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
+                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
+                println!("Packet loss: {:.2}%", self.packet_loss);
+                println!("------------------------");
                 println!("Amount of datagrams: {}", self.amount_datagrams);
                 println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
                 println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
-                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
-                println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Io-Uring");
@@ -241,9 +253,6 @@ impl Statistic {
 
                     wtr.serialize(&self).unwrap();
                     wtr.flush().unwrap();
-
-                    //let json = serde_json::to_string(&self).unwrap();
-                    //file.write_all((json + "\n").as_bytes()).unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {
                     error!("Failed to create file: {}", output_file.display());
@@ -313,7 +322,7 @@ impl Add for Statistic {
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
             test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
+            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -375,7 +384,7 @@ impl Sub for Statistic {
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
             test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
+            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams - other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,
@@ -415,7 +424,7 @@ pub struct Parameter {
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
     #[serde(skip_serializing)]
-    pub output_interval: u64,
+    pub output_interval: f64,
     #[serde(skip_serializing)]
     pub output_format: OutputFormat,
     #[serde(skip_serializing)]
@@ -445,7 +454,7 @@ impl Parameter {
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
-        output_interval: u64,
+        output_interval: f64,
         output_format: OutputFormat, 
         output_file_path: path::PathBuf,
         io_model: super::IOModel, 

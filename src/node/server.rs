@@ -410,7 +410,7 @@ impl Server {
                     io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
 
                         if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
@@ -445,7 +445,7 @@ impl Server {
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
 
                         if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
@@ -479,7 +479,7 @@ impl Server {
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
 
                         if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
@@ -550,13 +550,13 @@ impl Node for Server {
         let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
 
         if io_model == IOModel::IoUring {
-            statistic = self.io_uring_loop(statistic_interval, tx)?;
+            statistic = self.io_uring_loop(statistic_interval.clone(), tx.clone())?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;
 
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                     let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
 
                     if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
@@ -606,7 +606,7 @@ impl Node for Server {
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
         // Fold over all statistics, and calculate the final statistic
         let mut statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
-        statistic.interval_id = statistic.parameter.test_runtime_length;
+        statistic.interval_id = statistic.parameter.test_runtime_length as f64;
         Ok(statistic)
     }
 

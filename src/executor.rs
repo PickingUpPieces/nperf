@@ -63,19 +63,24 @@ impl nPerf {
             }
     
             info!("Waiting for all threads to finish...");
-            let mut statistics: Statistic = Statistic::new(parameter.clone());
+            let mut statistics;
+            let amount_interval_outputs = if parameter.output_interval == 0.0 { 0 } else { (parameter.test_runtime_length as f64 / parameter.output_interval).floor() as u64 };
 
-            // Set them equal so statistics are printed at the end
-            if parameter.output_interval == 0 {
-                parameter.output_interval = parameter.test_runtime_length;
-            }
+            info!("Amount of interval outputs: {}", amount_interval_outputs);
 
-            for _ in 0..(parameter.test_runtime_length / parameter.output_interval) {
+            // Print statistics every output_interval seconds
+            for _ in 0..amount_interval_outputs {
                 statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
                 if statistics.amount_datagrams != 0 {
-                    statistics.print(parameter.output_format);
+                    statistics.print(parameter.output_format, true);
                 }
             };
+
+            // Print final statistics
+            statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+            if statistics.amount_datagrams != 0 {
+                statistics.print(parameter.output_format, false);
+            }
 
             for handle in fetch_handle {
                 handle.join().expect("Error joining thread");

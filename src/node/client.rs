@@ -307,7 +307,7 @@ impl Client {
                     self.statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
                             tx.send(Some(stat)).unwrap();
                         } 
@@ -348,16 +348,16 @@ impl Node for Client {
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
+        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
 
         if io_model == IOModel::IoUring {
-            self.io_uring_loop(start_time, tx)?;
+            self.io_uring_loop(start_time, tx.clone())?;
         } else {
-            let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
 
             while start_time.elapsed().as_secs() < self.run_time_length {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0 && statistic_interval.last_send_instant.elapsed().as_secs() >= statistic_interval.output_interval {
+                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                     if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
                         tx.send(Some(stat)).unwrap();
                     } 
@@ -377,6 +377,14 @@ impl Node for Client {
                 self.statistic.amount_syscalls += 1;
             }
         }
+
+        // Print last interval
+        if self.parameter.output_interval != 0.0 {
+            if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
+                tx.send(Some(stat)).unwrap();
+            }
+        }
+
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
@@ -385,7 +393,7 @@ impl Node for Client {
         let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
         self.statistic.set_test_duration(start_time, end_time);
-        self.statistic.interval_id = self.statistic.parameter.test_runtime_length;
+        self.statistic.interval_id = self.statistic.parameter.test_runtime_length as f64;
         self.statistic.calculate_statistics();
         Ok(self.statistic.clone())
     }
