@@ -15,7 +15,7 @@ use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
 extern crate core_affinity;
 
 impl nPerf {
-    pub fn exec(self, mut parameter: Parameter) -> Option<Statistic> {
+    pub fn exec(self, parameter: Parameter) -> Option<Statistic> {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
 
@@ -63,19 +63,23 @@ impl nPerf {
             }
     
             info!("Waiting for all threads to finish...");
-            let mut statistics: Statistic = Statistic::new(parameter.clone());
 
-            // Set them equal so statistics are printed at the end
-            if parameter.output_interval == 0 {
-                parameter.output_interval = parameter.test_runtime_length;
-            }
+            // Print statistics every output_interval seconds
+            let amount_interval_outputs = if parameter.output_interval == 0.0 { 0 } else { (parameter.test_runtime_length as f64 / parameter.output_interval).floor() as u64 };
+            debug!("Amount of interval outputs: {}", amount_interval_outputs);
 
-            for _ in 0..(parameter.test_runtime_length / parameter.output_interval) {
-                statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+            for _ in 0..amount_interval_outputs {
+                let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
                 if statistics.amount_datagrams != 0 {
-                    statistics.print(parameter.output_format);
+                    statistics.print(parameter.output_format, true);
                 }
             };
+
+            // Print final statistics
+            let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+            if statistics.amount_datagrams != 0 {
+                statistics.print(parameter.output_format, false);
+            }
 
             for handle in fetch_handle {
                 handle.join().expect("Error joining thread");

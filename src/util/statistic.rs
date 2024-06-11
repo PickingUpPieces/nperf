@@ -5,7 +5,6 @@ use serde_json;
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
-use std::io::Write;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
@@ -32,31 +31,42 @@ pub enum SimulateConnection {
 
 #[derive(Debug, Clone)]
 pub struct StatisticInterval {
-    interval_id: u64,
-    pub output_interval: u64,
+    interval_id: f64,
+    pub output_interval: f64,
     pub last_send_instant: Instant,
+    last_interval_sent: bool,
     runtime_length: u64,
     statistic_old: Statistic,
 }
 
 impl StatisticInterval {
-    pub fn new(last_send_instant: Instant, output_interval: u64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
+    pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
         StatisticInterval {
-            interval_id: 0,
+            interval_id: 0.0,
             output_interval,
             last_send_instant,
+            last_interval_sent: false,
             runtime_length,
             statistic_old: statistic
         }
     }
 
     pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
-        self.interval_id += self.output_interval;
-        if self.interval_id >= self.runtime_length {
-            return None;
+        self.interval_id = ((self.interval_id + self.output_interval) * 10.0).round() / 10.0;
+        if self.interval_id >= self.runtime_length as f64{
+            if self.last_interval_sent {
+                return None;
+            } else {
+                self.last_interval_sent = true;
+            }
         }
 
-        statistic_new.set_test_duration(self.last_send_instant, Instant::now());
+        if self.last_interval_sent {
+            statistic_new.set_test_duration(self.last_send_instant, Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
+        } else {
+            statistic_new.set_test_duration(self.last_send_instant, Instant::now());
+        }
+
         statistic_new.interval_id = self.interval_id;
 
         let statistic_interval_new = statistic_new.clone();
@@ -72,10 +82,11 @@ impl StatisticInterval {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
+    #[serde(flatten)]
     pub parameter: Parameter,
     #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
-    pub interval_id: u64,
+    pub interval_id: f64,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
@@ -111,7 +122,7 @@ impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
         Statistic {
             parameter,
-            interval_id: 0,
+            interval_id: 0.0,
             test_duration: Duration::new(0, 0),
             total_data_gbyte: 0.0,
             amount_datagrams: 0,
@@ -139,7 +150,7 @@ impl Statistic {
         debug!("Statistic updated: {:?}", self);
     }
 
-    pub fn print(&mut self, output_format: OutputFormat) {
+    pub fn print(&mut self, output_format: OutputFormat, interval_print: bool) {
         self.calculate_statistics();
 
         match output_format {
@@ -147,12 +158,12 @@ impl Statistic {
                 println!("{}", serde_json::to_string(&self).unwrap());
             },
             OutputFormat::Text => {
-                if self.interval_id != self.parameter.test_runtime_length {
+                if interval_print {
                     println!(
                         "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
                         self.interval_id, 
-                        (self.interval_id - self.parameter.output_interval) as f64, 
-                        self.interval_id as f64, 
+                        (self.interval_id - self.parameter.output_interval), 
+                        self.interval_id, 
                         self.total_data_gbyte, 
                         self.data_rate_gbit, 
                         self.amount_omitted_datagrams, 
@@ -165,14 +176,15 @@ impl Statistic {
                 println!("------------------------");
                 println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
                 println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
+                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
+                println!("Packet loss: {:.2}%", self.packet_loss);
+                println!("------------------------");
                 println!("Amount of datagrams: {}", self.amount_datagrams);
                 println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
                 println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
-                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
-                println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Io-Uring");
@@ -207,7 +219,7 @@ impl Statistic {
             },
             OutputFormat::File => {
                 let mut output_file = self.parameter.output_file_path.clone();
-                output_file.set_extension("json");
+                output_file.set_extension("csv");
 
                 // Check if the output dir exists. If not, try to create it
                 if let Some(parent_dir) = output_file.parent() {
@@ -221,14 +233,25 @@ impl Statistic {
                     }
                 }
                 let file = OpenOptions::new()
-                    .write(true)
                     .append(true)
                     .create(true)
                     .open(&output_file);
 
-                if let Ok(mut file) = file {
-                    let json = serde_json::to_string(&self).unwrap();
-                    file.write_all((json + "\n").as_bytes()).unwrap();
+                if let Ok(file) = file {
+                    // Check if the file exists is empty
+                    let is_empty = file.metadata().unwrap().len() == 0;
+
+                    // Use csv writer to write the results to a file
+                    let mut wtr = if is_empty {
+                        // If the file is empty, use automatically write the header and data
+                        csv::Writer::from_writer(file)
+                    } else {
+                        // If the file is not empty, manually write the data without the header
+                        csv::WriterBuilder::new().has_headers(false).from_writer(file)
+                    };
+
+                    wtr.serialize(&self).unwrap();
+                    wtr.flush().unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {
                     error!("Failed to create file: {}", output_file.display());
@@ -298,7 +321,7 @@ impl Add for Statistic {
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
             test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
+            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -360,7 +383,7 @@ impl Sub for Statistic {
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
             test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
+            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams - other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,
@@ -394,11 +417,13 @@ impl Measurement {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Parameter {
+    pub test_name: String,
+    pub run_name: String,
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
     #[serde(skip_serializing)]
-    pub output_interval: u64,
+    pub output_interval: f64,
     #[serde(skip_serializing)]
     pub output_format: OutputFormat,
     #[serde(skip_serializing)]
@@ -408,6 +433,7 @@ pub struct Parameter {
     pub mss: u32,
     pub datagram_size: u32,
     pub packet_buffer_size: usize,
+    #[serde(flatten)]
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
     pub multiplex_port: MultiplexPort,
@@ -415,16 +441,19 @@ pub struct Parameter {
     pub simulate_connection: SimulateConnection,
     pub core_affinity: bool,
     pub numa_affinity: bool,
+    #[serde(flatten)]
     pub uring_parameter: UringParameter,
 }
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        test_name: String,
+        run_name: String,
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
-        output_interval: u64,
+        output_interval: f64,
         output_format: OutputFormat, 
         output_file_path: path::PathBuf,
         io_model: super::IOModel, 
@@ -442,6 +471,8 @@ impl Parameter {
         uring_parameter: UringParameter
     ) -> Parameter {
         Parameter {
+            test_name,
+            run_name,
             mode,
             ip,
             amount_threads,
@@ -492,12 +523,17 @@ pub mod utilization {
             .collect::<Vec<_>>();
         values.sort_by(|a, b| b.1.cmp(a.1));
         values.truncate(LIMIT_LENGTH_OUTPUT);
-    
+
         let mut map = HashMap::new();
         for &(index, &value) in &values {
             map.insert(index, value);
         }
-        map.serialize(serializer)
+
+        let map_string = map.iter()
+            .map(|(k, v)| format!("'{}': {}", k, v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        serializer.serialize_str(&format!("{{{}}}", map_string))
     }
 
     #[allow(dead_code)] // Maybe needed in the future

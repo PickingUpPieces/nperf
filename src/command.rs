@@ -36,7 +36,7 @@ pub struct nPerf {
 
     /// Interval printouts of the statistic in seconds (0 to disable).
     #[arg(short, long, default_value_t = crate::DEFAULT_INTERVAL)]
-    interval: u64,
+    interval: f64,
 
     /// Set length of single datagram (Without IP and UDP headers)
     #[arg(short = 'l', long, default_value_t = crate::DEFAULT_UDP_DATAGRAM_SIZE)]
@@ -95,8 +95,16 @@ pub struct nPerf {
     output_format: OutputFormat,
 
     /// Define the path in which the results file should be saved. Make sure the path exists and the application has the rights to write in it.
-    #[arg(long, default_value = "output.json")]
+    #[arg(long, default_value = crate::DEFAULT_FILE_NAME)]
     output_file_path: path::PathBuf,
+
+    /// Test label which appears in the output file, if multiple tests are run in parallel
+    #[arg(long, default_value_t = String::from("nperf-test"))]
+    label_test: String,
+
+    /// Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
+    #[arg(long, default_value_t = String::from("run-nperf"))]
+    label_run: String,
 
     /// Use different port number for each client thread, share a single port or shard a single port with reuseport
     #[arg(long, default_value_t, value_enum)]
@@ -204,6 +212,8 @@ impl nPerf {
         };
 
         let parameter = util::statistic::Parameter::new(
+            self.label_test.clone(),
+            self.label_run.clone(),
             self.mode, 
             ipv4, 
             self.parallel,
@@ -279,6 +289,21 @@ impl nPerf {
             return None;
         }
 
+        if self.interval > 0.0 && (self.interval * (self.time as f64 / self.interval).round() - self.time as f64).abs() > 1e-9  {
+            error!("Interval doesn't fit perfect in the time!");
+            return None;
+        }
+
+        if self.interval > 0.0 && self.time == 0 && self.mode == NPerfMode::Server {
+            error!("Interval is set but time is 0! Time must be set when interval output is enabled!");
+            return None;
+        }
+
+        if Self::has_more_than_one_decimal(self.interval) {
+            error!("Interval has more than one decimal place! Only tenth of a second is allowed!");
+            return None;
+        }
+
         if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal || self.uring_mode == UringMode::Zerocopy {
             warn!("Setting packet_buffer_size to {}!", parameter.uring_parameter.buffer_size);
             parameter.packet_buffer_size = parameter.uring_parameter.buffer_size as usize;
@@ -295,12 +320,22 @@ impl nPerf {
             parameter.uring_parameter.task_work = UringTaskWork::Default;
         }
 
-        if parameter.output_file_path != path::PathBuf::from("output.json") {
+        if parameter.output_file_path != path::PathBuf::from(crate::DEFAULT_FILE_NAME) {
             parameter.output_format = OutputFormat::File;
         }
 
         Some(parameter)
     }
+
+    fn has_more_than_one_decimal(n: f64) -> bool {
+        let s = format!("{}", n);
+        let parts: Vec<&str> = s.split('.').collect();
+        if parts.get(1).is_none() {
+            return false;
+        }
+        parts[1].len() > 1
+    }
+
 
     fn parse_socket_options(&self, mode: NPerfMode) -> SocketOptions {
         let gso = if self.with_gsro && mode == util::NPerfMode::Client {
