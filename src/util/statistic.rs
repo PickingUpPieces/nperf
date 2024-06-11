@@ -1,7 +1,7 @@
-use std::{fs::OpenOptions, ops::{Add, Sub}, path, time::{Duration, Instant}};
+use std::{fs::OpenOptions, ops::{Add, Sub}, path, thread, time::{Duration, Instant}};
 use log::{debug, error, info};
 use serde::Serialize;
-use serde_json;
+use serde_json::{self};
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
@@ -34,8 +34,8 @@ pub struct StatisticInterval {
     interval_id: f64,
     pub output_interval: f64,
     pub last_send_instant: Instant,
-    last_interval_sent: bool,
-    runtime_length: u64,
+    pub total_interval_outputs: u64,
+    amount_interval_outputs: u64,
     statistic_old: Statistic,
 }
 
@@ -45,26 +45,29 @@ impl StatisticInterval {
             interval_id: 0.0,
             output_interval,
             last_send_instant,
-            last_interval_sent: false,
-            runtime_length,
+            total_interval_outputs: (runtime_length as f64 / output_interval).floor() as u64,
+            amount_interval_outputs: 0,
             statistic_old: statistic
         }
+    }
+    pub fn finished(&self) -> bool {
+        self.amount_interval_outputs >= self.total_interval_outputs
     }
 
     pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
         self.interval_id = ((self.interval_id + self.output_interval) * 10.0).round() / 10.0;
-        if self.interval_id >= self.runtime_length as f64{
-            if self.last_interval_sent {
-                return None;
-            } else {
-                self.last_interval_sent = true;
-            }
-        }
+        let current_time = Instant::now();
 
-        if self.last_interval_sent {
-            statistic_new.set_test_duration(self.last_send_instant, Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
+        if self.amount_interval_outputs >= self.total_interval_outputs {
+            self.last_send_instant = current_time;
+            error!("{:?}: Last interval already sent. No more intervals to send.", thread::current().id());
+            return None;
+        } 
+
+        if self.amount_interval_outputs == self.total_interval_outputs - 1 {
+            error!("{:?}: Last interval to send. Adjusting test duration.", thread::current().id());
         } else {
-            statistic_new.set_test_duration(self.last_send_instant, Instant::now());
+            statistic_new.set_test_duration(self.last_send_instant, current_time);
         }
 
         statistic_new.interval_id = self.interval_id;
@@ -73,7 +76,8 @@ impl StatisticInterval {
         statistic_new = statistic_new - self.statistic_old.clone();
         self.statistic_old = statistic_interval_new;
         // Update the last send operation instant to the current instant
-        self.last_send_instant = Instant::now();
+        self.last_send_instant = current_time;
+        self.amount_interval_outputs += 1;
 
         Some(statistic_new)
     }
