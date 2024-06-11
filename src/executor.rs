@@ -15,7 +15,7 @@ use std::{cmp::max, net::SocketAddrV4, sync::mpsc::{self, Sender}, thread};
 extern crate core_affinity;
 
 impl nPerf {
-    pub fn exec(self, mut parameter: Parameter) -> Option<Statistic> {
+    pub fn exec(self, parameter: Parameter) -> Option<Statistic> {
         info!("Starting nPerf...");
         debug!("Running with Parameter: {:?}", parameter);
 
