@@ -63,21 +63,20 @@ impl nPerf {
             }
     
             info!("Waiting for all threads to finish...");
-            let mut statistics;
-            let amount_interval_outputs = if parameter.output_interval == 0.0 { 0 } else { (parameter.test_runtime_length as f64 / parameter.output_interval).floor() as u64 };
-
-            info!("Amount of interval outputs: {}", amount_interval_outputs);
 
             // Print statistics every output_interval seconds
+            let amount_interval_outputs = if parameter.output_interval == 0.0 { 0 } else { (parameter.test_runtime_length as f64 / parameter.output_interval).floor() as u64 };
+            debug!("Amount of interval outputs: {}", amount_interval_outputs);
+
             for _ in 0..amount_interval_outputs {
-                statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+                let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
                 if statistics.amount_datagrams != 0 {
                     statistics.print(parameter.output_format, true);
                 }
             };
 
             // Print final statistics
-            statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+            let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
             if statistics.amount_datagrams != 0 {
                 statistics.print(parameter.output_format, false);
             }

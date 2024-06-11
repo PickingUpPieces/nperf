@@ -9,6 +9,7 @@ edition = "2021"
 clap = { version = "4.4.14", features = ["derive"] }
 clap-markdown = "0.1.3"
 core_affinity = "0.8.1"
+# This specific csv version is needed to serialize nested structs
 csv = { git = "https://github.com/gootorov/rust-csv.git", rev = "31d1105f9ee50bf02dff178f20be4a1ec9fdff2d" }
 env_logger = "0.10.1"
 io-uring = { git = "https://github.com/SUPERCILEX/io-uring.git", branch = "pbuf" } # based on "0.6.4"
