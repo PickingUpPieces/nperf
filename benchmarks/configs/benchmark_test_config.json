@@ -15,17 +15,19 @@
         "port": 45001
     },
     "test-debug": {
-        "0": {
-            "client": {
-                "exchange-function": "normal",
-                "with-gsro": true
-            },
-            "server": {
-                "exchange-function": "normal",
-                "with-gsro": true
-            }
+        "parameters": {
+            "exchange-function": "normal",
+            "with-gsro": true
         },
         "1": {
+            "client": {
+                "exchange-function": "normal"
+            },
+            "server": {
+                "exchange-function": "normal"
+            }
+        },
+        "2": {
             "repetitions": 1,
             "client": {
                 "exchange-function": "msg",
@@ -38,7 +40,7 @@
         }
     },
     "test-debug2": {
-        "0": {
+        "3": {
             "repetitions": 1,
             "client": {
                 "exchange-function": "normal",
@@ -49,7 +51,7 @@
                 "with-gsro": true
             }
         },
-        "1": {
+        "4": {
             "repetitions": 1,
             "client": {
                 "exchange-function": "msg",

@@ -27,7 +27,10 @@ def parse_config_file(json_file_path):
     test_configs = []
 
     for test_name, test_runs in data.items():
-        logging.debug('Processing test: %s', test_name)
+        logging.debug('Processing test %s', test_name)
+        test_parameters = test_runs.pop('parameters', {})
+        logging.debug('Test specific parameters: %s', test_parameters)
+
         test_config = {
             'test_name': test_name,
             'runs': [],
@@ -36,15 +39,22 @@ def parse_config_file(json_file_path):
         for run_name, run_config in test_runs.items():
             logging.debug('Processing run "%s" with config: %s', run_name, run_config)
 
-            # If a parameter is not set in the run, use the global parameter
-            run_config_client = {**global_parameters, **run_config['client']}
-            run_config_server = {**global_parameters, **run_config['server']}
+            # Add test parameters first
+            run_config_client = {**test_parameters, **run_config['client']}
+            run_config_server = {**test_parameters, **run_config['server']}
+
+            # Add global parameters at last
+            run_config_client = {**global_parameters, **run_config_client}
+            run_config_server = {**global_parameters, **run_config_server}
+
             run = {
                 'run_name': run_name,
                 'repetitions': run_config.get('repetitions', repetitions),
                 'client': run_config_client,
                 'server': run_config_server 
             }
+            logging.debug('Complete run config: %s', run)
+
             test_config["runs"].append(run)
 
         test_configs.append(test_config)
@@ -178,6 +188,9 @@ def main():
         logging.info('Results: %s', test_results)
         # TODO: Check if there were any errors in output
         test_results = []
+
+    logging.info(f"Results stored in: {PATH_TO_RESULTS_FOLDER}server-{csv_file_name}")
+    logging.info(f"Results stored in: {PATH_TO_RESULTS_FOLDER}client-{csv_file_name}")
 
 
 if __name__ == '__main__':
