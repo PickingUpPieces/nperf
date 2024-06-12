@@ -7,8 +7,6 @@ import argparse
 import json
 import time
 import logging
-import numpy as np
-import scipy.stats as stats
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
