@@ -60,12 +60,12 @@ impl StatisticInterval {
 
         if self.amount_interval_outputs >= self.total_interval_outputs {
             self.last_send_instant = current_time;
-            error!("{:?}: Last interval already sent. No more intervals to send.", thread::current().id());
+            debug!("{:?}: Last interval already sent. No more intervals to send.", thread::current().id());
             return None;
         } 
 
         if self.amount_interval_outputs == self.total_interval_outputs - 1 {
-            error!("{:?}: Last interval to send. Adjusting test duration.", thread::current().id());
+            debug!("{:?}: Last interval to send. Adjusting test duration.", thread::current().id());
         } else {
             statistic_new.set_test_duration(self.last_send_instant, current_time);
         }

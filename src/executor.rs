@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 use crate::command::nPerf;
 use crate::io_uring::normal::IoUringNormal;
@@ -6,6 +6,7 @@ use crate::io_uring::IoUringOperatingModes;
 use crate::net::socket::Socket;
 use crate::node::{client::Client, server::Server, Node};
 use crate::util::core_affinity_manager::CoreAffinityManager;
+use crate::util::statistic;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::{Statistic, DEFAULT_CLIENT_IP};
 
@@ -27,7 +28,7 @@ impl nPerf {
         }
 
         loop {
-            let mut fetch_handle: Vec<thread::JoinHandle<()>> = Vec::new();
+            let mut fetch_handle: Vec<thread::JoinHandle<Result<statistic::Statistic, &str>>> = Vec::new();
             let (tx, rx) = mpsc::channel();
     
             // If socket sharing enabled, creating the socket and bind to port/connect must happen before the threads are spawned
@@ -75,14 +76,19 @@ impl nPerf {
                 }
             };
 
-            // Print final statistics
-            let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
-            if statistics.amount_datagrams != 0 {
-                statistics.print(parameter.output_format, false);
-            }
+            // Iter over join handle and sum up statistics
+            let mut final_statistics = Statistic::new(parameter.clone());
 
             for handle in fetch_handle {
-                handle.join().expect("Error joining thread");
+                match handle.join() {
+                    Ok(result) => 
+                    if let Ok(statistic) = result { final_statistics = final_statistics + statistic },
+                    Err(x) => warn!("Error joining thread: {:?}", x),
+                }
+            }
+
+            if final_statistics.amount_datagrams != 0 {
+                final_statistics.print(parameter.output_format, false);
             }
 
             info!("All threads finished!");
@@ -91,13 +97,13 @@ impl nPerf {
             }
     
             if !(self.run_infinite && parameter.mode == NPerfMode::Server) {
-                return Some(statistics);
+                return Some(final_statistics);
             }
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, io_uring: Option<RawFd>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) {
+    fn exec_thread(parameter: Parameter, tx: mpsc::Sender<Option<Statistic>>, socket: Option<Socket>, io_uring: Option<RawFd>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) -> Result<Statistic, &'static str> {
         let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
 
         if parameter.core_affinity {
@@ -113,16 +119,16 @@ impl nPerf {
         match node.run(parameter.io_model, tx.clone()) {
             Ok(statistic) => { 
                 info!("{:?}: Finished measurement!", thread::current().id());
-                tx.send(Some(statistic)).unwrap();
+                Ok(statistic)
             },
             Err(x) => {
                 error!("{:?}: Error running app: {}", thread::current().id(), x);
-                tx.send(None).unwrap();
+                Err("Error running app")
             }
         }
     }
 
-    fn get_statistics(fetch_handle: &[thread::JoinHandle<()>], rx: &mpsc::Receiver<Option<Statistic>>, parameter: &Parameter) -> Statistic {
+    fn get_statistics(fetch_handle: &[thread::JoinHandle<Result<statistic::Statistic, &str>>], rx: &mpsc::Receiver<Option<Statistic>>, parameter: &Parameter) -> Statistic {
         fetch_handle.iter().fold(Statistic::new(parameter.clone()), |acc: Statistic, _| { 
             acc + match rx.recv_timeout(std::time::Duration::from_secs(max(parameter.test_runtime_length * 2, 120))) {
                 Ok(x) => {

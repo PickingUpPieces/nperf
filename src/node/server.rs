@@ -2,7 +2,7 @@ use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
 use std::sync::mpsc;
 use std::thread::{self, sleep};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use log::{debug, error, info, trace, warn};
 
 use io_uring::types::RecvMsgOut;
@@ -603,16 +603,7 @@ impl Node for Server {
             self.socket.close()?;
         }
 
-        if !statistic_interval.finished() {
-            error!("{:?}: Last interval not sent, but all measurements are finished!", thread::current().id());
-            let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-            if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                tx.send(Some(stat)).unwrap();
-            } 
-        }
-
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
-        sleep(Duration::from_millis(100)); // Ugly timeout to circumvent .send race condtiion from last interval and final statistics
         // Fold over all statistics, and calculate the final statistic
         statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
         statistic.interval_id = statistic.parameter.test_runtime_length as f64; // Mark this statistic object as the final one

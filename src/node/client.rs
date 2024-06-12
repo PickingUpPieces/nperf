@@ -379,7 +379,7 @@ impl Node for Client {
         }
 
         // Print last interval
-        if self.parameter.output_interval != 0.0 {
+        if self.parameter.output_interval != 0.0 && !statistic_interval.finished() {
             if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
                 tx.send(Some(stat)).unwrap();
             }
