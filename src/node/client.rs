@@ -1,5 +1,6 @@
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
+use std::sync::mpsc;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
@@ -291,9 +292,10 @@ impl Client {
     }
 
 
-    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
+    fn io_uring_loop(&mut self, start_time: Instant, tx: mpsc::Sender<Option<Statistic>>) -> Result<(), &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let uring_mode = self.parameter.uring_parameter.uring_mode;
+        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         let mut amount_inflight: usize = 0;
 
         match uring_mode {
@@ -303,6 +305,13 @@ impl Client {
                 while start_time.elapsed().as_secs() < self.run_time_length {
                     self.statistic.uring_inflight_utilization[amount_inflight] += 1;
                     self.statistic.amount_io_model_calls += 1;
+
+                    // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
+                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                        if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
+                            tx.send(Some(stat)).unwrap();
+                        } 
+                    }
 
                     let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
                     amount_inflight += submitted;
@@ -328,7 +337,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self, io_model: IOModel) -> Result<Statistic, &'static str> {
+    fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
         if let Ok(mss) = self.socket.get_mss() {
             info!("On the current socket the MSS is {}", mss);
         }
@@ -339,12 +348,21 @@ impl Node for Client {
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
+        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
 
         if io_model == IOModel::IoUring {
-            self.io_uring_loop(start_time)?;
+            self.io_uring_loop(start_time, tx.clone())?;
         } else {
+
             while start_time.elapsed().as_secs() < self.run_time_length {
+                // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
+                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                    if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
+                        tx.send(Some(stat)).unwrap();
+                    } 
+                }
+
                 match self.send_messages() {
                     Ok(_) => {},
                     Err("EAGAIN") => {
@@ -359,6 +377,14 @@ impl Node for Client {
                 self.statistic.amount_syscalls += 1;
             }
         }
+
+        // Print last interval
+        if self.parameter.output_interval != 0.0 && !statistic_interval.finished() {
+            if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
+                tx.send(Some(stat)).unwrap();
+            }
+        }
+
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
@@ -367,6 +393,7 @@ impl Node for Client {
         let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
 
         self.statistic.set_test_duration(start_time, end_time);
+        self.statistic.interval_id = self.statistic.parameter.test_runtime_length as f64;
         self.statistic.calculate_statistics();
         Ok(self.statistic.clone())
     }

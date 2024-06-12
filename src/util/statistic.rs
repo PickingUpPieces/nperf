@@ -1,12 +1,10 @@
-use std::{ops::Add, path, time::{Duration, Instant}};
+use std::{fs::OpenOptions, ops::{Add, Sub}, path, thread, time::{Duration, Instant}};
 use log::{debug, error, info};
 use serde::Serialize;
-use serde_json;
+use serde_json::{self};
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
 use serde::{Deserialize, Deserializer, Serializer};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
 pub enum OutputFormat {
@@ -31,10 +29,68 @@ pub enum SimulateConnection {
     Multiple
 }
 
+#[derive(Debug, Clone)]
+pub struct StatisticInterval {
+    interval_id: f64,
+    pub output_interval: f64,
+    pub last_send_instant: Instant,
+    pub total_interval_outputs: u64,
+    amount_interval_outputs: u64,
+    statistic_old: Statistic,
+}
+
+impl StatisticInterval {
+    pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
+        StatisticInterval {
+            interval_id: 0.0,
+            output_interval,
+            last_send_instant,
+            total_interval_outputs: (runtime_length as f64 / output_interval).floor() as u64,
+            amount_interval_outputs: 0,
+            statistic_old: statistic
+        }
+    }
+    pub fn finished(&self) -> bool {
+        self.amount_interval_outputs >= self.total_interval_outputs
+    }
+
+    pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
+        self.interval_id = ((self.interval_id + self.output_interval) * 10.0).round() / 10.0;
+        let current_time = Instant::now();
+
+        if self.amount_interval_outputs >= self.total_interval_outputs {
+            self.last_send_instant = current_time;
+            debug!("{:?}: Last interval already sent. No more intervals to send.", thread::current().id());
+            return None;
+        } 
+
+        if self.amount_interval_outputs == self.total_interval_outputs - 1 {
+            debug!("{:?}: Last interval to send. Adjusting test duration.", thread::current().id());
+        } else {
+            statistic_new.set_test_duration(self.last_send_instant, current_time);
+        }
+
+        statistic_new.interval_id = self.interval_id;
+
+        let statistic_interval_new = statistic_new.clone();
+        statistic_new = statistic_new - self.statistic_old.clone();
+        self.statistic_old = statistic_interval_new;
+        // Update the last send operation instant to the current instant
+        self.last_send_instant = current_time;
+        self.amount_interval_outputs += 1;
+
+        Some(statistic_new)
+    }
+}
+
+
 #[derive(Debug, Serialize, Clone)]
 pub struct Statistic {
+    #[serde(flatten)]
     pub parameter: Parameter,
+    #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
+    pub interval_id: f64,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
@@ -70,6 +126,7 @@ impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
         Statistic {
             parameter,
+            interval_id: 0.0,
             test_duration: Duration::new(0, 0),
             total_data_gbyte: 0.0,
             amount_datagrams: 0,
@@ -97,7 +154,7 @@ impl Statistic {
         debug!("Statistic updated: {:?}", self);
     }
 
-    pub fn print(&mut self, output_format: OutputFormat) {
+    pub fn print(&mut self, output_format: OutputFormat, interval_print: bool) {
         self.calculate_statistics();
 
         match output_format {
@@ -105,19 +162,33 @@ impl Statistic {
                 println!("{}", serde_json::to_string(&self).unwrap());
             },
             OutputFormat::Text => {
+                if interval_print {
+                    println!(
+                        "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
+                        self.interval_id, 
+                        (self.interval_id - self.parameter.output_interval), 
+                        self.interval_id, 
+                        self.total_data_gbyte, 
+                        self.data_rate_gbit, 
+                        self.amount_omitted_datagrams, 
+                        self.amount_datagrams, 
+                        self.packet_loss
+                    );
+                } else {
                 println!("------------------------");
-                println!("Statistics");
+                println!("Summary Measurement");
                 println!("------------------------");
                 println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
                 println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
+                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
+                println!("Packet loss: {:.2}%", self.packet_loss);
+                println!("------------------------");
                 println!("Amount of datagrams: {}", self.amount_datagrams);
                 println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
                 println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
-                println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
-                println!("Packet loss: {:.2}%", self.packet_loss);
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Io-Uring");
@@ -148,14 +219,15 @@ impl Statistic {
                     }
                     println!(); 
                 }
+            }
             },
             OutputFormat::File => {
                 let mut output_file = self.parameter.output_file_path.clone();
                 output_file.set_extension("csv");
 
                 // Check if the output dir exists. If not, try to create it
-                if !output_file.exists() {
-                    if let Some(parent_dir) = output_file.parent() {
+                if let Some(parent_dir) = output_file.parent() {
+                    if !parent_dir.exists() {
                         if let Err(err) = std::fs::create_dir_all(parent_dir) {
                             error!("Failed to create output directory: {:?}", err);
                             return;
@@ -164,10 +236,26 @@ impl Statistic {
                         }
                     }
                 }
+                let file = OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(&output_file);
 
-                if let Ok(mut file) = File::create(&output_file) {
-                    let json = serde_json::to_string(&self).unwrap();
-                    file.write_all(json.as_bytes()).unwrap();
+                if let Ok(file) = file {
+                    // Check if the file exists is empty
+                    let is_empty = file.metadata().unwrap().len() == 0;
+
+                    // Use csv writer to write the results to a file
+                    let mut wtr = if is_empty {
+                        // If the file is empty, use automatically write the header and data
+                        csv::Writer::from_writer(file)
+                    } else {
+                        // If the file is not empty, manually write the data without the header
+                        csv::WriterBuilder::new().has_headers(false).from_writer(file)
+                    };
+
+                    wtr.serialize(&self).unwrap();
+                    wtr.flush().unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {
                     error!("Failed to create file: {}", output_file.display());
@@ -217,14 +305,6 @@ impl Add for Statistic {
             ( self.packet_loss + other.packet_loss ) / 2.0 // Average of packet loss
         };
 
-        // Assumption is that both statistics have the same test duration. 
-        // Check if one is zero, to avoid division by zero.
-        // Alternativly, could be added to a list of test_durations, but then we would need to change the type in the struct.
-        let test_duration = if self.test_duration.as_secs() == 0 {
-            other.test_duration
-        } else {
-            self.test_duration
-        };
 
         // Add the arrays field by field
         let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
@@ -244,7 +324,8 @@ impl Add for Statistic {
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
-            test_duration, 
+            test_duration: std::cmp::max(self.test_duration, other.test_duration),
+            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -257,6 +338,68 @@ impl Add for Statistic {
             packet_loss,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
+            uring_sq_utilization,
+            uring_cq_utilization,
+            uring_inflight_utilization
+        }
+    }
+}
+
+
+impl Sub for Statistic {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        // Check if one is zero, to avoid division by zero
+        let data_rate_gbit = if self.data_rate_gbit == 0.0 {
+            other.data_rate_gbit
+        } else if other.data_rate_gbit == 0.0 {
+            self.data_rate_gbit
+        } else {
+            ( self.data_rate_gbit - other.data_rate_gbit ) / 2.0 // Data rate is the average of both
+        };
+
+        // Check if one is zero, to avoid division by zero
+        let packet_loss = if self.packet_loss == 0.0 {
+            other.packet_loss
+        } else if other.packet_loss == 0.0 {
+            self.packet_loss
+        } else {
+            ( self.packet_loss - other.packet_loss ) / 2.0 // Average of packet loss
+        };
+
+         // Add the arrays field by field
+        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+        for i in 0..uring_sq_utilization.len() {
+            uring_sq_utilization[i] = self.uring_sq_utilization[i] - other.uring_sq_utilization[i];
+        }
+
+        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
+        for i in 0..uring_cq_utilization.len() {
+            uring_cq_utilization[i] = self.uring_cq_utilization[i] - other.uring_cq_utilization[i];
+        }
+
+        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
+        for i in 0..uring_inflight_utilization.len() {
+            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] - other.uring_inflight_utilization[i];
+        }
+
+        Statistic {
+            parameter: self.parameter, // Assumption is that both statistics have the same test parameters
+            test_duration: std::cmp::max(self.test_duration, other.test_duration),
+            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
+            total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
+            amount_datagrams: self.amount_datagrams - other.amount_datagrams,
+            amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,
+            amount_reordered_datagrams: self.amount_reordered_datagrams - other.amount_reordered_datagrams,
+            amount_duplicated_datagrams: self.amount_duplicated_datagrams - other.amount_duplicated_datagrams,
+            amount_omitted_datagrams: self.amount_omitted_datagrams - other.amount_omitted_datagrams,
+            amount_syscalls: self.amount_syscalls - other.amount_syscalls,
+            amount_io_model_calls: self.amount_io_model_calls - other.amount_io_model_calls,
+            data_rate_gbit, 
+            packet_loss,
+            uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
+            uring_canceled_multishot: self.uring_canceled_multishot - other.uring_canceled_multishot,
             uring_sq_utilization,
             uring_cq_utilization,
             uring_inflight_utilization
@@ -278,16 +421,23 @@ impl Measurement {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct Parameter {
+    pub test_name: String,
+    pub run_name: String,
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
+    #[serde(skip_serializing)]
+    pub output_interval: f64,
+    #[serde(skip_serializing)]
     pub output_format: OutputFormat,
+    #[serde(skip_serializing)]
     pub output_file_path: path::PathBuf,
     pub io_model: super::IOModel,
     pub test_runtime_length: u64,
     pub mss: u32,
     pub datagram_size: u32,
     pub packet_buffer_size: usize,
+    #[serde(flatten)]
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
     pub multiplex_port: MultiplexPort,
@@ -295,15 +445,19 @@ pub struct Parameter {
     pub simulate_connection: SimulateConnection,
     pub core_affinity: bool,
     pub numa_affinity: bool,
+    #[serde(flatten)]
     pub uring_parameter: UringParameter,
 }
 
 impl Parameter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        test_name: String,
+        run_name: String,
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
+        output_interval: f64,
         output_format: OutputFormat, 
         output_file_path: path::PathBuf,
         io_model: super::IOModel, 
@@ -321,9 +475,12 @@ impl Parameter {
         uring_parameter: UringParameter
     ) -> Parameter {
         Parameter {
+            test_name,
+            run_name,
             mode,
             ip,
             amount_threads,
+            output_interval,
             output_format,
             output_file_path,
             io_model,
@@ -370,12 +527,17 @@ pub mod utilization {
             .collect::<Vec<_>>();
         values.sort_by(|a, b| b.1.cmp(a.1));
         values.truncate(LIMIT_LENGTH_OUTPUT);
-    
+
         let mut map = HashMap::new();
         for &(index, &value) in &values {
             map.insert(index, value);
         }
-        map.serialize(serializer)
+
+        let map_string = map.iter()
+            .map(|(k, v)| format!("'{}': {}", k, v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        serializer.serialize_str(&format!("{{{}}}", map_string))
     }
 
     #[allow(dead_code)] // Maybe needed in the future

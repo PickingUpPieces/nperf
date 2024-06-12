@@ -162,7 +162,7 @@ def main():
         for test in results:
             generate_bar_chart(args.y_axis_param, test, test[0]["test_name"], results_file, args.rm_filename)
     elif args.type == 'heat':
-        generate_heatmap(args.x_axis_param, args.y_axis_param, args.test_name, results, args.chart_name, results_file, args.rm_filename)
+        generate_heatmap(args.x_axis_param, args.y_axis_param, args.test_name, results, args.chart_name, args.results_file, args.rm_filename)
 
 if __name__ == '__main__':
     logging.info('Starting script')
