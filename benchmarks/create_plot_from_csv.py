@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import logging
 # Needed for heatmap
 import pandas as pd
+from scipy import stats
 import seaborn as sns
 import numpy as np
 import ast
@@ -51,6 +52,7 @@ def generate_area_chart(x: str, y: str, data, chart_title, results_file, add_lab
 
     plt.xlabel(x)
     plt.ylabel(y)
+    plt.ylim(bottom=0)  # Set the start of y-axis to 0
     if not rm_filename:
         plt.text(0.99, 0.5, "data: " + os.path.basename(results_file), ha='center', va='center', rotation=90, transform=plt.gcf().transFigure, fontsize=8)
     plt.title(chart_title)
@@ -137,6 +139,45 @@ def generate_bar_chart(y: str, data, test_name: str, results_file, rm_filename=F
     plt.savefig(PATH_TO_RESULTS_FOLDER + test_name + '_bar.png')
     logging.info('Saved plot to %s_bar.png', test_name)
     plt.close()
+    
+
+def get_median_result(results):
+    if len(results) == 1:
+        return results[0]
+
+    array = []
+    for (server_result, client_result) in results:
+        array.append(server_result["data_rate_gbit"])
+
+    logging.debug("Array of results: %s", array)
+
+    # Calculate z-scores for each result in the array https://en.wikipedia.org/wiki/Standard_score
+    zscore = (stats.zscore(array))
+    logging.debug("Z-scores: %s", zscore)
+
+    # Map each z-score in the array which is greater than 1.4/-1.4 to None
+    array = [array[i] if zscore[i] < 1.4 and zscore[i] > -1.4 else None for i in range(len(array))]
+    filtered_arr = [x for x in array if x is not None]
+    logging.debug("Array with outliers removed: %s", filtered_arr)
+
+    # Get the index of the median value in the original array
+    median_index = find_closest_to_median_index(filtered_arr)
+    logging.debug("Median index: %s", median_index)
+
+    # Find the index of the median value in the original array
+    median_index = array.index(filtered_arr[median_index])
+
+    # Return median result
+    logging.debug("Returning median result: %s", results[median_index])
+    return results[median_index]
+
+def find_closest_to_median_index(arr):
+    # Check if array is empty; Otherwise argmin fails
+    if not arr:
+        return None
+    # Calculate the median and find the index of the closest value
+    closest_index = np.argmin(np.abs(np.array(arr) - np.median(arr)))
+    return closest_index
     
 def main():
     logging.debug('Starting main function')
