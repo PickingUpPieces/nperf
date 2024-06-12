@@ -1,6 +1,7 @@
 use log::{error, info, debug, warn};
 use serde::Serialize;
 use std::io::Error;
+use crate::util::statistic::serialize_option_as_bool;
 
 
 #[derive(PartialEq, Debug, Clone, Copy, Serialize)]
@@ -8,9 +9,12 @@ pub struct SocketOptions {
     nonblocking: bool,
     ip_fragmentation: bool,
     reuseport: bool,
+    #[serde(with = "serialize_option_as_bool")]
     gso: Option<u32>,
     pub gro: bool,
+    #[serde(with = "serialize_option_as_bool")]
     recv_buffer_size: Option<u32>,
+    #[serde(with = "serialize_option_as_bool")]
     send_buffer_size: Option<u32>,
 }
 

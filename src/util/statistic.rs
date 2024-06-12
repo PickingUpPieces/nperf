@@ -554,3 +554,19 @@ pub mod utilization {
         Ok(array)
     }
 }
+
+
+pub mod serialize_option_as_bool {
+    use serde::Serializer;
+
+    // This function will be used to serialize Option<u32> fields
+    pub fn serialize<S>(option: &Option<u32>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match option {
+            Some(value) => serializer.serialize_u32(*value), 
+            None => serializer.serialize_bool(false),
+        }
+    }
+}

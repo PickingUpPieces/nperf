@@ -2,7 +2,6 @@ from datetime import datetime
 import json
 import os
 import subprocess
-import csv
 import argparse
 import json
 import time
@@ -13,6 +12,7 @@ PATH_TO_RESULTS_FOLDER = 'results/'
 PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
 #PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
+nperf_binary = PATH_TO_NPERF_BIN
 
 def parse_config_file(json_file_path):
     with open(json_file_path, 'r') as json_file:
@@ -73,11 +73,11 @@ def run_test(run_config, test_name, file_name):
     time.sleep(5) # Short timeout to give system some time
 
     # Replace with file name
-    server_command = [PATH_TO_NPERF_BIN, 'server', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}server-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
+    server_command = [nperf_binary, 'server', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}server-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
     
     for k, v in run_config["server"].items():
-        if v != False:
-            if v == True:
+        if v is not False:
+            if v is True:
                 server_command.append(f'--{k}')
             else:
                 server_command.append(f'--{k}')
@@ -90,11 +90,11 @@ def run_test(run_config, test_name, file_name):
     time.sleep(1)
 
     # Build client command
-    client_command = [PATH_TO_NPERF_BIN, 'client', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}client-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
+    client_command = [nperf_binary, 'client', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}client-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
     
     for k, v in run_config["client"].items():
-        if v != False:
-            if v == True:
+        if v is not False:
+            if v is True:
                 client_command.append(f'--{k}')
             else:
                 client_command.append(f'--{k}')
@@ -144,7 +144,10 @@ def main():
     parser = argparse.ArgumentParser(description='Benchmark nperf.')
     parser.add_argument('config_file', help='Path to the JSON configuration file')
     parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results')
+    parser.add_argument('--nperf_bin', default=PATH_TO_NPERF_BIN, help='Path to the nperf binary')
+
     args = parser.parse_args()
+    nperf_binary = args.nperf_bin
 
     logging.debug('Parsed arguments: %s', args)
     logging.info('Reading config file: %s', args.config_file)
@@ -174,17 +177,16 @@ def main():
                 logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
                 for _ in range(0,3): # Retries, in case of an error
                     server_output, client_output = run_test(run, test_name, csv_file_name)
-                    if server_output is '': 
+                    if server_output == '': 
                         logging.warning('Result is not empty: %s', server_output)
                         run_results.append(server_output)
-                    elif client_output is '':
+                    elif client_output == '':
                         logging.warning('Client Output is not empty: %s', client_output)
                         run_results.append(client_output)
                     break
             if len(run_results) != 0:
                 test_results.append(run_results)
 
-        logging.info('Checking results for errors')
         logging.info('Results: %s', test_results)
         # TODO: Check if there were any errors in output
         test_results = []
