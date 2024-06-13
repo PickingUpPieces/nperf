@@ -27,3 +27,5 @@ logging.info(f"Client interface name: {args.client_interfacename}")
 if args.tests:
     logging.info(f"Tests to run: {args.tests}")
 
+# All scripts, besides the nperf.py script, need to be executed on the measurement host
+# The nperf script coordinates the measurements directly from the host

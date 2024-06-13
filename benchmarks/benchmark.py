@@ -4,8 +4,10 @@ import os
 import subprocess
 import argparse
 import json
+import threading
 import time
 import logging
+import yaml
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 PATH_TO_RESULTS_FOLDER = 'results/'
@@ -67,27 +69,9 @@ def load_json(json_str):
     except json.JSONDecodeError:
         return None
 
-def run_test(run_config, test_name, file_name):
-    logging.debug('Running test with config: %s', run_config)
 
-    time.sleep(5) # Short timeout to give system some time
-
-    # Replace with file name
-    server_command = [nperf_binary, 'server', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}server-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
-    
-    for k, v in run_config["server"].items():
-        if v is not False:
-            if v is True:
-                server_command.append(f'--{k}')
-            else:
-                server_command.append(f'--{k}')
-                server_command.append(f'{v}')
-    
-    logging.debug('Starting server with command: %s', ' '.join(server_command))
-    server_process = subprocess.Popen(server_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
-
-    # Give the server some time to start
-    time.sleep(1)
+def run_test_client(run_config, test_name, file_name) -> bool:
+    logging.debug('Running client test with config: %s', run_config)
 
     # Build client command
     client_command = [nperf_binary, 'client', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}client-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
@@ -110,23 +94,38 @@ def run_test(run_config, test_name, file_name):
     if client_error:
         logging.error('Client error: %s', client_error.decode())
 
-    # Give the server some time to finish
-    time.sleep(2)
+    return True
 
-    # Check if the server finished as well
+def run_test_server(run_config, test_name, file_name) -> True:
+    logging.debug('Running server test with config: %s', run_config)
+    # Replace with file name
+    server_command = [nperf_binary, 'server', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}server-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
+    
+    for k, v in run_config['server'].items():
+        if v is not False:
+            if v is True:
+                server_command.append(f'--{k}')
+            else:
+                server_command.append(f'--{k}')
+                server_command.append(f'{v}')
+    
+    logging.debug('Starting server with command: %s', ' '.join(server_command))
+    server_process = subprocess.Popen(server_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+    server_output, server_error = server_process.communicate(timeout=(run_config["client"]["time"] + 10)) # Add 10 seconds as buffer to the client time
+
+    if server_output:
+        logging.debug('Server output: %s', server_output.decode())
+    if server_error:
+        logging.error('Server error: %s', server_error.decode())
+
+    # Check if the server finished 
     if server_process.poll() is None:
         logging.error('Server did not finish, retrying test')
         server_process.kill()
-        return None
+        return False
     
-    server_output, server_error = server_process.communicate()
-    if client_output:
-        logging.debug('Server output: %s', server_output.decode())
-    if client_error:
-        logging.error('Server error: %s', server_error.decode())
-
     logging.debug('Returning results: %s', server_output)
-    return (server_output, client_output)
+    return True
  
 
 def get_file_name(file_name):
@@ -142,25 +141,41 @@ def main():
     subprocess.run(['cargo', 'build', '--release'], check=True, cwd=PATH_TO_NPERF_REPO)
 
     parser = argparse.ArgumentParser(description='Benchmark nperf.')
-    parser.add_argument('config_file', help='Path to the JSON configuration file')
+    parser.add_argument('config_file', nargs='?', help='Path to the JSON configuration file')
     parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results')
     parser.add_argument('--nperf_bin', default=PATH_TO_NPERF_BIN, help='Path to the nperf binary')
+    parser.add_argument('--yaml', help='Path to the YAML configuration file')  # Add YAML config file option
+    # Remote measurements only available over yaml config file
+    # client_ssh, server_ssh, client_interface, server_interface
 
     args = parser.parse_args()
-    nperf_binary = args.nperf_bin
+
+    # If YAML config is provided, parse it and use its parameters
+    if args.yaml:
+        with open(args.yaml, 'r') as yaml_file:
+            yaml_config = yaml.safe_load(yaml_file)
+            # Use values from YAML config, potentially overriding other command-line arguments
+            nperf_binary = yaml_config.get('nperf_bin', PATH_TO_NPERF_BIN)
+            csv_file_name = yaml_config.get('results_file', 'test_results.csv')
+            config_file = yaml_config.get('config_file')
+    else:
+        nperf_binary = args.nperf_bin
+        config_file = args.config_file
+        if config_file is None:
+            logging.error("Config file must be supplied!")
+            return
+        csv_file_name = args.results_file
+
+    if csv_file_name == 'test_results.csv':
+        csv_file_name = get_file_name(os.path.splitext(os.path.basename(config_file))[0])
 
     logging.debug('Parsed arguments: %s', args)
-    logging.info('Reading config file: %s', args.config_file)
+    logging.info('Reading config file: %s', config_file)
+    logging.info('Input file name: %s', csv_file_name)
 
-    test_configs = parse_config_file(args.config_file)
+    test_configs = parse_config_file(config_file)
     logging.info('Read %d test configs', len(test_configs))
 
-    csv_file_name = args.results_file
-
-    if args.results_file == 'test_results.csv':
-        csv_file_name = get_file_name(os.path.splitext(os.path.basename(args.config_file))[0])
-    
-    logging.info('Config file name: %s', csv_file_name)
     test_results = []
 
     # Create directory for test results
@@ -172,20 +187,23 @@ def main():
 
         for run in config["runs"]:
             logging.info('Run config: %s', run)
-            run_results = []
+
             for i in range(run["repetitions"]):
                 logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
                 for _ in range(0,3): # Retries, in case of an error
-                    server_output, client_output = run_test(run, test_name, csv_file_name)
-                    if server_output == '': 
-                        logging.warning('Result is not empty: %s', server_output)
-                        run_results.append(server_output)
-                    elif client_output == '':
-                        logging.warning('Client Output is not empty: %s', client_output)
-                        run_results.append(client_output)
+                    logging.info('Wait for some seconds so system under test can normalize...')
+                    time.sleep(3)
+                    logging.info('Starting test run')
+                    server_thread = threading.Thread(target=run_test_server, args=(run, test_name, csv_file_name))
+                    client_thread = threading.Thread(target=run_test_client, args=(run, test_name, csv_file_name))
+                    server_thread.start()
+                    time.sleep(1) # Wait for server to be ready
+                    client_thread.start()
+
+                    client_thread.join(timeout=run["client"]["time"] + 15)
+                    server_thread.join(timeout=run["client"]["time"] + 15)
+
                     break
-            if len(run_results) != 0:
-                test_results.append(run_results)
 
         logging.info('Results: %s', test_results)
         # TODO: Check if there were any errors in output
