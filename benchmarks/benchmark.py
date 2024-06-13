@@ -1,10 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
 import os
 import subprocess
 import argparse
 import json
-import threading
 import time
 import logging
 import yaml
@@ -93,10 +93,19 @@ def run_test_client(run_config, test_name, file_name) -> bool:
         logging.debug('Client output: %s', client_output.decode())
     if client_error:
         logging.error('Client error: %s', client_error.decode())
+        log_file_name = file_name.replace('.csv', '.log')
+        log_file_path = f'{PATH_TO_RESULTS_FOLDER}client-{log_file_name}'
+        
+        with open(log_file_path, 'a') as log_file:
+            log_file.write("Test: " + test_name + " Run: " + run_config["run_name"] + '\n')
+            log_file.write("Config: " + str(run_config) + '\n')
+            log_file.write(client_error.decode())
+
+        return False
 
     return True
 
-def run_test_server(run_config, test_name, file_name) -> True:
+def run_test_server(run_config, test_name, file_name) -> bool:
     logging.debug('Running server test with config: %s', run_config)
     # Replace with file name
     server_command = [nperf_binary, 'server', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}server-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
@@ -117,6 +126,14 @@ def run_test_server(run_config, test_name, file_name) -> True:
         logging.debug('Server output: %s', server_output.decode())
     if server_error:
         logging.error('Server error: %s', server_error.decode())
+        log_file_name = file_name.replace('.csv', '.log')
+        log_file_path = f'{PATH_TO_RESULTS_FOLDER}server-{log_file_name}'
+        
+        with open(log_file_path, 'a') as log_file:
+            log_file.write("Test: " + test_name + " Run: " + run_config["run_name"] + '\n')
+            log_file.write("Config: " + str(run_config) + '\n')
+            log_file.write(server_error.decode())
+        return False
 
     # Check if the server finished 
     if server_process.poll() is None:
@@ -176,8 +193,6 @@ def main():
     test_configs = parse_config_file(config_file)
     logging.info('Read %d test configs', len(test_configs))
 
-    test_results = []
-
     # Create directory for test results
     os.makedirs(PATH_TO_RESULTS_FOLDER, exist_ok=True)
 
@@ -187,6 +202,7 @@ def main():
 
         for run in config["runs"]:
             logging.info('Run config: %s', run)
+            thread_timeout = run["client"]["time"] + 15
 
             for i in range(run["repetitions"]):
                 logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
@@ -194,20 +210,16 @@ def main():
                     logging.info('Wait for some seconds so system under test can normalize...')
                     time.sleep(3)
                     logging.info('Starting test run')
-                    server_thread = threading.Thread(target=run_test_server, args=(run, test_name, csv_file_name))
-                    client_thread = threading.Thread(target=run_test_client, args=(run, test_name, csv_file_name))
-                    server_thread.start()
-                    time.sleep(1) # Wait for server to be ready
-                    client_thread.start()
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        future_server = executor.submit(run_test_server, run, test_name, csv_file_name)
+                        time.sleep(1) # Wait for server to be ready
+                        future_client = executor.submit(run_test_client, run, test_name, csv_file_name)
 
-                    client_thread.join(timeout=run["client"]["time"] + 15)
-                    server_thread.join(timeout=run["client"]["time"] + 15)
-
-                    break
-
-        logging.info('Results: %s', test_results)
-        # TODO: Check if there were any errors in output
-        test_results = []
+                        if future_server.result(timeout=thread_timeout) and future_client.result(timeout=thread_timeout):
+                            logging.info('Test run finished successfully')
+                            break
+                        else:
+                            logging.error('Test run failed, retrying')
 
     logging.info(f"Results stored in: {PATH_TO_RESULTS_FOLDER}server-{csv_file_name}")
     logging.info(f"Results stored in: {PATH_TO_RESULTS_FOLDER}client-{csv_file_name}")
