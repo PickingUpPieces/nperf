@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import json
 import os
+import signal
 import subprocess
 import argparse
 import json
@@ -14,6 +15,7 @@ PATH_TO_RESULTS_FOLDER = 'results/'
 PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
 #PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
+MAX_FAILED_ATTEMPTS = 3
 
 def parse_config_file(json_file_path: str) -> list[dict]:
     with open(json_file_path, 'r') as json_file:
@@ -199,6 +201,26 @@ def get_file_name(file_name: str) -> str:
     formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
     return f"{file_name}-{formatted_datetime}.csv"
 
+def kill_server_process(port, ssh_server):
+    logging.info(f'Killing server process on port {port}')
+    try:
+        # Find process listening on the given port
+        if ssh_server is None:
+            result = subprocess.run(['sudo', 'lsof', '-i', f':{port}', '-t'], capture_output=True, text=True)
+        else:
+            result = subprocess.run(['ssh', ssh_server, 'sudo', 'lsof', '-i', f':{port}', '-t'], capture_output=True, text=True)
+            
+        pids = result.stdout.strip().split('\n')
+        for pid in pids:
+            if pid:
+                logging.info(f'Killing process {pid} on port {port}')
+                if ssh_server is None:
+                    os.kill(int(pid), signal.SIGTERM)
+                else:
+                    subprocess.run(['ssh', ssh_server, f'sudo kill -9 {pid}'], capture_output=True, text=True)
+    except Exception as e:
+        logging.error(f'Failed to kill process on port {port}: {e}')
+
 def main():
     logging.debug('Starting main function')
 
@@ -276,7 +298,8 @@ def main():
 
             for i in range(run["repetitions"]):
                 logging.info('Run repetition: %i/%i', i+1, run["repetitions"])
-                for _ in range(0,3): # Retries, in case of an error
+                failed_attempts = 0  # Initialize failed attempts counter
+                for _ in range(0,MAX_FAILED_ATTEMPTS): # Retries, in case of an error
                     logging.info('Wait for some seconds so system under test can normalize...')
                     time.sleep(3)
                     logging.info('Starting test run')
@@ -286,10 +309,16 @@ def main():
                         future_client = executor.submit(run_test_client, run, test_name, csv_file_name, ssh_client)
 
                         if future_server.result(timeout=thread_timeout) and future_client.result(timeout=thread_timeout):
-                            logging.info('Test run finished successfully')
+                            logging.info(f'Test run {run["run_name"]} finished successfully')
                             break
                         else:
-                            logging.error('Test run failed, retrying')
+                            logging.error(f'Test run {run["run_name"]} failed, retrying')
+                            kill_server_process(run["server"]["port"], ssh_server)
+                            failed_attempts += 1
+
+                if failed_attempts == MAX_FAILED_ATTEMPTS:
+                    logging.error('Maximum number of failed attempts reached. Dont execute next repetition.')
+                    break
 
     logging.info(f"Results stored in: {PATH_TO_RESULTS_FOLDER}server-{csv_file_name}")
     logging.info(f"Results stored in: {PATH_TO_RESULTS_FOLDER}client-{csv_file_name}")
