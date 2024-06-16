@@ -61,6 +61,7 @@ impl Socket {
     pub fn bind(&mut self, sock_address: SocketAddrV4) -> Result<(), &'static str> {
         self.sock_addr_in = Some(sock_address);
         let sockaddr = Self::create_sockaddr(&self.sock_addr_in.expect("Outgoing socket address not set!"));
+        debug!("Binding socket to {}:{}", sock_address, sockaddr.sin_port);
     
         let bind_result = unsafe {
             libc::bind(
@@ -311,8 +312,8 @@ impl Socket {
     fn create_sockaddr(sock_address: &SocketAddrV4) -> libc::sockaddr_in {
         // Convert Ipv4Addr to libc::in_addr
         let addr = sock_address.ip(); 
-        let addr_u32 = u32::from_be_bytes(addr.octets());
-    
+        let addr_u32 = u32::from_le_bytes(addr.octets());
+ 
         #[cfg(target_os = "linux")]
         libc::sockaddr_in {
             sin_family: libc::AF_INET as u16,
