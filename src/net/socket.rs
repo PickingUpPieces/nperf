@@ -119,6 +119,10 @@ impl Socket {
                     error!("EMSGSIZE while trying to send data! The message is too large for the transport protocol.");
                     return Err("EMSGSIZE");
                 },
+                Some(libc::EAGAIN) => {
+                    warn!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
+                    return Err("EAGAIN");
+                },
                 _ => {
                     error!("Errno when trying to send data: {}", errno);
                     return Err("Failed to send data");
@@ -150,7 +154,7 @@ impl Socket {
                     return Err("ECONNREFUSED");
                 },
                 Some(libc::EAGAIN) => {
-                    warn!("Error EGAIN: Probably socket buffer is full!");
+                    warn!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
                     return Err("EAGAIN");
                 },
                 _ => {
@@ -182,7 +186,7 @@ impl Socket {
                     return Err("ECONNREFUSED");
                 },
                 Some(libc::EAGAIN) => {
-                    warn!("Error EGAIN: Probably socket buffer is full!");
+                    warn!("Error EGAIN/EWOULDBLOCK: Probably socket buffer is full!");
                     return Err("EAGAIN");
                 },
                 _ => {
