@@ -17,11 +17,12 @@
     "test-debug": {
         "parameters": {
             "exchange-function": "normal",
-            "with-gsro": true
+            "with-gsro": false
         },
         "1": {
             "client": {
-                "exchange-function": "normal"
+                "exchange-function": "normal",
+                "ip": "192.168.64.2"
             },
             "server": {
                 "exchange-function": "normal"
@@ -31,6 +32,7 @@
             "repetitions": 1,
             "client": {
                 "exchange-function": "msg",
+                "ip": "192.168.64.2",
                 "with-gsro": false
             },
             "server": {
@@ -44,17 +46,19 @@
             "repetitions": 1,
             "client": {
                 "exchange-function": "normal",
-                "with-gsro": true
+                "ip": "192.168.64.2",
+                "with-gsro": false
             },
             "server": {
                 "exchange-function": "normal",
-                "with-gsro": true
+                "with-gsro": false
             }
         },
         "4": {
             "repetitions": 1,
             "client": {
                 "exchange-function": "msg",
+                "ip": "192.168.64.2",
                 "with-gsro": false
             },
             "server": {

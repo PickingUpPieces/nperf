@@ -86,13 +86,19 @@ def run_test_client(run_config, test_name: str, file_name: str, ssh_client: str)
     command_str = ' '.join(client_command)
     logging.debug('Starting client with command: %s', command_str)
 
+    env_vars = os.environ.copy()
+    env_vars['RUST_LOG'] = 'error'
+    # Ensure SSH_AUTH_SOCK is forwarded if available
+    if 'SSH_AUTH_SOCK' in os.environ:
+        env_vars['SSH_AUTH_SOCK'] = os.environ['SSH_AUTH_SOCK']
+
     if ssh_client:
         # Modify the command to be executed over SSH
         ssh_command = f"ssh {ssh_client} '{command_str}'"
-        client_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+        client_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env_vars)
     else:
         # Execute command locally
-        client_process = subprocess.Popen(client_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+        client_process = subprocess.Popen(client_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env_vars)
 
     # Wait for the client to finish
     client_output, client_error = client_process.communicate()
@@ -128,10 +134,16 @@ def run_test_server(run_config, test_name: str, file_name: str, ssh_server: str)
     command_str = ' '.join(server_command)
     logging.debug('Starting server with command: %s', command_str)
 
+    env_vars = os.environ.copy()
+    env_vars['RUST_LOG'] = 'error'
+    # Ensure SSH_AUTH_SOCK is forwarded if available
+    if 'SSH_AUTH_SOCK' in os.environ:
+        env_vars['SSH_AUTH_SOCK'] = os.environ['SSH_AUTH_SOCK']
+
     if ssh_server:
         # Modify the command to be executed over SSH
         ssh_command = f"ssh {ssh_server} 'sudo {command_str}'"
-        server_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+        server_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env_vars)
     else:
         # Execute command locally
         server_process = subprocess.Popen(server_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
