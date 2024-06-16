@@ -16,7 +16,7 @@ PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
 nperf_binary = PATH_TO_NPERF_BIN
 
-def parse_config_file(json_file_path):
+def parse_config_file(json_file_path: str) -> list[dict]:
     with open(json_file_path, 'r') as json_file:
         data = json.load(json_file)
 
@@ -70,7 +70,7 @@ def load_json(json_str):
         return None
 
 
-def run_test_client(run_config, test_name, file_name) -> bool:
+def run_test_client(run_config, test_name: str, file_name: str, ssh_client: str) -> bool:
     logging.debug('Running client test with config: %s', run_config)
 
     # Build client command
@@ -84,8 +84,16 @@ def run_test_client(run_config, test_name, file_name) -> bool:
                 client_command.append(f'--{k}')
                 client_command.append(f'{v}')
     
-    logging.debug('Starting client with command: %s', ' '.join(client_command))
-    client_process = subprocess.Popen(client_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+    command_str = ' '.join(client_command)
+    logging.debug('Starting client with command: %s', command_str)
+
+    if ssh_client:
+        # Modify the command to be executed over SSH
+        ssh_command = f"ssh {ssh_client} '{command_str}'"
+        client_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+    else:
+        # Execute command locally
+        client_process = subprocess.Popen(client_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
 
     # Wait for the client to finish
     client_output, client_error = client_process.communicate()
@@ -105,7 +113,7 @@ def run_test_client(run_config, test_name, file_name) -> bool:
 
     return True
 
-def run_test_server(run_config, test_name, file_name) -> bool:
+def run_test_server(run_config, test_name: str, file_name: str, ssh_server: str) -> bool:
     logging.debug('Running server test with config: %s', run_config)
     # Replace with file name
     server_command = [nperf_binary, 'server', '--output-format=file', f'--output-file-path={PATH_TO_RESULTS_FOLDER}server-{file_name}', f'--label-test={test_name}', f'--label-run={run_config["run_name"]}']
@@ -118,9 +126,23 @@ def run_test_server(run_config, test_name, file_name) -> bool:
                 server_command.append(f'--{k}')
                 server_command.append(f'{v}')
     
-    logging.debug('Starting server with command: %s', ' '.join(server_command))
-    server_process = subprocess.Popen(server_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
-    server_output, server_error = server_process.communicate(timeout=(run_config["client"]["time"] + 10)) # Add 10 seconds as buffer to the client time
+    command_str = ' '.join(server_command)
+    logging.debug('Starting server with command: %s', command_str)
+
+    if ssh_server:
+        # Modify the command to be executed over SSH
+        ssh_command = f"ssh {ssh_server} '{command_str}'"
+        server_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+    else:
+        # Execute command locally
+        server_process = subprocess.Popen(server_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
+
+    # Wait for the server to finish
+    try:
+        server_output, server_error = server_process.communicate(timeout=(run_config["client"]["time"] + 10)) # Add 10 seconds as buffer to the client time
+    except subprocess.TimeoutExpired:
+        logging.error('Server process timed out')
+        return False
 
     if server_output:
         logging.debug('Server output: %s', server_output.decode())
@@ -144,8 +166,23 @@ def run_test_server(run_config, test_name, file_name) -> bool:
     logging.debug('Returning results: %s', server_output)
     return True
  
+def test_ssh_connection(ssh_address):
+    try:
+        result = subprocess.run(['ssh', ssh_address, 'echo ok'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        if result.stdout.decode().strip() == 'ok':
+            logging.info(f"SSH connection to {ssh_address} successful.")
+            return True
+        else:
+            logging.error(f"SSH connection to {ssh_address} failed. Error: {result.stderr.decode()}")
+            return False
+    except subprocess.TimeoutExpired:
+        logging.error(f"SSH connection to {ssh_address} timed out.")
+        return False
+    except Exception as e:
+        logging.error(f"Error testing SSH connection to {ssh_address}: {e}")
+        return False
 
-def get_file_name(file_name):
+def get_file_name(file_name: str) -> str:
     timestamp = int(time.time())
     dt_object = datetime.fromtimestamp(timestamp)
     formatted_datetime = dt_object.strftime("%m-%d-%H:%M")
@@ -163,7 +200,7 @@ def main():
     parser.add_argument('--nperf_bin', default=PATH_TO_NPERF_BIN, help='Path to the nperf binary')
     parser.add_argument('--yaml', help='Path to the YAML configuration file')  # Add YAML config file option
     # Remote measurements only available over yaml config file
-    # client_ssh, server_ssh, client_interface, server_interface
+    # client_ssh, server_ssh
 
     args = parser.parse_args()
 
@@ -175,9 +212,14 @@ def main():
             nperf_binary = yaml_config.get('nperf_bin', PATH_TO_NPERF_BIN)
             csv_file_name = yaml_config.get('results_file', 'test_results.csv')
             config_file = yaml_config.get('config_file')
+            ssh_client = yaml_config.get('ssh_client', None)
+            ssh_server = yaml_config.get('ssh_server', None)
+
     else:
         nperf_binary = args.nperf_bin
         config_file = args.config_file
+        ssh_client = None
+        ssh_server = None
         if config_file is None:
             logging.error("Config file must be supplied!")
             return
@@ -192,6 +234,19 @@ def main():
 
     test_configs = parse_config_file(config_file)
     logging.info('Read %d test configs', len(test_configs))
+
+    # Check SSH connections if applicable
+    if ssh_client is not None:
+        logging.debug("Testing SSH connection to client...")
+        if not test_ssh_connection(ssh_client):
+            logging.error("SSH connection to client failed. Exiting.")
+            exit(1)
+
+    if ssh_server is not None:
+        logging.debug("Testing SSH connection to server...")
+        if not test_ssh_connection(ssh_server):
+            logging.error("SSH connection to server failed. Exiting.")
+            exit(1)
 
     # Create directory for test results
     os.makedirs(PATH_TO_RESULTS_FOLDER, exist_ok=True)
@@ -211,9 +266,9 @@ def main():
                     time.sleep(3)
                     logging.info('Starting test run')
                     with ThreadPoolExecutor(max_workers=2) as executor:
-                        future_server = executor.submit(run_test_server, run, test_name, csv_file_name)
+                        future_server = executor.submit(run_test_server, run, test_name, csv_file_name, ssh_server)
                         time.sleep(1) # Wait for server to be ready
-                        future_client = executor.submit(run_test_client, run, test_name, csv_file_name)
+                        future_client = executor.submit(run_test_client, run, test_name, csv_file_name, ssh_client)
 
                         if future_server.result(timeout=thread_timeout) and future_client.result(timeout=thread_timeout):
                             logging.info('Test run finished successfully')
