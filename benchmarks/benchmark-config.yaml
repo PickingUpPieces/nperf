@@ -1,5 +1,5 @@
 ---
-config_file: configs/benchmark_test_config.json
+config_file: configs/benchmark_test_func_config.json
 ssh_client: master-local2
 ssh_server: master-local
 nperf_bin: /opt/nperf/nperf/target/release/nperf

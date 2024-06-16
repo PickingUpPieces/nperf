@@ -31,11 +31,11 @@
             "repetitions": 1,
             "client": {
                 "exchange-function": "msg",
-                "with-gsro": false
+                "with-gsro": true
             },
             "server": {
                 "exchange-function": "msg",
-                "with-gsro": false
+                "with-gsro": true
             }
         }
     },
@@ -43,22 +43,22 @@
         "3": {
             "repetitions": 1,
             "client": {
-                "exchange-function": "normal",
-                "with-gsro": false
+                "io-model": "io-uring"
             },
             "server": {
-                "exchange-function": "normal",
-                "with-gsro": false
+                "io-model": "io-uring"
             }
         },
         "4": {
             "repetitions": 1,
             "client": {
-                "exchange-function": "msg",
+                "io-model": "io-uring",
+                "uring-mode": "zerocopy",
                 "with-gsro": false
             },
             "server": {
-                "exchange-function": "msg",
+                "io-model": "io-uring",
+                "uring-mode": "multishot",
                 "with-gsro": false
             }
         }
