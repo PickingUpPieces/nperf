@@ -14,7 +14,6 @@ PATH_TO_RESULTS_FOLDER = 'results/'
 PATH_TO_NPERF_REPO = '/home_stud/picking/repos/nperf'
 #PATH_TO_NPERF_REPO = '/opt/nperf'
 PATH_TO_NPERF_BIN = PATH_TO_NPERF_REPO + '/target/release/nperf'
-nperf_binary = PATH_TO_NPERF_BIN
 
 def parse_config_file(json_file_path: str) -> list[dict]:
     with open(json_file_path, 'r') as json_file:
@@ -201,6 +200,8 @@ def main():
 
     args = parser.parse_args()
 
+    global nperf_binary
+
     # If YAML config is provided, parse it and use its parameters
     if args.yaml:
         with open(args.yaml, 'r') as yaml_file:
@@ -226,6 +227,7 @@ def main():
         csv_file_name = get_file_name(os.path.splitext(os.path.basename(config_file))[0])
 
     logging.debug('Parsed arguments: %s', args)
+    logging.info('Using nPerf Binary %s', nperf_binary)
     logging.info('Reading config file: %s', config_file)
     logging.info('Input file name: %s', csv_file_name)
 
