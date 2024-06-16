@@ -131,7 +131,7 @@ def run_test_server(run_config, test_name: str, file_name: str, ssh_server: str)
 
     if ssh_server:
         # Modify the command to be executed over SSH
-        ssh_command = f"ssh {ssh_server} '{command_str}'"
+        ssh_command = f"ssh {ssh_server} 'sudo {command_str}'"
         server_process = subprocess.Popen(ssh_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env={'RUST_LOG': 'error'})
     else:
         # Execute command locally
@@ -191,9 +191,6 @@ def get_file_name(file_name: str) -> str:
 def main():
     logging.debug('Starting main function')
 
-    logging.info('Compiling binary in release mode.')
-    subprocess.run(['cargo', 'build', '--release'], check=True, cwd=PATH_TO_NPERF_REPO)
-
     parser = argparse.ArgumentParser(description='Benchmark nperf.')
     parser.add_argument('config_file', nargs='?', help='Path to the JSON configuration file')
     parser.add_argument('results_file', nargs='?', default='test_results.csv', help='Path to the CSV file to write the results')
@@ -247,6 +244,10 @@ def main():
         if not test_ssh_connection(ssh_server):
             logging.error("SSH connection to server failed. Exiting.")
             exit(1)
+
+    if ssh_client is None and ssh_server is None:
+        logging.info('Compiling binary in release mode.')
+        subprocess.run(['cargo', 'build', '--release'], check=True, cwd=PATH_TO_NPERF_REPO)
 
     # Create directory for test results
     os.makedirs(PATH_TO_RESULTS_FOLDER, exist_ok=True)

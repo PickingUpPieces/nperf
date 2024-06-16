@@ -2,4 +2,4 @@
 config_file: configs/benchmark_test_config.json
 ssh_client: master-local
 ssh_server: master-server
-nperf_bin: /opt/nperf/target/release/nperf
+nperf_bin: /opt/nperf/nperf/target/release/nperf
