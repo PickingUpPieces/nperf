@@ -113,6 +113,7 @@ pub struct Statistic {
 
 
 // Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Measurement {
     pub start_time: std::time::Instant,
@@ -552,5 +553,21 @@ pub mod utilization {
             array[index] = value;
         }
         Ok(array)
+    }
+}
+
+
+pub mod serialize_option_as_bool {
+    use serde::Serializer;
+
+    // This function will be used to serialize Option<u32> fields
+    pub fn serialize<S>(option: &Option<u32>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match option {
+            Some(value) => serializer.serialize_u32(*value), 
+            None => serializer.serialize_bool(false),
+        }
     }
 }

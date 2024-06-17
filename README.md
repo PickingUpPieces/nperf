@@ -1,10 +1,6 @@
-# Command-Line Help for `nperf`
+# nPerf
+nPerf is a network performance measurement tool solely for measuring UDP throughput. Several kernel features, such as GSO, GRO, or io_uring, can be compared along with several different features.
 
-This document contains the help content for the `nperf` command-line program.
-
-**Command Overview:**
-
-* [`nperf`↴](#nperf)
 
 ## `nperf`
 
@@ -41,12 +37,27 @@ A network performance measurement tool
 
   Possible values: `true`, `false`
 
+* `-i`, `--interval <INTERVAL>` — Interval printouts of the statistic in seconds (0 to disable)
+
+  Default value: `0`
 * `-l`, `--datagram-size <DATAGRAM_SIZE>` — Set length of single datagram (Without IP and UDP headers)
 
   Default value: `1472`
-* `-t`, `--time <TIME>` — Time to run the test
+* `-t`, `--time <TIME>` — Amount of seconds to run the test for
 
   Default value: `10`
+* `--with-core-affinity` — Pin each thread to an individual core. The server threads start from the last core, the client threads from the second core. This way each server/client pair should operate on the same NUMA core
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
+* `--with-numa-affinity` — Pin client/server threads to different NUMA nodes
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
 * `--with-gsro` — Enable GSO/GRO on socket
 
   Default value: `false`
@@ -55,7 +66,7 @@ A network performance measurement tool
 
 * `--with-gso-buffer <WITH_GSO_BUFFER>` — Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
 
-  Default value: `65507`
+  Default value: `64768`
 * `--with-mss <WITH_MSS>` — Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled
 
   Default value: `1472`
@@ -90,14 +101,23 @@ A network performance measurement tool
 
   Default value: `poll`
 
-  Possible values: `poll`, `busy-waiting`, `select`
+  Possible values: `poll`, `busy-waiting`, `select`, `io-uring`
 
-* `--output-format <OUTPUT_FORMAT>` — Define the data structure type the output
+* `--output-format <OUTPUT_FORMAT>` — Define the type the output
 
   Default value: `text`
 
-  Possible values: `text`, `json`
+  Possible values: `text`, `json`, `file`
 
+* `--output-file-path <OUTPUT_FILE_PATH>` — Define the path in which the results file should be saved. Make sure the path exists and the application has the rights to write in it
+
+  Default value: `nperf-output.csv`
+* `--label-test <LABEL_TEST>` — Test label which appears in the output file, if multiple tests are run in parallel
+
+  Default value: `nperf-test`
+* `--label-run <LABEL_RUN>` — Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
+
+  Default value: `run-nperf`
 * `--multiplex-port <MULTIPLEX_PORT>` — Use different port number for each client thread, share a single port or shard a single port with reuseport
 
   Default value: `individual`
@@ -115,6 +135,42 @@ A network performance measurement tool
   Default value: `multiple`
 
   Possible values: `single`, `multiple`
+
+* `--uring-mode <URING_MODE>` — io_uring: Which mode to use
+
+  Default value: `normal`
+
+  Possible values: `normal`, `zerocopy`, `provided-buffer`, `multishot`
+
+* `--uring-sqpoll` — io_uring: Use a SQ_POLL thread per executing thread, pinned to CPU 0
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
+* `--uring-sqpoll-shared` — io_uring: Share the SQ_POLL thread between all executing threads
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
+
+* `--uring-burst-size <URING_BURST_SIZE>` — io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
+
+  Default value: `64`
+* `--uring-ring-size <URING_RING_SIZE>` — io_uring: Size of the ring buffer
+
+  Default value: `256`
+* `--uring-sq-mode <URING_SQ_MODE>` — io_uring: How the SQ is filled
+
+  Default value: `topup`
+
+  Possible values: `topup`, `topup-no-wait`, `syscall`
+
+* `--uring-task-work <URING_TASK_WORK>` — io_uring: Set the operation mode of task_work
+
+  Default value: `default`
+
+  Possible values: `default`, `coop`, `defer`, `coop-defer`
 
 * `--markdown-help` — Show help in markdown format
 
