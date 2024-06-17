@@ -113,6 +113,7 @@ pub struct Statistic {
 
 
 // Measurement is used to measure the time of a specific statistc. Type time::Instant cannot be serialized, so it is not included in the Statistic struct.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Measurement {
     pub start_time: std::time::Instant,
