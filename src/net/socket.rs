@@ -375,6 +375,7 @@ impl Socket {
         }
     }
 
+    // timeout = -1: Block until data is available
     pub fn select(&self, read_fds: Option<*mut libc::fd_set>, write_fds: Option<*mut libc::fd_set>, timeout: i32) -> Result<(), &'static str> {
         let nfds = self.socket + 1;
         let timeval =

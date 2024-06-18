@@ -29,9 +29,9 @@ pub enum ExchangeFunction {
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Copy, Clone, Serialize)]
 pub enum IOModel {
     #[default]
+    Select,
     Poll,
     BusyWaiting,
-    Select,
     IoUring
 }
 
