@@ -207,7 +207,7 @@ pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static 
             // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
             // From: https://linux.die.net/man/2/recvmsg
             // libc::EAGAIN == 11
-            warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+            debug!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
             Err("EAGAIN")
         },
         _ if amount_received_bytes < 0 => {

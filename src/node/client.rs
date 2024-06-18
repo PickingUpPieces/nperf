@@ -201,7 +201,7 @@ impl Client {
                 -11 => { // libc::EAGAIN == 11
                     // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
                     // From: https://linux.die.net/man/2/recvmsg
-                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    debug!("EAGAIN: No messages can be send at the socket!"); // This should not happen in io_uring with FAST_POLL
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
@@ -246,7 +246,7 @@ impl Client {
                 -11 => { // libc::EAGAIN == 11
                     // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
                     // From: https://linux.die.net/man/2/recvmsg
-                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    debug!("EAGAIN: No messages can be send at the socket!"); // This should not happen in io_uring with FAST_POLL
                     index_pool.push(user_data as usize);
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },

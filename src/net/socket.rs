@@ -120,7 +120,7 @@ impl Socket {
                     return Err("EMSGSIZE");
                 },
                 Some(libc::EAGAIN) => {
-                    warn!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
+                    debug!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
                     return Err("EAGAIN");
                 },
                 _ => {
@@ -154,7 +154,7 @@ impl Socket {
                     return Err("ECONNREFUSED");
                 },
                 Some(libc::EAGAIN) => {
-                    warn!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
+                    debug!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
                     return Err("EAGAIN");
                 },
                 _ => {
