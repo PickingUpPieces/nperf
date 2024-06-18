@@ -9,7 +9,7 @@ pub struct Socket {
     sock_addr_in: Option<SocketAddrV4>,
     sock_addr_out: Option<SocketAddrV4>,
     socket: i32,
-    sendmmsg_econnrefused_counter: u16
+    //sendmmsg_econnrefused_counter: u16
 } 
 
 impl Socket {
@@ -22,7 +22,7 @@ impl Socket {
             sock_addr_in: None,
             sock_addr_out: None,
             socket,
-            sendmmsg_econnrefused_counter: 0
+            //sendmmsg_econnrefused_counter: 0
         })
     }
 
