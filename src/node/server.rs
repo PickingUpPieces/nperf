@@ -115,6 +115,13 @@ impl Server {
                 (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes, self.next_packet_id, statistic);
                 statistic.amount_datagrams += absolut_packets_received;
                 statistic.amount_data_bytes += amount_received_bytes;
+
+                // Reset msg_flags and msg_controllen fields
+                if self.parameter.socket_options.gro {
+                    msghdr.msg_flags = 0;
+                    msghdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+                }
+
                 debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
                 Ok(())
             },
@@ -147,12 +154,15 @@ impl Server {
                     }
                     let msghdr = &mut mmsghdr.msg_hdr;
                     let msghdr_bytes = mmsghdr.msg_len as usize;
-                
 
                     let datagrams_received;
                     (self.next_packet_id, datagrams_received) = util::process_packet_msghdr(msghdr, msghdr_bytes, self.next_packet_id, statistic);
                     absolut_datagrams_received += datagrams_received;
-                    // TODO: Reset msg_controllen and msg_flags fields, if needed here
+                                    
+                    if self.parameter.socket_options.gro {
+                        msghdr.msg_flags = 0;
+                        msghdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+                    }
                 }
 
                 statistic.amount_datagrams += absolut_datagrams_received;
@@ -388,8 +398,14 @@ impl Server {
         (self.next_packet_id, absolut_packets_received) = util::process_packet_msghdr(msghdr, amount_received_bytes as usize, self.next_packet_id, statistic);
         statistic.amount_datagrams += absolut_packets_received;
         statistic.amount_data_bytes += amount_received_bytes as usize;
-        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
 
+        // Reset msg_flags and msg_controllen fields
+        if self.parameter.socket_options.gro {
+            msghdr.msg_flags = 0;
+            msghdr.msg_controllen = crate::LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER;
+        }
+
+        debug!("Received {} packets and total {} Bytes, and next packet id should be {}", absolut_packets_received, amount_received_bytes, self.next_packet_id);
         Ok(())
     }
 
