@@ -321,7 +321,9 @@ impl Client {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
-                        Err("EAGAIN") => {},
+                        Err("EAGAIN") => {
+                            self.statistic.amount_eagain += 1;
+                        },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -367,6 +369,7 @@ impl Node for Client {
                     Ok(_) => {},
                     Err("EAGAIN") => {
                         self.statistic.amount_io_model_calls += 1;
+                        self.statistic.amount_eagain += 1;
                         self.io_wait(io_model)?;
                     },
                     Err(x) => {

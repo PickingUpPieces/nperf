@@ -445,7 +445,9 @@ impl Server {
                         Err("LAST_MESSAGE_RECEIVED") => {
                             if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
-                        Err("EAGAIN") => {},
+                        Err("EAGAIN") => {
+                            statistic.amount_eagain += 1;
+                        },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -479,7 +481,9 @@ impl Server {
                         Err("LAST_MESSAGE_RECEIVED") => {
                             if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
-                        Err("EAGAIN") => {},
+                        Err("EAGAIN") => {
+                            statistic.amount_eagain += 1;
+                        },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -513,7 +517,9 @@ impl Server {
                         Err("LAST_MESSAGE_RECEIVED") => {
                             if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } 
                         },
-                        Err("EAGAIN") => {},
+                        Err("EAGAIN") => {
+                            statistic.amount_eagain += 1;
+                        },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -584,6 +590,7 @@ impl Node for Server {
                     Ok(_) => {},
                     Err("EAGAIN") => {
                         statistic.amount_io_model_calls += 1;
+                        statistic.amount_eagain += 1;
                         match self.io_wait(io_model) {
                             Ok(_) => {},
                             Err("TIMEOUT") => {

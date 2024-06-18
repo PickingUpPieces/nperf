@@ -99,6 +99,7 @@ pub struct Statistic {
     pub amount_omitted_datagrams: i64,
     pub amount_syscalls: u64,
     pub amount_io_model_calls: u64,
+    pub amount_eagain: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
     pub uring_copied_zc: u64,
@@ -137,6 +138,7 @@ impl Statistic {
             amount_omitted_datagrams: 0,
             amount_syscalls: 0,
             amount_io_model_calls: 0,
+            amount_eagain: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
             uring_copied_zc: 0,
@@ -189,7 +191,9 @@ impl Statistic {
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
+                println!("Amount of datagrams per syscall: {:.0}", self.amount_datagrams / self.amount_syscalls);
                 println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
+                println!("Amount of received EAGAIN errors: {}", self.amount_eagain);
                 println!("------------------------");
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Io-Uring");
@@ -335,6 +339,7 @@ impl Add for Statistic {
             amount_omitted_datagrams: self.amount_omitted_datagrams + other.amount_omitted_datagrams,
             amount_syscalls: self.amount_syscalls + other.amount_syscalls,
             amount_io_model_calls: self.amount_io_model_calls + other.amount_io_model_calls,
+            amount_eagain: self.amount_eagain + other.amount_eagain,
             data_rate_gbit, 
             packet_loss,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
@@ -397,6 +402,7 @@ impl Sub for Statistic {
             amount_omitted_datagrams: self.amount_omitted_datagrams - other.amount_omitted_datagrams,
             amount_syscalls: self.amount_syscalls - other.amount_syscalls,
             amount_io_model_calls: self.amount_io_model_calls - other.amount_io_model_calls,
+            amount_eagain: self.amount_eagain - other.amount_eagain,
             data_rate_gbit, 
             packet_loss,
             uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
