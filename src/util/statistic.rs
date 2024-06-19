@@ -191,7 +191,7 @@ impl Statistic {
                 println!("Amount of duplicated datagrams: {}", self.amount_duplicated_datagrams);
                 println!("Amount of omitted datagrams: {}", self.amount_omitted_datagrams);
                 println!("Amount of syscalls: {}", self.amount_syscalls);
-                println!("Amount of datagrams per syscall: {:.0}", self.amount_datagrams / self.amount_syscalls);
+                println!("Amount of datagrams per syscall: {:.0}", if self.amount_syscalls != 0 { self.amount_datagrams / self.amount_syscalls } else { 0 });
                 println!("Amount of IO model syscalls: {}", self.amount_io_model_calls);
                 println!("Amount of received EAGAIN errors: {}", self.amount_eagain);
                 println!("------------------------");
