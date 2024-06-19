@@ -16,6 +16,7 @@ current_rmem_max=$(sysctl -n net.core.rmem_max)
 current_netdev_max_backlog=$(sysctl -n net.core.netdev_max_backlog)
 current_txqueuelen=$(sysctl -n txqueuelen)
 
+echo "!!!SCRIPT MUST BE EXECUTED AS ROOT!!!"
 echo "Current values:"
 echo "net.core.wmem_max: $current_wmem_max"
 echo "net.core.rmem_max: $current_rmem_max"
@@ -26,10 +27,10 @@ read -p "Do you want to change the values? (y/n): " choice
 
 if [[ $choice == "y" ]]; then
     echo "Setting new values..."
-    sudo sysctl -w net.core.wmem_max=$new_wmem_max
-    sudo sysctl -w net.core.rmem_max=$new_rmem_max
-    sudo sysctl -w net.core.netdev_max_backlog=$new_netdev_max_backlog
-    sudo sysctl -w txqueuelen=$new_txqueuelen
+    sysctl -w net.core.wmem_max=$new_wmem_max
+    sysctl -w net.core.rmem_max=$new_rmem_max
+    sysctl -w net.core.netdev_max_backlog=$new_netdev_max_backlog
+    sysctl -w txqueuelen=$new_txqueuelen
 
     echo "New values set successfully!"
 else

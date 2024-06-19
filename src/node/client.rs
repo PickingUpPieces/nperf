@@ -106,7 +106,7 @@ impl Client {
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
-                Ok(())
+                Err("EAGAIN") 
             },
             Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
             Err(x) => Err(x) 
@@ -132,7 +132,7 @@ impl Client {
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
-                Ok(())
+                Err("EAGAIN") 
             },
             Err(x) => Err(x) 
         }
@@ -162,7 +162,7 @@ impl Client {
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
-                Ok(())
+                Err("EAGAIN") 
             },
             Err(x) => Err(x)
         }
@@ -201,7 +201,7 @@ impl Client {
                 -11 => { // libc::EAGAIN == 11
                     // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
                     // From: https://linux.die.net/man/2/recvmsg
-                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    debug!("EAGAIN: No messages can be send at the socket!"); // This should not happen in io_uring with FAST_POLL
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
@@ -246,7 +246,7 @@ impl Client {
                 -11 => { // libc::EAGAIN == 11
                     // If no messages are available at the socket, the receive calls wait for a message to arrive, unless the socket is nonblocking (see fcntl(2)), in which case the value -11 is returned and the external variable errno is set to EAGAIN or EWOULDBLOCK.
                     // From: https://linux.die.net/man/2/recvmsg
-                    warn!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
+                    debug!("EAGAIN: No messages can be send at the socket!"); // This should not happen in io_uring with FAST_POLL
                     index_pool.push(user_data as usize);
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
@@ -321,7 +321,9 @@ impl Client {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
-                        Err("EAGAIN") => {},
+                        Err("EAGAIN") => {
+                            self.statistic.amount_eagain += 1;
+                        },
                         Err(x) => {
                             error!("Error completing io_uring sqe: {}", x);
                             return Err(x);
@@ -367,6 +369,7 @@ impl Node for Client {
                     Ok(_) => {},
                     Err("EAGAIN") => {
                         self.statistic.amount_io_model_calls += 1;
+                        self.statistic.amount_eagain += 1;
                         self.io_wait(io_model)?;
                     },
                     Err(x) => {

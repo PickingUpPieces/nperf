@@ -120,7 +120,7 @@ impl Socket {
                     return Err("EMSGSIZE");
                 },
                 Some(libc::EAGAIN) => {
-                    warn!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
+                    debug!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
                     return Err("EAGAIN");
                 },
                 _ => {
@@ -154,7 +154,7 @@ impl Socket {
                     return Err("ECONNREFUSED");
                 },
                 Some(libc::EAGAIN) => {
-                    warn!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
+                    debug!("Error EAGAIN/EWOULDBLOCK: Probably socket buffer is full!");
                     return Err("EAGAIN");
                 },
                 _ => {
@@ -375,6 +375,7 @@ impl Socket {
         }
     }
 
+    // timeout = -1: Block until data is available
     pub fn select(&self, read_fds: Option<*mut libc::fd_set>, write_fds: Option<*mut libc::fd_set>, timeout: i32) -> Result<(), &'static str> {
         let nfds = self.socket + 1;
         let timeval =
