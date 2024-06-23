@@ -245,13 +245,11 @@ impl nPerf {
         }
 
         if parameter.mode == util::NPerfMode::Client && self.multiplex_port_server == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
-            error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
-            return None;
+            warn!("Sharding on server side doesn't work, if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
         }
 
         if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
-            error!("Can't set client multiplexing on server side!");
-            return None;
+            warn!("Can't set client multiplexing on server side!");
         }
 
         let cores_amount = core_affinity::get_core_ids().unwrap_or_default().len();
