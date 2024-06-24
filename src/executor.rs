@@ -8,7 +8,7 @@ use crate::node::{client::Client, server::Server, Node};
 use crate::util::core_affinity_manager::CoreAffinityManager;
 use crate::util::statistic;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
-use crate::{Statistic, DEFAULT_CLIENT_IP};
+use crate::Statistic;
 
 use std::os::fd::RawFd;
 use std::sync::{Arc, Mutex};
@@ -149,8 +149,9 @@ impl nPerf {
 
     fn create_socket(&self, parameter: &Parameter) -> Option<Socket> {
         if parameter.mode == NPerfMode::Client && parameter.multiplex_port == MultiplexPort::Sharing {
+            info!("Creating master socket for all client threads to use, since socket sharing is enabled");
             let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
-            let sock_address_in = SocketAddrV4::new(DEFAULT_CLIENT_IP, self.client_port);
+            let sock_address_in = SocketAddrV4::new(crate::DEFAULT_CLIENT_IP, self.client_port);
 
             socket.bind(sock_address_in).expect("Error binding to local port");
 
@@ -162,6 +163,7 @@ impl nPerf {
 
             Some(socket)
         } else if parameter.mode == NPerfMode::Server && parameter.multiplex_port_server == MultiplexPort::Sharing {
+            info!("Creating master socket for all server threads to use, since socket sharing is enabled");
             let sock_address_in = SocketAddrV4::new(parameter.ip, self.port);
             let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             socket.bind(sock_address_in).expect("Error binding to local port");

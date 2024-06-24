@@ -10,7 +10,6 @@ use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
-use crate::DEFAULT_CLIENT_IP;
 use super::Node;
 
 pub struct Client {
@@ -30,7 +29,7 @@ impl Client {
         let socket = if socket.is_none() {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             if let Some(port) = local_port {
-                socket.bind(SocketAddrV4::new(DEFAULT_CLIENT_IP, port)).expect("Error binding socket");
+                socket.bind(SocketAddrV4::new(crate::DEFAULT_CLIENT_IP, port)).expect("Error binding socket");
             }
             socket.connect(sock_address_out).expect("Error connecting to remote host");
             socket
@@ -40,7 +39,7 @@ impl Client {
             socket
         };
 
-        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
+        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), crate::DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
 
         let packet_buffer = Self::create_packet_buffer(&parameter, test_id, &socket); 
 
@@ -340,8 +339,11 @@ impl Client {
 
 impl Node for Client {
     fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
-        if let Ok(mss) = self.socket.get_mss() {
-            info!("On the current socket the MSS is {}", mss);
+        // If in socket sharing mode, socket is not connected and this method will fail
+        if self.parameter.multiplex_port != MultiplexPort::Sharing {
+            if let Ok(mss) = self.socket.get_mss() {
+                info!("On the current socket the MSS is {}", mss);
+            }
         }
         
         self.send_control_message(MessageType::INIT)?;
