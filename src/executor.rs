@@ -64,6 +64,8 @@ impl nPerf {
             }
     
             info!("Waiting for all threads to finish...");
+            let mut util = crate::util::cpu_util::CpuUtil::new();
+            util.cpu_util();
 
             // Print statistics every output_interval seconds
             let amount_interval_outputs = if parameter.output_interval == 0.0 { 0 } else { (parameter.test_runtime_length as f64 / parameter.output_interval).floor() as u64 };
@@ -86,6 +88,9 @@ impl nPerf {
                     Err(x) => warn!("Error joining thread: {:?}", x),
                 }
             }
+
+            // Update CPU spent time
+            (final_statistics.cpu_user_time, final_statistics.cpu_system_time) = util.cpu_util();
 
             if final_statistics.amount_datagrams != 0 {
                 final_statistics.print(parameter.output_format, false);

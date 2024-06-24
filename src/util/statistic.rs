@@ -102,6 +102,8 @@ pub struct Statistic {
     pub amount_eagain: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
+    pub cpu_user_time: f64,
+    pub cpu_system_time: f64,
     pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization")]
@@ -141,6 +143,8 @@ impl Statistic {
             amount_eagain: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
+            cpu_user_time: 0.0,
+            cpu_system_time: 0.0,
             uring_copied_zc: 0,
             uring_canceled_multishot: 0,
             uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
@@ -185,6 +189,10 @@ impl Statistic {
                 println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
                 println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
                 println!("Packet loss: {:.2}%", self.packet_loss);
+                println!("------------------------");
+                println!("CPU user space: {:.2}%", self.cpu_user_time);
+                println!("CPU system space: {:.2}%", self.cpu_system_time);
+                println!("Threads used: {}", self.parameter.amount_threads);
                 println!("------------------------");
                 println!("Amount of datagrams: {}", self.amount_datagrams);
                 println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
@@ -342,6 +350,8 @@ impl Add for Statistic {
             amount_eagain: self.amount_eagain + other.amount_eagain,
             data_rate_gbit, 
             packet_loss,
+            cpu_user_time: 0.0,
+            cpu_system_time: 0.0,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
@@ -405,6 +415,8 @@ impl Sub for Statistic {
             amount_eagain: self.amount_eagain - other.amount_eagain,
             data_rate_gbit, 
             packet_loss,
+            cpu_user_time: 0.0,
+            cpu_system_time: 0.0,
             uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot - other.uring_canceled_multishot,
             uring_sq_utilization,
