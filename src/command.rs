@@ -282,7 +282,7 @@ impl nPerf {
             return None;
         }
 
-        if self.uring_mode == UringMode::Zerocopy && (self.io_model != IOModel::IoUring || parameter.mode != util::NPerfMode::Client) {
+        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Zerocopy && parameter.mode != util::NPerfMode::Client {
             warn!("Zero copy is only available with io_uring on the client!");
             return None;
         }
