@@ -596,7 +596,7 @@ impl Node for Server {
                             Err("TIMEOUT") => {
                                 // If port sharing is used, or single connection not every thread receives the LAST message. 
                                 // To avoid that the thread waits forever, we need to return here.
-                                error!("{:?}: Timeout waiting for a subsequent packet from the client!", thread::current().id());
+                                warn!("{:?}: Timeout waiting for a subsequent packet from the client!", thread::current().id());
                                 break;
                             },
                             Err(x) => {
