@@ -561,7 +561,7 @@ impl Node for Server {
             Err("TIMEOUT") => {
                 // If port sharding is used, not every server thread gets packets due to the load balancing of REUSEPORT.
                 // To avoid that the thread waits forever, we need to return here.
-                error!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
+                warn!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
                 return Ok(statistic);
             },
             Err(x) => {
