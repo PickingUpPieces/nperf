@@ -175,6 +175,10 @@ impl Server {
     }
 
     fn parse_message_type(mtype: MessageType, test_id: usize, measurements: &mut Vec<Measurement>, parameter: &Parameter) -> Result<(), &'static str> {
+        if test_id >= crate::MAX_TEST_ID {
+            error!("Received test id is greater than the maximum test id: {} > {}!", test_id, crate::MAX_TEST_ID);
+            return Err("Received test id is greater than the maximum test id")
+        }
         match mtype {
             MessageType::INIT => {
                 info!("{:?}: INIT packet received from test {}!", thread::current().id(), test_id);
