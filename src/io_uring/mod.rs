@@ -210,6 +210,10 @@ pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static 
             debug!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
             Err("EAGAIN")
         },
+        -90 => { // libc::EMSGSIZE -> Message too long
+            warn!("EMSGSIZE: The message is too long to fit into the supplied buffer and was truncated.");
+            Ok(0)
+        },
         _ if amount_received_bytes < 0 => {
             error!("Error receiving message! Negated error code: {}", amount_received_bytes);
             Err("Failed to receive data!")
