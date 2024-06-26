@@ -73,6 +73,8 @@ impl nPerf {
 
             for _ in 0..amount_interval_outputs {
                 let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
+                (statistics.cpu_user_time, statistics.cpu_system_time) = util.cpu_util();
+
                 if statistics.amount_datagrams != 0 {
                     statistics.print(parameter.output_format, true);
                 }
