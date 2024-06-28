@@ -159,11 +159,11 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
         // There are enough buffers left to fill up the submission queue
         match parameter.sq_filling_mode {
             UringSqFillingMode::Syscall => {
-                // Check if the submission queue is max filled with the burst size
-                if amount_inflight < uring_burst_size {
+                // Check if no messages are inflight, then submit the burst size
+                if amount_inflight == 0 {
                     to_submit = uring_burst_size;
                 } else {
-                    // If there are currently more entries inflight than the burst size, we don't want to submit more entries
+                    // If there are currently still inflight entries, we don't want to submit more entries --> Mimic syscall
                     to_submit = 0;
                 }
             },
