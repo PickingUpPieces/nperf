@@ -65,7 +65,8 @@ impl CoreAffinityManager {
         };
 
         // cycle to the next core ID 
-        self.next_core_id = if self.numa_affinity && self.mode == NPerfMode::Server {
+        self.next_core_id = {
+            if self.numa_affinity && self.mode == NPerfMode::Server {
                 // If we assign NUMA, the reverse round-robin schedules the uneven core IDs
                 if self.next_core_id - delta <= 0 {
                     ( self.core_ids.len() - 1 ) as i32
@@ -78,13 +79,17 @@ impl CoreAffinityManager {
                 } else {
                     self.next_core_id + delta
                 }
-        } else if self.next_core_id + delta >= self.core_ids.len() as i32 {
-            match self.mode {
-                NPerfMode::Client => 1,
-                NPerfMode::Server => 2
+            // numa_affinity is not enabled
+            } else if self.next_core_id + delta >= self.core_ids.len() as i32 {
+                match self.mode {
+                    // When we wrap around the core_ids, we use now core 0 as well
+                    // We assume an even number of cores, therefore if we start with core 1, the server is the first one to wrap around
+                    NPerfMode::Client => 1,
+                    NPerfMode::Server => 0
+                }
+            } else {
+                self.next_core_id + delta
             }
-        } else {
-            self.next_core_id + delta
         };
 
         Ok(self.core_ids[ret as usize]) 
