@@ -64,7 +64,7 @@ impl nPerf {
     
             info!("Waiting for all threads to finish...");
             let mut util = crate::util::cpu_util::CpuUtil::new();
-            util.cpu_util();
+            util.get_relative_cpu_util();
 
             // Print statistics every output_interval seconds
             let amount_interval_outputs = if parameter.output_interval == 0.0 { 0 } else { (parameter.test_runtime_length as f64 / parameter.output_interval).floor() as u64 };
@@ -72,7 +72,7 @@ impl nPerf {
 
             for _ in 0..amount_interval_outputs {
                 let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
-                (statistics.cpu_user_time, statistics.cpu_system_time) = util.cpu_util();
+                (statistics.cpu_user_time, statistics.cpu_system_time) = util.get_relative_cpu_util();
 
                 if statistics.amount_datagrams != 0 {
                     statistics.print(parameter.output_format, true);
@@ -91,7 +91,7 @@ impl nPerf {
             }
 
             // Update CPU spent time
-            (final_statistics.cpu_user_time, final_statistics.cpu_system_time) = util.cpu_util();
+            (final_statistics.cpu_user_time, final_statistics.cpu_system_time) = util.get_absolut_cpu_util();
 
             if final_statistics.amount_datagrams != 0 {
                 final_statistics.print(parameter.output_format, false);

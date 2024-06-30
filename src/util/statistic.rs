@@ -190,7 +190,7 @@ impl Statistic {
                 if interval_print {
                     println!(
                         "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
-                        self.interval_id as u64, 
+                        self.interval_id, 
                         if interval_timestamp == 0.0 { 0.0 } else { interval_timestamp - self.parameter.output_interval }, 
                         interval_timestamp, 
                         self.total_data_gbyte, 
