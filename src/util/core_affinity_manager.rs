@@ -1,28 +1,39 @@
-// DISCLAIMER
-// Code was partly taken from https://github.com/opensource-3d-p/rperf/blob/14d382683715594b7dce5ca0b3af67181098698f/src/utils/cpu_affinity.rs
-use hwlocality::{cpu::{binding::CpuBindingFlags, cpuset::CpuSet}, object::types::ObjectType, Topology};
+use std::thread;
+
+use hwlocality::{cpu::{binding::CpuBindingFlags, cpuset::CpuSet}, object::types::ObjectType, topology::support::{DiscoverySupport, FeatureSupport}, Topology};
 use log::{info, warn};
 
 use super::NPerfMode;
 
 pub struct CoreAffinityManager {
     topology: hwlocality::Topology,
-    mode: NPerfMode, // Server uses inverse round robin
+    mode: NPerfMode,
     numa_affinity: bool,
     amount_cpus: usize,
     next_numa_node: u64,
-    next_core_id: usize // According to the NUMA core pattern on the server, assign the threads to run on the same NUMA node
+    next_core_id: usize 
 }
 
 impl CoreAffinityManager {
     pub fn new(mode: NPerfMode, first_core_id: Option<usize>, mut numa_affinity: bool) -> CoreAffinityManager {
         let topology = Topology::new().unwrap();
+
+        if !topology.supports(FeatureSupport::discovery, DiscoverySupport::pu_count) {
+            panic!("If core-affinity enabled, nPerf needs accurate reporting of PU objects");
+        }
+        let Some(cpu_support) = topology.feature_support().cpu_binding() else {
+            panic!("If core-affinity enabled, nPerf requires CPU binding support");
+        };
+        if !(cpu_support.get_thread() && cpu_support.set_thread()) {
+            panic!("If core-affinity enabled, nPerf needs support for querying and setting thread CPU bindings");
+        }
+
         let mut amount_cpus = topology.objects_with_type(ObjectType::PU).count();
 
         if numa_affinity {
             let numa_nodes = topology.objects_with_type(ObjectType::NUMANode).collect::<Vec<_>>();
             if numa_nodes.is_empty() {
-                warn!("NUMA is not available! Disabling NUMA affinity.");
+                warn!("NUMA is not available on this system! Disabling NUMA affinity.");
                 numa_affinity = false;
             } else {
                 let cpuset = numa_nodes.first().unwrap().cpuset().unwrap();
@@ -73,7 +84,7 @@ impl CoreAffinityManager {
             core_id
         };
 
-        warn!("Binding thread to core ID: {}", core_id);
+        info!("Binding thread {:?} to core ID: {}", thread::current().id(), core_id);
         let mut core_cpuset = CpuSet::new();
         core_cpuset.set(core_id);
         self.bind_to_cpuset(core_cpuset)

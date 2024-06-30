@@ -3,6 +3,7 @@ nPerf is a network performance measurement tool solely for measuring UDP through
 
 ## Dependencies
 - libhwloc-dev
+- libudev-dev
 
 
 A network performance measurement tool
