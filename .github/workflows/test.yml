@@ -21,7 +21,7 @@ jobs:
       - name: Install dependency libhwloc-dev
         run: |
           sudo apt-get update
-          sudo apt-get install -y libhwloc-dev
+          sudo apt-get install -y libhwloc-dev libudev-dev
           
       - name: setup toolchain
         uses: hecrj/setup-rust-action@v1
