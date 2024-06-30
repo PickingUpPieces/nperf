@@ -18,6 +18,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install dependency libhwloc-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libhwloc-dev
+          
       - name: setup toolchain
         uses: hecrj/setup-rust-action@v1
         with:
