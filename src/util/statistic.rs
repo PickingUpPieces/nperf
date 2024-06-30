@@ -111,6 +111,7 @@ pub struct Statistic {
     pub packet_loss: f64,
     pub cpu_user_time: f64,
     pub cpu_system_time: f64,
+    pub cpu_total_time: f64,
     pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization")]
@@ -154,6 +155,7 @@ impl Statistic {
             packet_loss: 0.0,
             cpu_user_time: 0.0,
             cpu_system_time: 0.0,
+            cpu_total_time: 0.0,
             uring_copied_zc: 0,
             uring_canceled_multishot: 0,
             uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
@@ -210,6 +212,7 @@ impl Statistic {
                 println!("------------------------");
                 println!("CPU user space: {:.2}%", self.cpu_user_time);
                 println!("CPU system space: {:.2}%", self.cpu_system_time);
+                println!("CPU total: {:.2}%", self.cpu_total_time);
                 println!("Threads used: {}", self.parameter.amount_threads);
                 println!("------------------------");
                 println!("Amount of datagrams: {}", self.amount_datagrams);
@@ -383,6 +386,7 @@ impl Add for Statistic {
             packet_loss,
             cpu_user_time: 0.0,
             cpu_system_time: 0.0,
+            cpu_total_time: 0.0,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
@@ -450,6 +454,7 @@ impl Sub for Statistic {
             packet_loss,
             cpu_user_time: 0.0,
             cpu_system_time: 0.0,
+            cpu_total_time: 0.0,
             uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot - other.uring_canceled_multishot,
             uring_sq_utilization,

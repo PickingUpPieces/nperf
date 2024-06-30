@@ -72,7 +72,7 @@ impl nPerf {
 
             for _ in 0..amount_interval_outputs {
                 let mut statistics = Self::get_statistics(&fetch_handle, &rx, &parameter);
-                (statistics.cpu_user_time, statistics.cpu_system_time) = util.get_relative_cpu_util();
+                (statistics.cpu_user_time, statistics.cpu_system_time, statistics.cpu_total_time) = util.get_relative_cpu_util();
 
                 if statistics.amount_datagrams != 0 {
                     statistics.print(parameter.output_format, true);
@@ -91,7 +91,7 @@ impl nPerf {
             }
 
             // Update CPU spent time
-            (final_statistics.cpu_user_time, final_statistics.cpu_system_time) = util.get_absolut_cpu_util();
+            (final_statistics.cpu_user_time, final_statistics.cpu_system_time, final_statistics.cpu_total_time) = util.get_absolut_cpu_util();
 
             if final_statistics.amount_datagrams != 0 {
                 final_statistics.print(parameter.output_format, false);
