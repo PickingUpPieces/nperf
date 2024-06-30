@@ -202,6 +202,7 @@ impl Server {
                 if !measurement.first_packet_received {
                     info!("{:?}: First packet received from test {}!", thread::current().id(), test_id);
                     measurement.start_time = Instant::now();
+                    measurement.statistic.set_start_timestamp(None);
                     measurement.first_packet_received = true;
                 }
                 Ok(())
@@ -214,6 +215,7 @@ impl Server {
                 measurement.last_packet_received = true;
                 measurement.statistic.set_test_duration(measurement.start_time, end_time);
                 measurement.statistic.calculate_statistics();
+                measurement.statistic.set_end_timestamp();
                 Err("LAST_MESSAGE_RECEIVED")
             }
         }
@@ -633,7 +635,6 @@ impl Node for Server {
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
         // Fold over all statistics, and calculate the final statistic
         statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
-        statistic.interval_id = statistic.parameter.test_runtime_length as f64; // Mark this statistic object as the final one
         Ok(statistic)
     }
 

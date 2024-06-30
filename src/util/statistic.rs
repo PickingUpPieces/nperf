@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, ops::{Add, Sub}, path, thread, time::{Duration, Instant}};
+use std::{fs::OpenOptions, ops::{Add, Sub}, path, thread, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 use log::{debug, error, info};
 use serde::Serialize;
 use serde_json::{self};
@@ -31,9 +31,10 @@ pub enum SimulateConnection {
 
 #[derive(Debug, Clone)]
 pub struct StatisticInterval {
-    interval_id: f64,
+    interval_id: u64,
     pub output_interval: f64,
     pub last_send_instant: Instant,
+    pub last_send_timestamp: f64,
     pub total_interval_outputs: u64,
     amount_interval_outputs: u64,
     statistic_old: Statistic,
@@ -42,9 +43,10 @@ pub struct StatisticInterval {
 impl StatisticInterval {
     pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
         StatisticInterval {
-            interval_id: 0.0,
+            interval_id: 1,
             output_interval,
             last_send_instant,
+            last_send_timestamp: Statistic::get_unix_timestamp(),
             total_interval_outputs: (runtime_length as f64 / output_interval).floor() as u64,
             amount_interval_outputs: 0,
             statistic_old: statistic
@@ -55,7 +57,6 @@ impl StatisticInterval {
     }
 
     pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
-        self.interval_id = ((self.interval_id + self.output_interval) * 10.0).round() / 10.0;
         let current_time = Instant::now();
 
         if self.amount_interval_outputs >= self.total_interval_outputs {
@@ -69,6 +70,8 @@ impl StatisticInterval {
         } else {
             statistic_new.set_test_duration(self.last_send_instant, current_time);
         }
+        statistic_new.set_start_timestamp(Some(self.last_send_timestamp));
+        statistic_new.set_end_timestamp();
 
         statistic_new.interval_id = self.interval_id;
 
@@ -78,6 +81,8 @@ impl StatisticInterval {
         // Update the last send operation instant to the current instant
         self.last_send_instant = current_time;
         self.amount_interval_outputs += 1;
+        self.interval_id += 1;
+        self.last_send_timestamp = Statistic::get_unix_timestamp();
 
         Some(statistic_new)
     }
@@ -88,9 +93,11 @@ impl StatisticInterval {
 pub struct Statistic {
     #[serde(flatten)]
     pub parameter: Parameter,
+    pub start_timestamp: f64,
+    pub end_timestamp: f64,
     #[serde(skip_serializing)]
     pub test_duration: std::time::Duration,
-    pub interval_id: f64,
+    pub interval_id: u64,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
@@ -130,7 +137,9 @@ impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
         Statistic {
             parameter,
-            interval_id: 0.0,
+            start_timestamp: Self::get_unix_timestamp(),
+            end_timestamp: 0.0,
+            interval_id: 0,
             test_duration: Duration::new(0, 0),
             total_data_gbyte: 0.0,
             amount_datagrams: 0,
@@ -153,6 +162,13 @@ impl Statistic {
         }
     }
 
+    pub fn get_unix_timestamp() -> f64 {
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(n) => n.as_secs_f64(),
+            Err(_) => panic!("Error getting the current time"),
+        }
+    }
+
     pub fn calculate_statistics(&mut self) {
         debug!("Updating statistic...");
         self.total_data_gbyte = self.calculate_total_data();
@@ -169,12 +185,14 @@ impl Statistic {
                 println!("{}", serde_json::to_string(&self).unwrap());
             },
             OutputFormat::Text => {
+                let interval_timestamp = self.interval_id as f64 * self.parameter.output_interval;
+
                 if interval_print {
                     println!(
                         "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
-                        self.interval_id, 
-                        (self.interval_id - self.parameter.output_interval), 
-                        self.interval_id, 
+                        self.interval_id as u64, 
+                        if interval_timestamp == 0.0 { 0.0 } else { interval_timestamp - self.parameter.output_interval }, 
+                        interval_timestamp, 
                         self.total_data_gbyte, 
                         self.data_rate_gbit, 
                         self.amount_omitted_datagrams, 
@@ -277,6 +295,17 @@ impl Statistic {
         }
     }
 
+    pub fn set_start_timestamp(&mut self, start_time: Option<f64>) {
+        match start_time {
+            Some(time) => self.start_timestamp = time,
+            None => self.start_timestamp = Self::get_unix_timestamp()
+        }
+    }
+
+    pub fn set_end_timestamp(&mut self) {
+        self.end_timestamp = Self::get_unix_timestamp();
+    }
+
     fn calculate_total_data(&self) -> f64 {
         self.amount_data_bytes as f64 / 1024.0 / 1024.0 / 1024.0
     }
@@ -337,8 +366,10 @@ impl Add for Statistic {
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
+            start_timestamp: f64::min(self.start_timestamp, other.start_timestamp),
+            end_timestamp: f64::max(self.end_timestamp, other.end_timestamp),
             test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
+            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -402,8 +433,10 @@ impl Sub for Statistic {
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
+            start_timestamp: f64::min(self.start_timestamp, other.start_timestamp),
+            end_timestamp: f64::max(self.end_timestamp, other.end_timestamp),
             test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
+            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams - other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,

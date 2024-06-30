@@ -354,6 +354,7 @@ impl Node for Client {
         let start_time = Instant::now();
         let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
+        self.statistic.set_start_timestamp(None);
 
         if io_model == IOModel::IoUring {
             self.io_uring_loop(start_time, tx.clone())?;
@@ -383,6 +384,8 @@ impl Node for Client {
             }
         }
 
+        self.statistic.set_end_timestamp();
+        let end_time: Instant = Instant::now();
         // Print last interval
         if self.parameter.output_interval != 0.0 && !statistic_interval.finished() {
             if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
@@ -392,13 +395,9 @@ impl Node for Client {
 
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
-
         self.send_control_message(MessageType::LAST)?;
 
-        let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
-
         self.statistic.set_test_duration(start_time, end_time);
-        self.statistic.interval_id = self.statistic.parameter.test_runtime_length as f64;
         self.statistic.calculate_statistics();
         Ok(self.statistic.clone())
     }
