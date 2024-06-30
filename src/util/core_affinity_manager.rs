@@ -17,7 +17,7 @@ pub struct CoreAffinityManager {
 impl CoreAffinityManager {
     pub fn new(mode: NPerfMode, first_core_id: Option<usize>, mut numa_affinity: bool) -> CoreAffinityManager {
         let topology = Topology::new().unwrap();
-        let amount_cpus;
+        let mut amount_cpus = topology.objects_with_type(ObjectType::PU).count();
 
         if numa_affinity {
             let numa_nodes = topology.objects_with_type(ObjectType::NUMANode).collect::<Vec<_>>();
@@ -30,9 +30,7 @@ impl CoreAffinityManager {
                 amount_cpus = num_cores.unwrap();
                 info!("NUMA is available with {} nodes and {} CPUs per NUMA node ", amount_cpus, numa_nodes.len());
             }
-        } else {
-            amount_cpus = topology.objects_with_type(ObjectType::PU).count();
-        }
+        } 
 
         let next_core_id = match mode {
             NPerfMode::Server => {
