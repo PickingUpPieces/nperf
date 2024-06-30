@@ -1,6 +1,5 @@
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
-use std::sync::mpsc;
 use std::thread::{self, sleep};
 use std::time::Instant;
 use log::{debug, error, info, trace, warn};
@@ -416,7 +415,7 @@ impl Server {
     }
 
 
-    fn io_uring_loop(&mut self, mut statistic_interval: StatisticInterval, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
+    fn io_uring_loop(&mut self, mut statistic_interval: StatisticInterval) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let mut statistic = Statistic::new(self.parameter.clone());
         let mut amount_inflight = 0;
@@ -434,10 +433,7 @@ impl Server {
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-
-                        if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        statistic_interval.calculate_interval(statistic_new);
                     }
 
                     match self.io_uring_complete_multishot(&mut io_uring_instance) {
@@ -471,10 +467,7 @@ impl Server {
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-
-                        if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        statistic_interval.calculate_interval(statistic_new);
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
@@ -507,10 +500,7 @@ impl Server {
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-
-                        if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        statistic_interval.calculate_interval(statistic_new);
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
@@ -555,7 +545,7 @@ impl Server {
 
 
 impl Node for Server { 
-    fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
+    fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
         info!("Start server loop...");
         let mut statistic = Statistic::new(self.parameter.clone());
 
@@ -568,7 +558,7 @@ impl Node for Server {
                 // If port sharding is used, not every server thread gets packets due to the load balancing of REUSEPORT.
                 // To avoid that the thread waits forever, we need to return here.
                 warn!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
-                return Ok(statistic);
+                return Ok((statistic, Vec::new()));
             },
             Err(x) => {
                 return Err(x);
@@ -578,7 +568,7 @@ impl Node for Server {
         let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
 
         if io_model == IOModel::IoUring {
-            statistic = self.io_uring_loop(statistic_interval.clone(), tx.clone())?;
+            statistic = self.io_uring_loop(statistic_interval.clone())?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;
@@ -586,10 +576,7 @@ impl Node for Server {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                 if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
                     let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-
-                    if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                        tx.send(Some(stat)).unwrap();
-                    } 
+                    statistic_interval.calculate_interval(statistic_new);
                 }
 
                 match self.recv_messages() {
@@ -635,7 +622,7 @@ impl Node for Server {
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
         // Fold over all statistics, and calculate the final statistic
         statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
-        Ok(statistic)
+        Ok((statistic, statistic_interval.statistics))
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {

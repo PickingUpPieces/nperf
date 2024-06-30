@@ -38,31 +38,34 @@ pub struct StatisticInterval {
     pub total_interval_outputs: u64,
     amount_interval_outputs: u64,
     statistic_old: Statistic,
+    pub statistics: Vec<Statistic>,
 }
 
 impl StatisticInterval {
     pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
+        let total_interval_outputs = if output_interval == 0.0 { 0 } else { (runtime_length as f64 / output_interval).floor() as u64 };
         StatisticInterval {
             interval_id: 1,
             output_interval,
             last_send_instant,
             last_send_timestamp: Statistic::get_unix_timestamp(),
-            total_interval_outputs: (runtime_length as f64 / output_interval).floor() as u64,
             amount_interval_outputs: 0,
-            statistic_old: statistic
+            total_interval_outputs,
+            statistic_old: statistic,
+            statistics: Vec::with_capacity(total_interval_outputs as usize)
         }
     }
     pub fn finished(&self) -> bool {
         self.amount_interval_outputs >= self.total_interval_outputs
     }
 
-    pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
+    pub fn calculate_interval(&mut self, mut statistic_new: Statistic) {
         let current_time = Instant::now();
 
         if self.amount_interval_outputs >= self.total_interval_outputs {
             self.last_send_instant = current_time;
             debug!("{:?}: Last interval already sent. No more intervals to send.", thread::current().id());
-            return None;
+            return;
         } 
 
         if self.amount_interval_outputs == self.total_interval_outputs - 1 {
@@ -84,7 +87,7 @@ impl StatisticInterval {
         self.interval_id += 1;
         self.last_send_timestamp = Statistic::get_unix_timestamp();
 
-        Some(statistic_new)
+        self.statistics.push(statistic_new);
     }
 }
 

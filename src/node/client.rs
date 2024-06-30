@@ -1,6 +1,5 @@
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
-use std::sync::mpsc;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
@@ -291,7 +290,7 @@ impl Client {
     }
 
 
-    fn io_uring_loop(&mut self, start_time: Instant, tx: mpsc::Sender<Option<Statistic>>) -> Result<(), &'static str> {
+    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let uring_mode = self.parameter.uring_parameter.uring_mode;
         let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
@@ -307,9 +306,7 @@ impl Client {
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                        if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        statistic_interval.calculate_interval(self.statistic.clone());
                     }
 
                     let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
@@ -338,7 +335,7 @@ impl Client {
 
 
 impl Node for Client {
-    fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
+    fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
         // If in socket sharing mode, socket is not connected and this method will fail
         if self.parameter.multiplex_port != MultiplexPort::Sharing {
             if let Ok(mss) = self.socket.get_mss() {
@@ -357,15 +354,13 @@ impl Node for Client {
         self.statistic.set_start_timestamp(None);
 
         if io_model == IOModel::IoUring {
-            self.io_uring_loop(start_time, tx.clone())?;
+            self.io_uring_loop(start_time)?;
         } else {
 
             while start_time.elapsed().as_secs() < self.run_time_length {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                 if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                    if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
-                        tx.send(Some(stat)).unwrap();
-                    } 
+                    statistic_interval.calculate_interval(self.statistic.clone());
                 }
 
                 match self.send_messages() {
@@ -388,9 +383,7 @@ impl Node for Client {
         let end_time: Instant = Instant::now();
         // Print last interval
         if self.parameter.output_interval != 0.0 && !statistic_interval.finished() {
-            if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
-                tx.send(Some(stat)).unwrap();
-            }
+            statistic_interval.calculate_interval(self.statistic.clone());
         }
 
         // Ensures that the buffers are empty again, so that the last message actually arrives at the server
@@ -399,7 +392,7 @@ impl Node for Client {
 
         self.statistic.set_test_duration(start_time, end_time);
         self.statistic.calculate_statistics();
-        Ok(self.statistic.clone())
+        Ok((self.statistic.clone(), statistic_interval.statistics))
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {
