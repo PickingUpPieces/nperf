@@ -15,14 +15,15 @@ pub struct CoreAffinityManager {
 }
 
 impl CoreAffinityManager {
-    pub fn new(mode: NPerfMode, first_core_id: Option<usize>, numa_affinity: bool) -> CoreAffinityManager {
+    pub fn new(mode: NPerfMode, first_core_id: Option<usize>, mut numa_affinity: bool) -> CoreAffinityManager {
         let topology = Topology::new().unwrap();
         let amount_cpus;
 
         if numa_affinity {
             let numa_nodes = topology.objects_with_type(ObjectType::NUMANode).collect::<Vec<_>>();
             if numa_nodes.is_empty() {
-                panic!("NUMA is not available");
+                warn!("NUMA is not available! Disabling NUMA affinity.");
+                numa_affinity = false;
             } else {
                 let cpuset = numa_nodes.first().unwrap().cpuset().unwrap();
                 let num_cores = cpuset.weight();
