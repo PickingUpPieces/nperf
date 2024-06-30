@@ -23,8 +23,7 @@ impl nPerf {
         let core_affinity_manager = Arc::new(Mutex::new(CoreAffinityManager::new(parameter.mode, None, parameter.numa_affinity)));
 
         if parameter.core_affinity {
-            let core_ids = core_affinity::get_core_ids().unwrap_or_default();
-            core_affinity::set_for_current(core_ids[0]);
+            core_affinity_manager.lock().unwrap().bind_to_core(0).expect("Error setting affinity");
         }
 
         loop {
