@@ -12,9 +12,9 @@ pub use util::statistic::Statistic;
 // const UDP_RATE: usize = (1024 * 1024) // /* 1 Mbps */
 const DEFAULT_MSS: u32= 1472;
 const DEFAULT_UDP_DATAGRAM_SIZE: u32 = 1472;
-const DEFAULT_GSO_BUFFER_SIZE: u32= 64768 ; // 65507 is the possible maximum , but then the last packet is only have full -> 1472 * 44 = 64768
-const MAX_SOCKET_SEND_BUFFER_SIZE: u32 = 26214400; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
-const MAX_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 26214400 ; // 25MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
+const DEFAULT_GSO_BUFFER_SIZE: u32 = 64768 ; // 65507 is the possible maximum , but then the last packet is only have full -> 1472 * 44 = 64768
+const MAX_SOCKET_SEND_BUFFER_SIZE: u32 = 2129920; // 2MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
+const MAX_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 2129920; // 2MB; // The buffer size will be doubled by the kernel to account for overhead. See man 7 socket
 const DEFAULT_SOCKET_SEND_BUFFER_SIZE: u32 = 212992; 
 const DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE: u32 = 212992; 
 const DEFAULT_DURATION: u64 = 10; // /* seconds */
@@ -22,8 +22,10 @@ const DEFAULT_SERVER_PORT: u16 = 45001;
 const DEFAULT_CLIENT_IP: Ipv4Addr = Ipv4Addr::new(0,0,0,0);
 const DEFAULT_CLIENT_PORT: u16 = 46001;
 const DEFAULT_INTERVAL: f64 = 0.0; // /* seconds */
-const WAIT_CONTROL_MESSAGE: u64 = 500; // /* milliseconds */
+const WAIT_CONTROL_MESSAGE: u64 = 400; // /* milliseconds */
 const DEFAULT_FILE_NAME: &str = "nperf-output.csv";
+const MAX_TEST_ID: usize = 1024;
+const DEFAULT_SOCKET_PACING: u32 = 0; // /* bytes per second */
 
 // Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes 
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;

@@ -159,11 +159,11 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
         // There are enough buffers left to fill up the submission queue
         match parameter.sq_filling_mode {
             UringSqFillingMode::Syscall => {
-                // Check if the submission queue is max filled with the burst size
-                if amount_inflight < uring_burst_size {
+                // Check if no messages are inflight, then submit the burst size
+                if amount_inflight == 0 {
                     to_submit = uring_burst_size;
                 } else {
-                    // If there are currently more entries inflight than the burst size, we don't want to submit more entries
+                    // If there are currently still inflight entries, we don't want to submit more entries --> Mimic syscall
                     to_submit = 0;
                 }
             },
@@ -209,6 +209,10 @@ pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static 
             // libc::EAGAIN == 11
             debug!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
             Err("EAGAIN")
+        },
+        -90 => { // libc::EMSGSIZE -> Message too long
+            warn!("EMSGSIZE: The message is too long to fit into the supplied buffer and was truncated.");
+            Ok(0)
         },
         _ if amount_received_bytes < 0 => {
             error!("Error receiving message! Negated error code: {}", amount_received_bytes);

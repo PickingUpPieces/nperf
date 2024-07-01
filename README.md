@@ -1,8 +1,10 @@
 # nPerf
 nPerf is a network performance measurement tool solely for measuring UDP throughput. Several kernel features, such as GSO, GRO, or io_uring, can be compared along with several different features.
 
+## Dependencies
+- libhwloc-dev
+- libudev-dev
 
-## `nperf`
 
 A network performance measurement tool
 

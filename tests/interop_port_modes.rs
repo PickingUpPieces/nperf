@@ -91,26 +91,3 @@ fn client_individual_server_sharding() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[test]
-fn client_sharing_server_sharding() -> Result<(), Box<dyn std::error::Error>>{
-    let args = vec!["client",  "--parallel=2", "--port=45601", "--client-port=46601", "--multiplex-port=sharing", "--multiplex-port-server=sharding"];
-    let nperf = nperf::nPerf::new().set_args(args);
-    let arguments = nperf.parse_parameter();
-    if arguments.is_none() {
-        Ok(())
-    } else {
-        Err("Should not be able to parse the arguments".into())
-    }
-}
-
-#[test]
-fn client_sharding_server_sharding() -> Result<(), Box<dyn std::error::Error>>{
-    let args = vec!["client",  "--parallel=2", "--port=45701", "--client-port=46701", "--multiplex-port=sharding", "--multiplex-port-server=sharding"];
-    let nperf = nperf::nPerf::new().set_args(args);
-    let arguments = nperf.parse_parameter();
-    if arguments.is_none() {
-        Ok(())
-    } else {
-        Err("Should not be able to parse the arguments".into())
-    }
-}

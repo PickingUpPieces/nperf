@@ -58,6 +58,10 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     with_gsro: bool,
 
+    /// Enable socket pacing with SO_MAX_PACING_RATE with the given rate in Mbit/s (0 for disabled)
+    #[arg(long, default_value_t = crate::DEFAULT_SOCKET_PACING)]
+    with_socket_pacing_rate: u32,
+
     /// Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
     #[arg(long, default_value_t = crate::DEFAULT_GSO_BUFFER_SIZE)]
     with_gso_buffer: u32,
@@ -197,6 +201,7 @@ impl nPerf {
         info!("MSS used: {}", mss);
         info!("IO model used: {:?}", self.io_model);
         info!("UDP datagram size used: {}", self.datagram_size);
+        info!("Socket pacing rate: {} Mbit/s", self.with_socket_pacing_rate);
 
         let socket_options = self.parse_socket_options(self.mode);
 
@@ -245,13 +250,11 @@ impl nPerf {
         }
 
         if parameter.mode == util::NPerfMode::Client && self.multiplex_port_server == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
-            error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
-            return None;
+            warn!("Sharding on server side doesn't work, if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
         }
 
         if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
-            error!("Can't set client multiplexing on server side!");
-            return None;
+            warn!("Can't set client multiplexing on server side!");
         }
 
         let cores_amount = core_affinity::get_core_ids().unwrap_or_default().len();
@@ -284,7 +287,7 @@ impl nPerf {
             return None;
         }
 
-        if self.uring_mode == UringMode::Zerocopy && (self.io_model != IOModel::IoUring || parameter.mode != util::NPerfMode::Client) {
+        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Zerocopy && parameter.mode != util::NPerfMode::Client {
             warn!("Zero copy is only available with io_uring on the client!");
             return None;
         }
@@ -302,6 +305,14 @@ impl nPerf {
         if Self::has_more_than_one_decimal(self.interval) {
             error!("Interval has more than one decimal place! Only tenth of a second is allowed!");
             return None;
+        }
+
+        // Convert Mbit/s to byte/s
+        if ((self.with_socket_pacing_rate / 8 ) as u64 ) * 1024 * 1024 >= u32::MAX.into() {
+            error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u32::MAX / 1024 / 1024 * 8);
+            return None;
+        } else if self.with_socket_pacing_rate > 0 {
+            parameter.socket_options.socket_pacing_rate = (self.with_socket_pacing_rate / 8) * 1024 * 1024;
         }
 
         if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal || self.uring_mode == UringMode::Zerocopy {
@@ -365,6 +376,7 @@ impl nPerf {
             reuseport,
             gso, 
             gro, 
+            self.with_socket_pacing_rate,
             recv_buffer_size, 
             send_buffer_size
         )

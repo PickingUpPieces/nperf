@@ -12,6 +12,7 @@ core_affinity = "0.8.1"
 # This specific csv version is needed to serialize nested structs
 csv = { git = "https://github.com/gootorov/rust-csv.git", rev = "31d1105f9ee50bf02dff178f20be4a1ec9fdff2d" }
 env_logger = "0.10.1"
+hwlocality = "1.0.0-alpha.5"
 io-uring = { git = "https://github.com/SUPERCILEX/io-uring.git", branch = "pbuf" } # based on "0.6.4"
 libc = "0.2.152"
 log = "0.4.20"
