@@ -37,6 +37,8 @@ impl SocketOptions {
 
     pub fn set_socket_options(&mut self, socket: i32) -> Result<(), &'static str> {
         debug!("Updating socket options with {:?}", self);
+        set_reuseport(socket, self.reuseport)?;
+
         if self.nonblocking {
             set_nonblocking(socket)?;
         } 
@@ -52,7 +54,6 @@ impl SocketOptions {
         }
 
         set_gro(socket, self.gro)?;
-        set_reuseport(socket, self.reuseport)?;
 
         if let Some(size) = self.recv_buffer_size { 
             set_buffer_size(socket, size, libc::SO_SNDBUF)?;
