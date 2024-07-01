@@ -308,11 +308,11 @@ impl nPerf {
         }
 
         // Convert Mbit/s to byte/s
-        if (self.with_socket_pacing_rate * 1024 * 1024 * 8 ) as u64 >= u32::MAX.into() {
-            error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u32::MAX / 1024 / 1024 * 8);
+        if (self.with_socket_pacing_rate * 1024 * 1024 / 8 ) as u64 >= u32::MAX.into() {
+            error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u32::MAX / 1024 / 1024 / 8);
             return None;
         } else if self.with_socket_pacing_rate > 0 {
-            parameter.socket_options.socket_pacing_rate = self.with_socket_pacing_rate * 1024 * 1024 * 8;
+            parameter.socket_options.socket_pacing_rate = self.with_socket_pacing_rate * 1024 * 1024 / 8;
         }
 
         if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal || self.uring_mode == UringMode::Zerocopy {
