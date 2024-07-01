@@ -12,20 +12,24 @@ pub struct SocketOptions {
     #[serde(with = "serialize_option_as_bool")]
     gso: Option<u32>,
     pub gro: bool,
+    pub socket_pacing_rate: u32,
     #[serde(with = "serialize_option_as_bool")]
     recv_buffer_size: Option<u32>,
     #[serde(with = "serialize_option_as_bool")]
     send_buffer_size: Option<u32>,
+
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, socket_pacing_rate: u32, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
         SocketOptions {
             nonblocking,
             ip_fragmentation,
             reuseport,
             gso,
             gro,
+            socket_pacing_rate,
             recv_buffer_size,
             send_buffer_size,
         }
@@ -41,6 +45,10 @@ impl SocketOptions {
         } 
         if let Some(size) = self.gso {
             set_gso(socket, size)?;
+        }
+
+        if self.socket_pacing_rate > 0 {
+            set_socket_pacing(socket, self.socket_pacing_rate)?;
         }
 
         set_gro(socket, self.gro)?;
@@ -169,6 +177,11 @@ pub fn get_mss(socket: i32) -> Result<u32, &'static str> {
         Ok(mtu) => Ok(mtu - 20 - 8), // Return MSS instead of MTU
         Err(_) => Err("Failed to get MSS")
     }
+}
+
+pub fn set_socket_pacing(socket: i32, pacing_rate: u32) -> Result<(), &'static str> {
+    info!("Set socket option pacing to bytes per second {}B/s", pacing_rate);
+    set_socket_option(socket, libc::SOL_SOCKET, libc::SO_MAX_PACING_RATE, pacing_rate)
 }
 
 pub fn _get_gso_size(socket: i32) -> Result<u32, &'static str> {

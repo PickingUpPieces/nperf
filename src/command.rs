@@ -58,6 +58,10 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     with_gsro: bool,
 
+    /// Enable socket pacing with SO_MAX_PACING_RATE with the given rate in Mbit/s (0 for disabled)
+    #[arg(long, default_value_t = crate::DEFAULT_SOCKET_PACING)]
+    with_socket_pacing_rate: u32,
+
     /// Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
     #[arg(long, default_value_t = crate::DEFAULT_GSO_BUFFER_SIZE)]
     with_gso_buffer: u32,
@@ -197,6 +201,7 @@ impl nPerf {
         info!("MSS used: {}", mss);
         info!("IO model used: {:?}", self.io_model);
         info!("UDP datagram size used: {}", self.datagram_size);
+        info!("Socket pacing rate: {} Mbit/s", self.with_socket_pacing_rate);
 
         let socket_options = self.parse_socket_options(self.mode);
 
@@ -302,6 +307,14 @@ impl nPerf {
             return None;
         }
 
+        // Convert Mbit/s to byte/s
+        if (self.with_socket_pacing_rate * 1024 * 1024 * 8 ) as u64 >= u32::MAX.into() {
+            error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u32::MAX / 1024 / 1024 * 8);
+            return None;
+        } else if self.with_socket_pacing_rate > 0 {
+            parameter.socket_options.socket_pacing_rate = self.with_socket_pacing_rate * 1024 * 1024 * 8;
+        }
+
         if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal || self.uring_mode == UringMode::Zerocopy {
             warn!("Setting packet_buffer_size to {}!", parameter.uring_parameter.buffer_size);
             parameter.packet_buffer_size = parameter.uring_parameter.buffer_size as usize;
@@ -363,6 +376,7 @@ impl nPerf {
             reuseport,
             gso, 
             gro, 
+            self.with_socket_pacing_rate,
             recv_buffer_size, 
             send_buffer_size
         )

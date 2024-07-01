@@ -25,6 +25,7 @@ const DEFAULT_INTERVAL: f64 = 0.0; // /* seconds */
 const WAIT_CONTROL_MESSAGE: u64 = 500; // /* milliseconds */
 const DEFAULT_FILE_NAME: &str = "nperf-output.csv";
 const MAX_TEST_ID: usize = 1024;
+const DEFAULT_SOCKET_PACING: u32 = 0; // /* bytes per second */
 
 // Maximum datagram size UDP is (64K - 1) - IP and UDP header sizes 
 const MAX_UDP_DATAGRAM_SIZE: u32 = 65535 - 8 - 20;
