@@ -78,7 +78,7 @@ impl IoUringOperatingModes for IoUringProvidedBuffer {
         let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
 
         // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
-        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
+        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/receiver/src/reactor.rs#L206
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
         let msghdr = {
             let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };

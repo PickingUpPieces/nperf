@@ -18,7 +18,7 @@ use super::Node;
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 
-pub struct Server {
+pub struct Receiver {
     packet_buffer: PacketBuffer,
     socket: Socket,
     io_uring_sqpoll_fd: Option<RawFd>,
@@ -28,8 +28,8 @@ pub struct Server {
     exchange_function: ExchangeFunction
 }
 
-impl Server {
-    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Server {
+impl Receiver {
+    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Receiver {
         let socket = if let Some(socket) = socket {
             socket
         } else {
@@ -38,10 +38,10 @@ impl Server {
             socket
         };
 
-        info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
+        info!("Current mode 'receiver' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
         let packet_buffer = PacketBuffer::new(MsghdrVec::new(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size as usize).with_cmsg_buffer());
 
-        Server {
+        Receiver {
             packet_buffer,
             socket,
             io_uring_sqpoll_fd: io_uring,
@@ -338,7 +338,7 @@ impl Server {
 
             // Helps parsing buffer of multishot recvmsg
             // https://docs.rs/io-uring/latest/io_uring/types/struct.RecvMsgOut.html
-            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L211
+            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/receiver/src/reactor.rs#L211
             let msg = RecvMsgOut::parse(&buf, msghdr).expect("Parsing of RecvMsgOut failed. Didn't allocate large enough buffers");
             trace!("Received message: {:?}", msg);
 
@@ -521,8 +521,8 @@ impl Server {
                 }
             },
             _ => {
-                error!("Invalid io_uring mode selected for server!");
-                Err("Invalid io_uring mode selected for server!")
+                error!("Invalid io_uring mode selected for receiver!");
+                Err("Invalid io_uring mode selected for receiver!")
             }
         }
     }
@@ -541,9 +541,9 @@ impl Server {
 }
 
 
-impl Node for Server { 
+impl Node for Receiver { 
     fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
-        info!("Start server loop...");
+        info!("Start receiver loop...");
         let mut statistic = Statistic::new(self.parameter.clone());
 
         // Timeout waiting for first message 
@@ -552,7 +552,7 @@ impl Node for Server {
         match self.socket.poll(&mut pollfd, INITIAL_POLL_TIMEOUT) {
             Ok(_) => {},
             Err("TIMEOUT") => {
-                // If port sharding is used, not every server thread gets packets due to the load balancing of REUSEPORT.
+                // If port sharding is used, not every receiver thread gets packets due to the load balancing of REUSEPORT.
                 // To avoid that the thread waits forever, we need to return here.
                 warn!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
                 return Ok((statistic, Vec::new()));
@@ -606,11 +606,11 @@ impl Node for Server {
             }
         }
 
-        if self.parameter.multiplex_port_server != MultiplexPort::Sharing {
+        if self.parameter.multiplex_port_receiver != MultiplexPort::Sharing {
             // If a thread finishes (closes the socket) before the others, the hash mapping of SO_REUSEPORT changes. 
             // Then all threads would receive packets from other connections (test_ids).
             // Therefore, we need to wait a bit, until a thread closes its socket.
-            if self.parameter.multiplex_port_server == MultiplexPort::Sharding {
+            if self.parameter.multiplex_port_receiver == MultiplexPort::Sharding {
                 sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE * 2));
             }
             self.socket.close()?;

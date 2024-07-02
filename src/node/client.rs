@@ -69,7 +69,7 @@ impl Client {
 
             match self.socket.sendmsg(msghdr) {
                 Ok(_) => { Ok(()) },
-                Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+                Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
                 Err(x) => Err(x)
             }
         } else {
@@ -106,7 +106,7 @@ impl Client {
                 self.next_packet_id -= amount_datagrams;
                 Err("EAGAIN") 
             },
-            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
             Err(x) => Err(x) 
         }
     }
@@ -126,7 +126,7 @@ impl Client {
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
-            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
@@ -156,7 +156,7 @@ impl Client {
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
-            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
@@ -169,7 +169,7 @@ impl Client {
     fn create_packet_buffer(parameter: &Parameter, test_id: u64, socket: &Socket) -> PacketBuffer {
         let mut packet_buffer = MsghdrVec::new(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size as usize).with_random_payload().with_message_header(test_id);
 
-        if parameter.multiplex_port == MultiplexPort::Sharing && parameter.multiplex_port_server == MultiplexPort::Individual {
+        if parameter.multiplex_port == MultiplexPort::Sharing && parameter.multiplex_port_receiver == MultiplexPort::Individual {
             if let Some(sockaddr) = socket.get_sockaddr_out() {
                 packet_buffer = packet_buffer.with_target_address(sockaddr);
             } 
@@ -203,7 +203,7 @@ impl Client {
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
-                    return Err("Start the server first! Abort measurement...");
+                    return Err("Start the receiver first! Abort measurement...");
                 },
                 _ if amount_bytes < 0 => {
                     error!("Error receiving message! Negated error code: {}", amount_bytes);
@@ -249,7 +249,7 @@ impl Client {
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
-                    return Err("Start the server first! Abort measurement...");
+                    return Err("Start the receiver first! Abort measurement...");
                 }
                 -2147483648 => { // IORING_NOTIF_USAGE_ZC_COPIED -> Error returned if data was copied in zero copy mode
                     // Check if the error code is set in second cqe event
@@ -345,7 +345,7 @@ impl Node for Client {
         
         self.send_control_message(MessageType::INIT)?;
 
-        // Ensures that the server is ready to receive messages
+        // Ensures that the receiver is ready to receive messages
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
         let start_time = Instant::now();
@@ -386,7 +386,7 @@ impl Node for Client {
             statistic_interval.calculate_interval(self.statistic.clone());
         }
 
-        // Ensures that the buffers are empty again, so that the last message actually arrives at the server
+        // Ensures that the buffers are empty again, so that the last message actually arrives at the receiver
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
         self.send_control_message(MessageType::LAST)?;
 

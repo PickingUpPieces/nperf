@@ -29,7 +29,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug server",
+            "name": "Debug receiver",
             "cargo": {
                 "args": [
                     "build",
@@ -44,7 +44,7 @@
             "env": {
                 "RUST_LOG": "DEBUG",
             },
-            "args": ["server", "--with-gsro"],
+            "args": ["receiver", "--with-gsro"],
             "cwd": "${workspaceFolder}"
         },
         {
@@ -63,21 +63,21 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Run server",
+            "name": "Run receiver",
             "env": {
                 "RUST_LOG": "DEBUG",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["server", "--with-gsro"],
+            "args": ["receiver", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
         },
     ],
     "compounds": [
         {
-            "name": "Compound server",
+            "name": "Compound receiver",
             "configurations": [
-                "Debug server",
+                "Debug receiver",
                 "Run client"
             ],
             "stopAll": true
@@ -85,7 +85,7 @@
         {
             "name": "Compound client",
             "configurations": [
-                "Run server",
+                "Run receiver",
                 "Debug client"
             ],
             "stopAll": true

@@ -44,7 +44,7 @@ impl CoreAffinityManager {
         } 
 
         let next_core_id = match mode {
-            NPerfMode::Server => {
+            NPerfMode::Receiver => {
                 first_core_id.unwrap_or(amount_cpus - 1)
             }, 
             NPerfMode::Client => {
@@ -92,7 +92,7 @@ impl CoreAffinityManager {
 
     fn get_core_id(&mut self) -> usize {
         let return_core_id = self.next_core_id;
-        let delta: isize = if self.mode == NPerfMode::Server { -1 } else { 1 }; 
+        let delta: isize = if self.mode == NPerfMode::Receiver { -1 } else { 1 }; 
 
         if self.numa_affinity {
             if self.forward_numa_node() == 0 {

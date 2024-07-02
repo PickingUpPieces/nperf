@@ -12,11 +12,11 @@ A network performance measurement tool
 
 ###### **Arguments:**
 
-* `<MODE>` — Mode of operation: client or server
+* `<MODE>` — Mode of operation: client or receiver
 
-  Default value: `server`
+  Default value: `receiver`
 
-  Possible values: `server`, `client`
+  Possible values: `receiver`, `client`
 
 
 ###### **Options:**
@@ -24,13 +24,13 @@ A network performance measurement tool
 * `-a`, `--ip <IP>` — IP address to measure against/listen on
 
   Default value: `0.0.0.0`
-* `-p`, `--port <PORT>` — Port number to measure against, server listen on
+* `-p`, `--port <PORT>` — Port number to measure against, receiver listen on
 
   Default value: `45001`
 * `-c`, `--client-port <CLIENT_PORT>` — Port number clients send from
 
   Default value: `46001`
-* `--parallel <PARALLEL>` — Start multiple client/server threads in parallel. The port number will be incremented automatically
+* `--parallel <PARALLEL>` — Start multiple client/receiver threads in parallel. The port number will be incremented automatically
 
   Default value: `1`
 * `-r`, `--run-infinite` — Don't stop the node after the first measurement
@@ -48,13 +48,13 @@ A network performance measurement tool
 * `-t`, `--time <TIME>` — Amount of seconds to run the test for
 
   Default value: `10`
-* `--with-core-affinity` — Pin each thread to an individual core. The server threads start from the last core, the client threads from the second core. This way each server/client pair should operate on the same NUMA core
+* `--with-core-affinity` — Pin each thread to an individual core. The receiver threads start from the last core, the client threads from the second core. This way each receiver/client pair should operate on the same NUMA core
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
-* `--with-numa-affinity` — Pin client/server threads to different NUMA nodes
+* `--with-numa-affinity` — Pin client/receiver threads to different NUMA nodes
 
   Default value: `false`
 
@@ -126,7 +126,7 @@ A network performance measurement tool
 
   Possible values: `individual`, `sharing`, `sharding`
 
-* `--multiplex-port-server <MULTIPLEX_PORT_SERVER>` — Same as for multiplex_port, but for the server
+* `--multiplex-port-receiver <MULTIPLEX_PORT_SERVER>` — Same as for multiplex_port, but for the receiver
 
   Default value: `individual`
 

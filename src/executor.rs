@@ -4,7 +4,7 @@ use crate::command::nPerf;
 use crate::io_uring::normal::IoUringNormal;
 use crate::io_uring::IoUringOperatingModes;
 use crate::net::socket::Socket;
-use crate::node::{client::Client, server::Server, Node};
+use crate::node::{client::Client, receiver::Receiver, Node};
 use crate::util::core_affinity_manager::CoreAffinityManager;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::Statistic;
@@ -42,8 +42,8 @@ impl nPerf {
 
 
             for i in 0..parameter.amount_threads {
-                let server_port = if parameter.multiplex_port_server != MultiplexPort::Individual {
-                    info!("Server port is shared/sharded. Incrementing port number is disabled.");
+                let receiver_port = if parameter.multiplex_port_receiver != MultiplexPort::Individual {
+                    info!("Receiver port is shared/sharded. Incrementing port number is disabled.");
                     self.port
                 } else {
                     self.port + i
@@ -56,7 +56,7 @@ impl nPerf {
                 let local_port_client: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
                 let parameter_clone = parameter.clone();
 
-                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter_clone, socket, io_uring_fd, server_port, local_port_client, test_id, core_affinity)));
+                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter_clone, socket, io_uring_fd, receiver_port, local_port_client, test_id, core_affinity)));
             }
     
             info!("Waiting for all threads to finish...");
@@ -111,24 +111,24 @@ impl nPerf {
                 socket.close().expect("Error closing socket");
             }
     
-            if !(self.run_infinite && parameter.mode == NPerfMode::Server) {
+            if !(self.run_infinite && parameter.mode == NPerfMode::Receiver) {
                 return Some(final_statistics);
             }
         }
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn exec_thread(parameter: Parameter, socket: Option<Socket>, io_uring: Option<RawFd>, server_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) -> Result<(Statistic, Vec<Statistic>), &'static str> {
-        let sock_address_server = SocketAddrV4::new(parameter.ip, server_port);
+    fn exec_thread(parameter: Parameter, socket: Option<Socket>, io_uring: Option<RawFd>, receiver_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) -> Result<(Statistic, Vec<Statistic>), &'static str> {
+        let sock_address_receiver = SocketAddrV4::new(parameter.ip, receiver_port);
 
         if parameter.core_affinity {
             core_affinity_manager.lock().unwrap().set_affinity().unwrap();
         }
         
         let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
-            Box::new(Client::new(test_id, client_port, sock_address_server, socket, io_uring, parameter.clone()))
+            Box::new(Client::new(test_id, client_port, sock_address_receiver, socket, io_uring, parameter.clone()))
         } else {
-            Box::new(Server::new(sock_address_server, socket, io_uring, parameter.clone()))
+            Box::new(Receiver::new(sock_address_receiver, socket, io_uring, parameter.clone()))
         };
 
         match node.run(parameter.io_model) {
@@ -152,15 +152,15 @@ impl nPerf {
 
             socket.bind(sock_address_in).expect("Error binding to local port");
 
-            // connect (includes bind) to specific 4-tuple, since every thread sends to same port on the server side
-            if parameter.multiplex_port_server == MultiplexPort::Sharding || parameter.multiplex_port_server == MultiplexPort::Sharing {
+            // connect (includes bind) to specific 4-tuple, since every thread sends to same port on the receiver side
+            if parameter.multiplex_port_receiver == MultiplexPort::Sharding || parameter.multiplex_port_receiver == MultiplexPort::Sharing {
                 let sock_address_out = SocketAddrV4::new(parameter.ip, self.port);
                 socket.connect(sock_address_out).expect("Error connecting to remote host");
             }
 
             Some(socket)
-        } else if parameter.mode == NPerfMode::Server && parameter.multiplex_port_server == MultiplexPort::Sharing {
-            info!("Creating master socket for all server threads to use, since socket sharing is enabled");
+        } else if parameter.mode == NPerfMode::Receiver && parameter.multiplex_port_receiver == MultiplexPort::Sharing {
+            info!("Creating master socket for all receiver threads to use, since socket sharing is enabled");
             let sock_address_in = SocketAddrV4::new(parameter.ip, self.port);
             let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             socket.bind(sock_address_in).expect("Error binding to local port");

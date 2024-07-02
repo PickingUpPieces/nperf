@@ -10,7 +10,7 @@ use crate::net::{self, socket_options::SocketOptions};
 #[clap(version, about="A network performance measurement tool")]
 #[allow(non_camel_case_types)]
 pub struct nPerf {
-    /// Mode of operation: client or server
+    /// Mode of operation: client or receiver
     #[arg(default_value_t, value_enum)]
     mode: NPerfMode,
 
@@ -18,7 +18,7 @@ pub struct nPerf {
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
-    /// Port number to measure against, server listen on.
+    /// Port number to measure against, receiver listen on.
     #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
     pub port: u16,
 
@@ -26,7 +26,7 @@ pub struct nPerf {
     #[arg(short, long, default_value_t = crate::DEFAULT_CLIENT_PORT)]
     pub client_port: u16,
 
-    /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
+    /// Start multiple client/receiver threads in parallel. The port number will be incremented automatically.
     #[arg(long, default_value_t = 1)]
     parallel: u16,
 
@@ -46,11 +46,11 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Pin each thread to an individual core. The server threads start from the last core, the client threads from the second core. This way each server/client pair should operate on the same NUMA core.
+    /// Pin each thread to an individual core. The receiver threads start from the last core, the client threads from the second core. This way each receiver/client pair should operate on the same NUMA core.
     #[arg(long, default_value_t = false)]
     with_core_affinity: bool,
 
-    /// Pin client/server threads to different NUMA nodes
+    /// Pin client/receiver threads to different NUMA nodes
     #[arg(long, default_value_t = false)]
     with_numa_affinity: bool,
 
@@ -114,9 +114,9 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     multiplex_port: MultiplexPort,
 
-    /// Same as for multiplex_port, but for the server
+    /// Same as for multiplex_port, but for the receiver
     #[arg(long, default_value_t, value_enum)]
-    multiplex_port_server: MultiplexPort,
+    multiplex_port_receiver: MultiplexPort,
 
     /// CURRENTLY IGNORED. Simulate a single QUIC connection or one QUIC connection per thread.
     #[arg(long, default_value_t, value_enum)]
@@ -191,7 +191,7 @@ impl nPerf {
             self.with_mss
         };
 
-        let simulate_connection = match self.multiplex_port_server {
+        let simulate_connection = match self.multiplex_port_receiver {
             MultiplexPort::Sharing => SimulateConnection::Single,
             _ => SimulateConnection::Multiple
         };
@@ -233,7 +233,7 @@ impl nPerf {
             socket_options, 
             self.exchange_function,
             self.multiplex_port,
-            self.multiplex_port_server,
+            self.multiplex_port_receiver,
             simulate_connection,
             self.with_core_affinity,
             self.with_numa_affinity,
@@ -249,23 +249,23 @@ impl nPerf {
             return None;
         }
 
-        if parameter.mode == util::NPerfMode::Client && self.multiplex_port_server == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
-            warn!("Sharding on server side doesn't work, if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
+        if parameter.mode == util::NPerfMode::Client && self.multiplex_port_receiver == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
+            warn!("Sharding on receiver side doesn't work, if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
         }
 
-        if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
-            warn!("Can't set client multiplexing on server side!");
+        if parameter.mode == util::NPerfMode::Receiver && self.multiplex_port != MultiplexPort::Individual {
+            warn!("Can't set client multiplexing on receiver side!");
         }
 
         let cores_amount = core_affinity::get_core_ids().unwrap_or_default().len();
         if parameter.amount_threads > cores_amount as u16 {
             warn!("Amount of threads is bigger than available cores! Multiple threads are going to run on the same core! Available cores: {}", cores_amount);
         } else if parameter.amount_threads * 2 > cores_amount as u16 {
-            warn!("If server/client is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
+            warn!("If receiver/client is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
         }
 
-        if parameter.mode == util::NPerfMode::Server && self.time != crate::DEFAULT_DURATION {
-            warn!("Time is ignored in server mode!");
+        if parameter.mode == util::NPerfMode::Receiver && self.time != crate::DEFAULT_DURATION {
+            warn!("Time is ignored in receiver mode!");
         }
 
         if parameter.io_model != IOModel::IoUring && (self.uring_mode != UringMode::Normal || self.uring_ring_size != crate::DEFAULT_URING_RING_SIZE) {
@@ -297,7 +297,7 @@ impl nPerf {
             return None;
         }
 
-        if self.interval > 0.0 && self.time == 0 && self.mode == NPerfMode::Server {
+        if self.interval > 0.0 && self.time == 0 && self.mode == NPerfMode::Receiver {
             error!("Interval is set but time is 0! Time must be set when interval output is enabled!");
             return None;
         }
@@ -363,11 +363,11 @@ impl nPerf {
             (Some(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE))
         };
 
-        let gro = mode == util::NPerfMode::Server && self.with_gsro;
+        let gro = mode == util::NPerfMode::Receiver && self.with_gsro;
 
         let reuseport = match mode {
             NPerfMode::Client => self.multiplex_port == MultiplexPort::Sharding,
-            NPerfMode::Server => self.multiplex_port_server == MultiplexPort::Sharding,
+            NPerfMode::Receiver => self.multiplex_port_receiver == MultiplexPort::Sharding,
         };
         
         SocketOptions::new(
