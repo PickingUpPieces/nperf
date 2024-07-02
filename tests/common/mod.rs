@@ -17,11 +17,11 @@ pub fn start_nperf_receiver(args: Option<Vec<String>>) -> JoinHandle<()> {
 }
 
 #[allow(dead_code)]
-pub fn start_nperf_client(args: Option<Vec<String>>) -> JoinHandle<()> {
+pub fn start_nperf_sender(args: Option<Vec<String>>) -> JoinHandle<()> {
     thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_secs(3)); // Wait for receiver to start
         let mut cmd = Command::cargo_bin("nperf").unwrap();
-        cmd.arg("client");
+        cmd.arg("sender");
         for arg in args.unwrap_or_default() {
             cmd.arg(arg);
         }

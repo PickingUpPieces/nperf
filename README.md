@@ -12,11 +12,11 @@ A network performance measurement tool
 
 ###### **Arguments:**
 
-* `<MODE>` — Mode of operation: client or receiver
+* `<MODE>` — Mode of operation: sender or receiver
 
   Default value: `receiver`
 
-  Possible values: `receiver`, `client`
+  Possible values: `receiver`, `sender`
 
 
 ###### **Options:**
@@ -27,10 +27,10 @@ A network performance measurement tool
 * `-p`, `--port <PORT>` — Port number to measure against, receiver listen on
 
   Default value: `45001`
-* `-c`, `--client-port <CLIENT_PORT>` — Port number clients send from
+* `-c`, `--sender-port <SENDER_PORT>` — Port number senders send from
 
   Default value: `46001`
-* `--parallel <PARALLEL>` — Start multiple client/receiver threads in parallel. The port number will be incremented automatically
+* `--parallel <PARALLEL>` — Start multiple sender/receiver threads in parallel. The port number will be incremented automatically
 
   Default value: `1`
 * `-r`, `--run-infinite` — Don't stop the node after the first measurement
@@ -48,13 +48,13 @@ A network performance measurement tool
 * `-t`, `--time <TIME>` — Amount of seconds to run the test for
 
   Default value: `10`
-* `--with-core-affinity` — Pin each thread to an individual core. The receiver threads start from the last core, the client threads from the second core. This way each receiver/client pair should operate on the same NUMA core
+* `--with-core-affinity` — Pin each thread to an individual core. The receiver threads start from the last core, the sender threads from the second core. This way each receiver/sender pair should operate on the same NUMA core
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
-* `--with-numa-affinity` — Pin client/receiver threads to different NUMA nodes
+* `--with-numa-affinity` — Pin sender/receiver threads to different NUMA nodes
 
   Default value: `false`
 
@@ -120,13 +120,13 @@ A network performance measurement tool
 * `--label-run <LABEL_RUN>` — Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
 
   Default value: `run-nperf`
-* `--multiplex-port <MULTIPLEX_PORT>` — Use different port number for each client thread, share a single port or shard a single port with reuseport
+* `--multiplex-port <MULTIPLEX_PORT>` — Use different port number for each sender thread, share a single port or shard a single port with reuseport
 
   Default value: `individual`
 
   Possible values: `individual`, `sharing`, `sharding`
 
-* `--multiplex-port-receiver <MULTIPLEX_PORT_SERVER>` — Same as for multiplex_port, but for the receiver
+* `--multiplex-port-receiver <MULTIPLEX_PORT_RECEIVER>` — Same as for multiplex_port, but for the receiver
 
   Default value: `individual`
 

@@ -16,7 +16,7 @@ use crate::net::MessageHeader;
 pub enum NPerfMode {
     #[default]
     Receiver,
-    Client,
+    Sender,
 }
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Copy, Clone, Serialize)]

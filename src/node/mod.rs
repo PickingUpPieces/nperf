@@ -1,6 +1,6 @@
 use crate::util::{statistic::Statistic, IOModel};
 
-pub mod client;
+pub mod sender;
 pub mod receiver;
 
 pub trait Node {

@@ -47,7 +47,7 @@ impl CoreAffinityManager {
             NPerfMode::Receiver => {
                 first_core_id.unwrap_or(amount_cpus - 1)
             }, 
-            NPerfMode::Client => {
+            NPerfMode::Sender => {
                 first_core_id.unwrap_or(0)
             }
         };

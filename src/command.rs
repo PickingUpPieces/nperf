@@ -10,7 +10,7 @@ use crate::net::{self, socket_options::SocketOptions};
 #[clap(version, about="A network performance measurement tool")]
 #[allow(non_camel_case_types)]
 pub struct nPerf {
-    /// Mode of operation: client or receiver
+    /// Mode of operation: sender or receiver
     #[arg(default_value_t, value_enum)]
     mode: NPerfMode,
 
@@ -19,14 +19,14 @@ pub struct nPerf {
     ip: String,
 
     /// Port number to measure against, receiver listen on.
-    #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
+    #[arg(short, long, default_value_t = crate::DEFAULT_RECEIVER_PORT)]
     pub port: u16,
 
-    /// Port number clients send from.
-    #[arg(short, long, default_value_t = crate::DEFAULT_CLIENT_PORT)]
-    pub client_port: u16,
+    /// Port number senders send from.
+    #[arg(short, long, default_value_t = crate::DEFAULT_SENDER_PORT)]
+    pub sender_port: u16,
 
-    /// Start multiple client/receiver threads in parallel. The port number will be incremented automatically.
+    /// Start multiple sender/receiver threads in parallel. The port number will be incremented automatically.
     #[arg(long, default_value_t = 1)]
     parallel: u16,
 
@@ -46,11 +46,11 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Pin each thread to an individual core. The receiver threads start from the last core, the client threads from the second core. This way each receiver/client pair should operate on the same NUMA core.
+    /// Pin each thread to an individual core. The receiver threads start from the last core, the sender threads from the second core. This way each receiver/sender pair should operate on the same NUMA core.
     #[arg(long, default_value_t = false)]
     with_core_affinity: bool,
 
-    /// Pin client/receiver threads to different NUMA nodes
+    /// Pin sender/receiver threads to different NUMA nodes
     #[arg(long, default_value_t = false)]
     with_numa_affinity: bool,
 
@@ -110,7 +110,7 @@ pub struct nPerf {
     #[arg(long, default_value_t = String::from("run-nperf"))]
     label_run: String,
 
-    /// Use different port number for each client thread, share a single port or shard a single port with reuseport
+    /// Use different port number for each sender thread, share a single port or shard a single port with reuseport
     #[arg(long, default_value_t, value_enum)]
     multiplex_port: MultiplexPort,
 
@@ -249,19 +249,19 @@ impl nPerf {
             return None;
         }
 
-        if parameter.mode == util::NPerfMode::Client && self.multiplex_port_receiver == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
-            warn!("Sharding on receiver side doesn't work, if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
+        if parameter.mode == util::NPerfMode::Sender && self.multiplex_port_receiver == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
+            warn!("Sharding on receiver side doesn't work, if sender side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
         }
 
         if parameter.mode == util::NPerfMode::Receiver && self.multiplex_port != MultiplexPort::Individual {
-            warn!("Can't set client multiplexing on receiver side!");
+            warn!("Can't set sender multiplexing on receiver side!");
         }
 
         let cores_amount = core_affinity::get_core_ids().unwrap_or_default().len();
         if parameter.amount_threads > cores_amount as u16 {
             warn!("Amount of threads is bigger than available cores! Multiple threads are going to run on the same core! Available cores: {}", cores_amount);
         } else if parameter.amount_threads * 2 > cores_amount as u16 {
-            warn!("If receiver/client is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
+            warn!("If receiver/sender is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
         }
 
         if parameter.mode == util::NPerfMode::Receiver && self.time != crate::DEFAULT_DURATION {
@@ -287,8 +287,8 @@ impl nPerf {
             return None;
         }
 
-        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Zerocopy && parameter.mode != util::NPerfMode::Client {
-            warn!("Zero copy is only available with io_uring on the client!");
+        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Zerocopy && parameter.mode != util::NPerfMode::Sender {
+            warn!("Zero copy is only available with io_uring on the sender!");
             return None;
         }
 
@@ -349,7 +349,7 @@ impl nPerf {
 
 
     fn parse_socket_options(&self, mode: NPerfMode) -> SocketOptions {
-        let gso = if self.with_gsro && mode == util::NPerfMode::Client {
+        let gso = if self.with_gsro && mode == util::NPerfMode::Sender {
             Some(self.datagram_size)
         } else {
             None
@@ -366,7 +366,7 @@ impl nPerf {
         let gro = mode == util::NPerfMode::Receiver && self.with_gsro;
 
         let reuseport = match mode {
-            NPerfMode::Client => self.multiplex_port == MultiplexPort::Sharding,
+            NPerfMode::Sender => self.multiplex_port == MultiplexPort::Sharding,
             NPerfMode::Receiver => self.multiplex_port_receiver == MultiplexPort::Sharding,
         };
         

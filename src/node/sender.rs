@@ -11,7 +11,7 @@ use crate::util::packet_buffer::PacketBuffer;
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
 use super::Node;
 
-pub struct Client {
+pub struct Sender {
     test_id: u64,
     packet_buffer: PacketBuffer,
     socket: Socket,
@@ -23,12 +23,12 @@ pub struct Client {
     exchange_function: ExchangeFunction,
 }
 
-impl Client {
+impl Sender {
     pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Self {
         let socket = if socket.is_none() {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             if let Some(port) = local_port {
-                socket.bind(SocketAddrV4::new(crate::DEFAULT_CLIENT_IP, port)).expect("Error binding socket");
+                socket.bind(SocketAddrV4::new(crate::DEFAULT_SENDER_IP, port)).expect("Error binding socket");
             }
             socket.connect(sock_address_out).expect("Error connecting to remote host");
             socket
@@ -38,11 +38,11 @@ impl Client {
             socket
         };
 
-        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), crate::DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
+        info!("Current mode 'sender' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), crate::DEFAULT_SENDER_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
 
         let packet_buffer = Self::create_packet_buffer(&parameter, test_id, &socket); 
 
-        Client {
+        Sender {
             test_id,
             packet_buffer,
             socket,
@@ -327,14 +327,14 @@ impl Client {
                     };
                 }
             },
-            _ => return Err("Invalid io_uring mode for client"),
+            _ => return Err("Invalid io_uring mode for sender"),
         }
         Ok(())
     }
 }
 
 
-impl Node for Client {
+impl Node for Sender {
     fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
         // If in socket sharing mode, socket is not connected and this method will fail
         if self.parameter.multiplex_port != MultiplexPort::Sharing {

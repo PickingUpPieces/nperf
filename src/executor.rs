@@ -4,7 +4,7 @@ use crate::command::nPerf;
 use crate::io_uring::normal::IoUringNormal;
 use crate::io_uring::IoUringOperatingModes;
 use crate::net::socket::Socket;
-use crate::node::{client::Client, receiver::Receiver, Node};
+use crate::node::{sender::Sender, receiver::Receiver, Node};
 use crate::util::core_affinity_manager::CoreAffinityManager;
 use crate::util::{statistic::{MultiplexPort, Parameter, SimulateConnection}, NPerfMode};
 use crate::Statistic;
@@ -53,10 +53,10 @@ impl nPerf {
                 let core_affinity = Arc::clone(&core_affinity_manager);
                 // Use same test id for all threads if one connection is simulated
                 let test_id = if parameter.simulate_connection == SimulateConnection::Single { 0 } else { i as u64 };
-                let local_port_client: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.client_port) } else { None };
+                let local_port_sender: Option<u16> = if parameter.multiplex_port == MultiplexPort::Sharding { Some(self.sender_port) } else { None };
                 let parameter_clone = parameter.clone();
 
-                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter_clone, socket, io_uring_fd, receiver_port, local_port_client, test_id, core_affinity)));
+                fetch_handle.push(thread::spawn(move || Self::exec_thread(parameter_clone, socket, io_uring_fd, receiver_port, local_port_sender, test_id, core_affinity)));
             }
     
             info!("Waiting for all threads to finish...");
@@ -118,15 +118,15 @@ impl nPerf {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn exec_thread(parameter: Parameter, socket: Option<Socket>, io_uring: Option<RawFd>, receiver_port: u16, client_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) -> Result<(Statistic, Vec<Statistic>), &'static str> {
+    fn exec_thread(parameter: Parameter, socket: Option<Socket>, io_uring: Option<RawFd>, receiver_port: u16, sender_port: Option<u16>, test_id: u64, core_affinity_manager: Arc<Mutex<CoreAffinityManager>>) -> Result<(Statistic, Vec<Statistic>), &'static str> {
         let sock_address_receiver = SocketAddrV4::new(parameter.ip, receiver_port);
 
         if parameter.core_affinity {
             core_affinity_manager.lock().unwrap().set_affinity().unwrap();
         }
         
-        let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Client {
-            Box::new(Client::new(test_id, client_port, sock_address_receiver, socket, io_uring, parameter.clone()))
+        let mut node: Box<dyn Node> = if parameter.mode == NPerfMode::Sender {
+            Box::new(Sender::new(test_id, sender_port, sock_address_receiver, socket, io_uring, parameter.clone()))
         } else {
             Box::new(Receiver::new(sock_address_receiver, socket, io_uring, parameter.clone()))
         };
@@ -145,10 +145,10 @@ impl nPerf {
 
 
     fn create_socket(&self, parameter: &Parameter) -> Option<Socket> {
-        if parameter.mode == NPerfMode::Client && parameter.multiplex_port == MultiplexPort::Sharing {
-            info!("Creating master socket for all client threads to use, since socket sharing is enabled");
+        if parameter.mode == NPerfMode::Sender && parameter.multiplex_port == MultiplexPort::Sharing {
+            info!("Creating master socket for all sender threads to use, since socket sharing is enabled");
             let mut socket = Socket::new(parameter.socket_options).expect("Error creating socket");
-            let sock_address_in = SocketAddrV4::new(crate::DEFAULT_CLIENT_IP, self.client_port);
+            let sock_address_in = SocketAddrV4::new(crate::DEFAULT_SENDER_IP, self.sender_port);
 
             socket.bind(sock_address_in).expect("Error binding to local port");
 

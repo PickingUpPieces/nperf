@@ -207,7 +207,7 @@ impl Receiver {
                 info!("{:?}: LAST packet received from test {}!", thread::current().id(), test_id);
                 // Not checking for measurement length anymore, since we assume that the thread has received at least one MEASUREMENT message before
                 let measurement = measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
-                let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the sender, before sending last message, as well
                 measurement.last_packet_received = true;
                 measurement.statistic.set_test_duration(measurement.start_time, end_time);
                 measurement.statistic.calculate_statistics();
@@ -547,14 +547,14 @@ impl Node for Receiver {
         let mut statistic = Statistic::new(self.parameter.clone());
 
         // Timeout waiting for first message 
-        // With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.
+        // With communication channel in future, the measure thread is only started if the sender starts a measurement. Then timeout can be further reduced to 1-2s.
         let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
         match self.socket.poll(&mut pollfd, INITIAL_POLL_TIMEOUT) {
             Ok(_) => {},
             Err("TIMEOUT") => {
                 // If port sharding is used, not every receiver thread gets packets due to the load balancing of REUSEPORT.
                 // To avoid that the thread waits forever, we need to return here.
-                warn!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
+                warn!("{:?}: Timeout waiting for sender to send first packet!", thread::current().id());
                 return Ok((statistic, Vec::new()));
             },
             Err(x) => {
@@ -586,7 +586,7 @@ impl Node for Receiver {
                             Err("TIMEOUT") => {
                                 // If port sharing is used, or single connection not every thread receives the LAST message. 
                                 // To avoid that the thread waits forever, we need to return here.
-                                warn!("{:?}: Timeout waiting for a subsequent packet from the client!", thread::current().id());
+                                warn!("{:?}: Timeout waiting for a subsequent packet from the sender!", thread::current().id());
                                 break;
                             },
                             Err(x) => {
