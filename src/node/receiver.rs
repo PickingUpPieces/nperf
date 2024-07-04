@@ -25,6 +25,7 @@ pub struct Receiver {
     next_packet_id: u64,
     parameter: Parameter,
     measurements: Vec<Measurement>,
+    statistic_interval: StatisticInterval,
     exchange_function: ExchangeFunction
 }
 
@@ -48,6 +49,7 @@ impl Receiver {
             next_packet_id: 0,
             parameter: parameter.clone(),
             measurements: Vec::new(),
+            statistic_interval: StatisticInterval::new(Instant::now(), parameter.output_interval, parameter.test_runtime_length),
             exchange_function: parameter.exchange_function
         }
     }
@@ -414,7 +416,7 @@ impl Receiver {
     }
 
 
-    fn io_uring_loop(&mut self, mut statistic_interval: StatisticInterval) -> Result<(Statistic, StatisticInterval), &'static str> {
+    fn io_uring_loop(&mut self) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let mut statistic = Statistic::new(self.parameter.clone());
         let mut amount_inflight = 0;
@@ -430,9 +432,9 @@ impl Receiver {
                     io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-                        statistic_interval.calculate_interval(statistic_new);
+                        self.statistic_interval.calculate_interval(statistic_new);
                     }
 
                     match self.io_uring_complete_multishot(&mut io_uring_instance) {
@@ -444,7 +446,7 @@ impl Receiver {
                         },
                         Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok((statistic + io_uring_instance.get_statistic(), statistic_interval)) }
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
                         Err("EAGAIN") => {
                             statistic.amount_eagain += 1;
@@ -466,9 +468,10 @@ impl Receiver {
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-                        statistic_interval.calculate_interval(statistic_new);
+                        // TODO: Add io_uring statistics to the interval statistics: io_uring_instance.get_statistic()
+                        self.statistic_interval.calculate_interval(statistic_new);
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
@@ -479,7 +482,7 @@ impl Receiver {
                         },
                         Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok((statistic + io_uring_instance.get_statistic(), statistic_interval)) }
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
                         },
                         Err("EAGAIN") => {
                             statistic.amount_eagain += 1;
@@ -501,9 +504,12 @@ impl Receiver {
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
                         let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-                        statistic_interval.calculate_interval(statistic_new);
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); // Assuming `Statistic::new()` is how you create a new `Statistic` instance
+                        }
+                        self.statistic_interval.calculate_interval(statistic_new);
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
@@ -514,7 +520,7 @@ impl Receiver {
                         },
                         Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok((statistic + io_uring_instance.get_statistic(), statistic_interval)) } 
+                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } 
                         },
                         Err("EAGAIN") => {
                             statistic.amount_eagain += 1;
@@ -567,19 +573,25 @@ impl Node for Receiver {
                 return Err(x);
             }
         };
-
-        let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length);
+        statistic.start_timestamp = self.statistic_interval.last_send_timestamp;
+        self.statistic_interval.last_send_instant = Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
+        self.statistic_interval.last_send_timestamp = Statistic::get_unix_timestamp() + (crate::WAIT_CONTROL_MESSAGE as f64 / 1000.0);
 
         if io_model == IOModel::IoUring {
-            (statistic, statistic_interval) = self.io_uring_loop(statistic_interval.clone())?;
+            statistic = self.io_uring_loop()?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;
 
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
                     let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-                    statistic_interval.calculate_interval(statistic_new);
+                    self.statistic_interval.calculate_interval(statistic_new);
+                    // Reset measurements statistics
+                    for measurement in &mut self.measurements {
+                        measurement.statistic = Statistic::new(self.parameter.clone()); 
+                    }
+                    statistic = Statistic::new(self.parameter.clone());
                 }
 
                 match self.recv_messages() {
@@ -623,9 +635,21 @@ impl Node for Receiver {
         }
 
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
-        // Fold over all statistics, and calculate the final statistic
-        statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
-        Ok((statistic, statistic_interval.statistics))
+
+        let mut final_statistic = Statistic::new(self.parameter.clone());
+        if self.statistic_interval.statistics.is_empty() {
+            final_statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
+            final_statistic.set_test_duration(Some(self.statistic_interval.last_send_timestamp), Some(Statistic::get_unix_timestamp() - (crate::WAIT_CONTROL_MESSAGE as f64 / 1000.0)));
+        } else {
+            for statistic in self.statistic_interval.statistics.iter() {
+                final_statistic = final_statistic + statistic.clone();
+            }
+        }
+
+        final_statistic.set_test_duration(None, None);
+        final_statistic.calculate_statistics();
+
+        Ok((final_statistic, self.statistic_interval.statistics.clone()))
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {

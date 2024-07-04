@@ -53,10 +53,12 @@ impl StatisticInterval {
             statistics: Vec::with_capacity(total_interval_outputs as usize)
         }
     }
-    pub fn start(&mut self) {
-        self.last_send_instant = Instant::now();
-        self.last_send_timestamp = Statistic::get_unix_timestamp();
+
+    pub fn start(&mut self, offset_in_milliseconds: Option<u64>) {
+        self.last_send_instant = Instant::now() + std::time::Duration::from_millis(offset_in_milliseconds.unwrap_or(0));
+        self.last_send_timestamp = Statistic::get_unix_timestamp() + offset_in_milliseconds.unwrap_or(0) as f64;
     }
+
     pub fn finished(&self) -> bool {
         self.amount_interval_outputs >= self.total_interval_outputs
     }
@@ -71,11 +73,6 @@ impl StatisticInterval {
             return;
         } 
 
-        // if self.amount_interval_outputs == self.total_interval_outputs - 1 {
-        //     debug!("{:?}: Last interval to send. Adjusting test duration.", thread::current().id());
-        // } else {
-        //     statistic_new.set_test_duration(self.last_send_instant, current_time);
-        // }
         statistic_new.interval_id = self.interval_id;
         statistic_new.set_test_duration(Some(self.last_send_timestamp), Some(current_time_unix));
         statistic_new.calculate_statistics();

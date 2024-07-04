@@ -308,7 +308,7 @@ impl Sender {
                     self.statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.parameter.output_interval  {
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval  {
                         self.statistic_interval.calculate_interval(self.statistic.clone());
                         self.statistic = Statistic::new(self.parameter.clone());
                     }
@@ -352,7 +352,7 @@ impl Node for Sender {
 
         info!("Start measurement...");
         let start_time = Instant::now();
-        self.statistic_interval.start();
+        self.statistic_interval.start(None);
 
         if io_model == IOModel::IoUring {
             self.io_uring_loop(start_time)?;
@@ -360,7 +360,7 @@ impl Node for Sender {
 
             while start_time.elapsed().as_secs() < self.run_time_length {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.parameter.output_interval {
+                if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
                     self.statistic_interval.calculate_interval(self.statistic.clone());
                     self.statistic = Statistic::new(self.parameter.clone());
                 }
@@ -382,7 +382,7 @@ impl Node for Sender {
         }
 
         // Print last interval
-        if self.parameter.output_interval != 0.0 && !self.statistic_interval.finished() {
+        if self.statistic_interval.output_interval != 0.0 && !self.statistic_interval.finished() {
             self.statistic_interval.calculate_interval(self.statistic.clone());
         }
 
@@ -391,7 +391,7 @@ impl Node for Sender {
 
         if self.statistic_interval.statistics.is_empty() {
             final_statistic = self.statistic.clone();
-            final_statistic.set_test_duration(Some(self.statistic_interval.last_send_timestamp), Some(Statistic::get_unix_timestamp()))
+            final_statistic.set_test_duration(Some(self.statistic_interval.last_send_timestamp), Some(Statistic::get_unix_timestamp()));
         } else {
             for statistic in self.statistic_interval.statistics.iter() {
                 final_statistic = final_statistic + statistic.clone();
