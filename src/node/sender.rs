@@ -290,7 +290,7 @@ impl Sender {
     }
 
 
-    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
+    fn io_uring_loop(&mut self, start_time: Instant) -> Result<StatisticInterval, &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let uring_mode = self.parameter.uring_parameter.uring_mode;
         let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
@@ -329,7 +329,7 @@ impl Sender {
             },
             _ => return Err("Invalid io_uring mode for sender"),
         }
-        Ok(())
+        Ok(statistic_interval)
     }
 }
 
@@ -354,7 +354,7 @@ impl Node for Sender {
         self.statistic.set_start_timestamp(None);
 
         if io_model == IOModel::IoUring {
-            self.io_uring_loop(start_time)?;
+            statistic_interval = self.io_uring_loop(start_time)?;
         } else {
 
             while start_time.elapsed().as_secs() < self.run_time_length {

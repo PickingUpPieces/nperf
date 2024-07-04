@@ -412,7 +412,7 @@ impl Receiver {
     }
 
 
-    fn io_uring_loop(&mut self, mut statistic_interval: StatisticInterval) -> Result<Statistic, &'static str> {
+    fn io_uring_loop(&mut self, mut statistic_interval: StatisticInterval) -> Result<(Statistic, StatisticInterval), &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let mut statistic = Statistic::new(self.parameter.clone());
         let mut amount_inflight = 0;
@@ -442,7 +442,7 @@ impl Receiver {
                         },
                         Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
+                            if self.all_measurements_finished() { return Ok((statistic + io_uring_instance.get_statistic(), statistic_interval)) }
                         },
                         Err("EAGAIN") => {
                             statistic.amount_eagain += 1;
@@ -475,7 +475,7 @@ impl Receiver {
                         },
                         Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) }
+                            if self.all_measurements_finished() { return Ok((statistic + io_uring_instance.get_statistic(), statistic_interval)) }
                         },
                         Err("EAGAIN") => {
                             statistic.amount_eagain += 1;
@@ -508,7 +508,7 @@ impl Receiver {
                         },
                         Err("INIT_MESSAGE_RECEIVED") => {},
                         Err("LAST_MESSAGE_RECEIVED") => {
-                            if self.all_measurements_finished() { return Ok(statistic + io_uring_instance.get_statistic()) } 
+                            if self.all_measurements_finished() { return Ok((statistic + io_uring_instance.get_statistic(), statistic_interval)) } 
                         },
                         Err("EAGAIN") => {
                             statistic.amount_eagain += 1;
@@ -565,7 +565,7 @@ impl Node for Receiver {
         let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
 
         if io_model == IOModel::IoUring {
-            statistic = self.io_uring_loop(statistic_interval.clone())?;
+            (statistic, statistic_interval) = self.io_uring_loop(statistic_interval.clone())?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;
