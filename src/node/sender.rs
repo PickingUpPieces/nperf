@@ -18,6 +18,7 @@ pub struct Sender {
     parameter: Parameter,
     io_uring_sqpoll_fd: Option<RawFd>,
     statistic: Statistic,
+    statistic_interval: StatisticInterval,
     run_time_length: u64,
     next_packet_id: u64,
     exchange_function: ExchangeFunction,
@@ -49,6 +50,7 @@ impl Sender {
             parameter: parameter.clone(),
             io_uring_sqpoll_fd: io_uring,
             statistic: Statistic::new(parameter.clone()),
+            statistic_interval: StatisticInterval::new(Instant::now(), parameter.output_interval, parameter.test_runtime_length),
             run_time_length: parameter.test_runtime_length,
             next_packet_id: 0,
             exchange_function: parameter.exchange_function
@@ -290,10 +292,9 @@ impl Sender {
     }
 
 
-    fn io_uring_loop(&mut self, start_time: Instant) -> Result<StatisticInterval, &'static str> {
+    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let uring_mode = self.parameter.uring_parameter.uring_mode;
-        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         let mut amount_inflight: usize = 0;
 
         match uring_mode {
@@ -307,8 +308,9 @@ impl Sender {
                     self.statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                        statistic_interval.calculate_interval(self.statistic.clone());
+                    if self.parameter.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.parameter.output_interval  {
+                        self.statistic_interval.calculate_interval(self.statistic.clone());
+                        self.statistic = Statistic::new(self.parameter.clone());
                     }
 
                     let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
@@ -331,14 +333,13 @@ impl Sender {
             },
             _ => return Err("Invalid io_uring mode for sender"),
         }
-        Ok(statistic_interval)
+        Ok(())
     }
 }
 
 
 impl Node for Sender {
     fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
-        // If in socket sharing mode, socket is not connected and this method will fail
         if self.parameter.multiplex_port != MultiplexPort::Sharing {
             if let Ok(mss) = self.socket.get_mss() {
                 info!("On the current socket the MSS is {}", mss);
@@ -346,23 +347,22 @@ impl Node for Sender {
         }
         
         self.send_control_message(MessageType::INIT)?;
-
-        // Ensures that the receiver is ready to receive messages
+        // Wait some time to ensure the receiver is ready to receive messages
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
-        let start_time = Instant::now();
-        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
-        self.statistic.set_start_timestamp(None);
+        let start_time = Instant::now();
+        self.statistic_interval.start();
 
         if io_model == IOModel::IoUring {
-            statistic_interval = self.io_uring_loop(start_time)?;
+            self.io_uring_loop(start_time)?;
         } else {
 
             while start_time.elapsed().as_secs() < self.run_time_length {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                    statistic_interval.calculate_interval(self.statistic.clone());
+                if self.parameter.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.parameter.output_interval {
+                    self.statistic_interval.calculate_interval(self.statistic.clone());
+                    self.statistic = Statistic::new(self.parameter.clone());
                 }
 
                 match self.send_messages() {
@@ -381,20 +381,31 @@ impl Node for Sender {
             }
         }
 
-        self.statistic.set_end_timestamp();
-        let end_time: Instant = Instant::now();
         // Print last interval
-        if self.parameter.output_interval != 0.0 && !statistic_interval.finished() {
-            statistic_interval.calculate_interval(self.statistic.clone());
+        if self.parameter.output_interval != 0.0 && !self.statistic_interval.finished() {
+            self.statistic_interval.calculate_interval(self.statistic.clone());
+        }
+
+        // Fold over all interval statistics to get the final statistic
+        let mut final_statistic = Statistic::new(self.parameter.clone());
+
+        if self.statistic_interval.statistics.is_empty() {
+            final_statistic = self.statistic.clone();
+            final_statistic.set_test_duration(Some(self.statistic_interval.last_send_timestamp), Some(Statistic::get_unix_timestamp()))
+        } else {
+            for statistic in self.statistic_interval.statistics.iter() {
+                final_statistic = final_statistic + statistic.clone();
+            }
         }
 
         // Ensures that the buffers are empty again, so that the last message actually arrives at the receiver
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
         self.send_control_message(MessageType::LAST)?;
 
-        self.statistic.set_test_duration(start_time, end_time);
-        self.statistic.calculate_statistics();
-        Ok((self.statistic.clone(), statistic_interval.statistics))
+        final_statistic.set_test_duration(None, None);
+        final_statistic.calculate_statistics();
+
+        Ok((final_statistic, self.statistic_interval.statistics.clone()))
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {

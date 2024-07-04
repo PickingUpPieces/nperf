@@ -197,8 +197,9 @@ impl Receiver {
                 // Start measurement timer with receiving of the first MEASUREMENT message
                 if !measurement.first_packet_received {
                     info!("{:?}: First packet received from test {}!", thread::current().id(), test_id);
-                    measurement.start_time = Instant::now();
-                    measurement.statistic.set_start_timestamp(None);
+                    let start_time = Statistic::get_unix_timestamp();
+                    measurement.start_time = start_time;
+                    measurement.statistic.set_start_timestamp(Some(start_time));
                     measurement.first_packet_received = true;
                 }
                 Ok(())
@@ -207,9 +208,10 @@ impl Receiver {
                 info!("{:?}: LAST packet received from test {}!", thread::current().id(), test_id);
                 // Not checking for measurement length anymore, since we assume that the thread has received at least one MEASUREMENT message before
                 let measurement = measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
-                let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the sender, before sending last message, as well
+                // Convert to from milliseconds to seconds
+                let end_time = Statistic::get_unix_timestamp() - (crate::WAIT_CONTROL_MESSAGE as f64 / 1000.0); // REMOVE THIS, if you remove the sleep in the sender, before sending last message, as well
                 measurement.last_packet_received = true;
-                measurement.statistic.set_test_duration(measurement.start_time, end_time);
+                measurement.statistic.set_test_duration(Some(measurement.start_time), Some(end_time));
                 measurement.statistic.calculate_statistics();
                 measurement.statistic.set_end_timestamp();
                 Err("LAST_MESSAGE_RECEIVED")
@@ -566,7 +568,7 @@ impl Node for Receiver {
             }
         };
 
-        let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
+        let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length);
 
         if io_model == IOModel::IoUring {
             (statistic, statistic_interval) = self.io_uring_loop(statistic_interval.clone())?;
