@@ -433,8 +433,16 @@ impl Receiver {
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
-                        let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        let mut statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        statistic_new = statistic_new + io_uring_instance.get_statistic();
                         self.statistic_interval.calculate_interval(statistic_new);
+
+                        // Reset measurements statistics
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); 
+                        }
+                        statistic = Statistic::new(self.parameter.clone());
+                        io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
                     match self.io_uring_complete_multishot(&mut io_uring_instance) {
@@ -469,9 +477,16 @@ impl Receiver {
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
-                        let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-                        // TODO: Add io_uring statistics to the interval statistics: io_uring_instance.get_statistic()
+                        let mut statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        statistic_new = statistic_new + io_uring_instance.get_statistic();
                         self.statistic_interval.calculate_interval(statistic_new);
+
+                        // Reset measurements statistics
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); 
+                        }
+                        statistic = Statistic::new(self.parameter.clone());
+                        io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
@@ -505,11 +520,16 @@ impl Receiver {
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
                     if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
-                        let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-                        for measurement in &mut self.measurements {
-                            measurement.statistic = Statistic::new(self.parameter.clone()); // Assuming `Statistic::new()` is how you create a new `Statistic` instance
-                        }
+                        let mut statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        statistic_new = statistic_new + io_uring_instance.get_statistic();
                         self.statistic_interval.calculate_interval(statistic_new);
+
+                        // Reset measurements statistics
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); 
+                        }
+                        statistic = Statistic::new(self.parameter.clone());
+                        io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;

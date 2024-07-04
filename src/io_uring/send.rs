@@ -135,4 +135,8 @@ impl IoUringOperatingModes for IoUringSend {
     fn get_statistic(&self) -> Statistic {
         self.statistic.clone()
     }
+
+    fn reset_statistic(&mut self, parameter: Parameter) {
+        self.statistic = Statistic::new(parameter);
+    }
 }

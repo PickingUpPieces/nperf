@@ -45,6 +45,8 @@ pub trait IoUringOperatingModes {
 
     fn get_statistic(&self) -> Statistic;
 
+    fn reset_statistic(&mut self, parameter: Parameter);
+
     fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
