@@ -150,6 +150,10 @@ pub struct nPerf {
     #[arg(long, default_value_t, value_enum)]
     uring_task_work: UringTaskWork,
 
+    /// io_uring: Record utilization of SQ, CQ and inflight counter
+    #[arg(long, default_value_t = false)]
+    uring_record_utilization: bool,
+
     /// Show help in markdown format
     #[arg(long, hide = true)]
     markdown_help: bool,
@@ -214,6 +218,7 @@ impl nPerf {
             sqpoll_shared: self.uring_sqpoll_shared,
             sq_filling_mode: self.uring_sq_mode,
             task_work: self.uring_task_work,
+            record_utilization: self.uring_record_utilization
         };
 
         let parameter = util::statistic::Parameter::new(

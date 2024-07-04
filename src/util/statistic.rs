@@ -3,7 +3,7 @@ use log::{debug, error, info};
 use serde::Serialize;
 use serde_json::{self};
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::Serializer;
 use std::collections::HashMap;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
@@ -117,12 +117,12 @@ pub struct Statistic {
     pub cpu_total_time: f64,
     pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
-    #[serde(with = "utilization")]
-    pub uring_sq_utilization: Box<[usize]>,
-    #[serde(with = "utilization")]
-    pub uring_cq_utilization: Box<[usize]>,
-    #[serde(with = "utilization")]
-    pub uring_inflight_utilization: Box<[usize]>,
+    #[serde(with = "utilization_option_box_slice")]
+    pub uring_sq_utilization: Option<Box<[usize]>>,
+    #[serde(with = "utilization_option_box_slice")]
+    pub uring_cq_utilization: Option<Box<[usize]>>,
+    #[serde(with = "utilization_option_box_slice")]
+    pub uring_inflight_utilization: Option<Box<[usize]>>,
 }
 
 
@@ -139,6 +139,7 @@ pub struct Measurement {
 
 impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
+        let uring_record_utilization = parameter.uring_parameter.record_utilization;
         Statistic {
             parameter,
             start_timestamp: Self::get_unix_timestamp(),
@@ -161,9 +162,9 @@ impl Statistic {
             cpu_total_time: 0.0,
             uring_copied_zc: 0,
             uring_canceled_multishot: 0,
-            uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
-            uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
-            uring_inflight_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()
+            uring_sq_utilization: if uring_record_utilization { Some(vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice()) } else { None },
+            uring_cq_utilization: if uring_record_utilization { Some(vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice()) } else { None },
+            uring_inflight_utilization: if uring_record_utilization { Some(vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()) } else { None },
         }
     }
 
@@ -232,29 +233,31 @@ impl Statistic {
                     println!("------------------------");
                     println!("Copied zero-copy: {}", self.uring_copied_zc);
                     println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
-                    println!("Uring SQ utilization:");
-                    for (index, &utilization) in self.uring_sq_utilization.iter().enumerate() {
-                        if utilization != 0 && utilization != 1 {
-                            println!("SQ[{}]: {}", index, utilization);
+                    if self.parameter.uring_parameter.record_utilization {
+                        println!("Uring SQ utilization:");
+                        for (index, &utilization) in self.uring_sq_utilization.as_ref().unwrap().iter().enumerate() {
+                            if utilization != 0 && utilization != 1 {
+                                println!("SQ[{}]: {}", index, utilization);
+                            }
                         }
-                    }
 
-                    println!();
-                    println!("Uring CQ utilization:");
-                    for (index, &utilization) in self.uring_cq_utilization.iter().enumerate() {
-                        if utilization != 0 && utilization != 1 {
-                            println!("CQ[{}]: {}", index, utilization);
+                        println!();
+                        println!("Uring CQ utilization:");
+                        for (index, &utilization) in self.uring_cq_utilization.as_ref().unwrap().iter().enumerate() {
+                            if utilization != 0 && utilization != 1 {
+                                println!("CQ[{}]: {}", index, utilization);
+                            }
                         }
-                    }
 
-                    println!();
-                    println!("Uring Inflight utilization:");
-                    for(index, &utilization) in self.uring_inflight_utilization.iter().enumerate() {
-                        if utilization != 0 && utilization != 1 {
-                            println!("Inflight[{}]: {}", index, utilization);
+                        println!();
+                        println!("Uring Inflight utilization:");
+                        for(index, &utilization) in self.uring_inflight_utilization.as_ref().unwrap().iter().enumerate() {
+                            if utilization != 0 && utilization != 1 {
+                                println!("Inflight[{}]: {}", index, utilization);
+                            }
                         }
+                        println!(); 
                     }
-                    println!(); 
                 }
             }
             },
@@ -355,20 +358,32 @@ impl Add for Statistic {
 
 
         // Add the arrays field by field
-        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
-        for i in 0..uring_sq_utilization.len() {
-            uring_sq_utilization[i] = self.uring_sq_utilization[i] + other.uring_sq_utilization[i];
-        }
+        let (uring_inflight_utilization, uring_sq_utilization, uring_cq_utilization) = 
+            if self.parameter.uring_parameter.record_utilization {
+                let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+                let self_uring_sq_utilization = self.uring_sq_utilization.unwrap();
+                let other_uring_sq_utilization = other.uring_sq_utilization.unwrap();
+                for i in 0..uring_sq_utilization.len() {
+                    uring_sq_utilization[i] = self_uring_sq_utilization[i] + other_uring_sq_utilization[i];
+                }
 
-        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_cq_utilization.len() {
-            uring_cq_utilization[i] = self.uring_cq_utilization[i] + other.uring_cq_utilization[i];
-        }
+                let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
+                let self_uring_cq_utilization = self.uring_cq_utilization.unwrap();
+                let other_uring_cq_utilization = other.uring_cq_utilization.unwrap();
+                for i in 0..uring_cq_utilization.len() {
+                    uring_cq_utilization[i] = self_uring_cq_utilization[i] + other_uring_cq_utilization[i];
+                }
 
-        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_inflight_utilization.len() {
-            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] + other.uring_inflight_utilization[i];
-        }
+                let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
+                let self_uring_inflight_utilization = self.uring_inflight_utilization.unwrap();
+                let other_uring_inflight_utilization = other.uring_inflight_utilization.unwrap();
+                for i in 0..uring_inflight_utilization.len() {
+                    uring_inflight_utilization[i] = self_uring_inflight_utilization[i] + other_uring_inflight_utilization[i];
+                }
+                (Some(uring_inflight_utilization), Some(uring_sq_utilization), Some(uring_cq_utilization))
+            } else {
+                (None, None, None)
+            };
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
@@ -423,20 +438,32 @@ impl Sub for Statistic {
         };
 
          // Add the arrays field by field
-        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
-        for i in 0..uring_sq_utilization.len() {
-            uring_sq_utilization[i] = self.uring_sq_utilization[i] - other.uring_sq_utilization[i];
-        }
+        let (uring_inflight_utilization, uring_sq_utilization, uring_cq_utilization) = 
+            if self.parameter.uring_parameter.record_utilization {
+                let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+                let self_uring_sq_utilization = self.uring_sq_utilization.unwrap();
+                let other_uring_sq_utilization = other.uring_sq_utilization.unwrap();
+                for i in 0..uring_sq_utilization.len() {
+                    uring_sq_utilization[i] = self_uring_sq_utilization[i] - other_uring_sq_utilization[i];
+                }
 
-        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_cq_utilization.len() {
-            uring_cq_utilization[i] = self.uring_cq_utilization[i] - other.uring_cq_utilization[i];
-        }
+                let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
+                let self_uring_cq_utilization = self.uring_cq_utilization.unwrap();
+                let other_uring_cq_utilization = other.uring_cq_utilization.unwrap();
+                for i in 0..uring_cq_utilization.len() {
+                    uring_cq_utilization[i] = self_uring_cq_utilization[i] - other_uring_cq_utilization[i];
+                }
 
-        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_inflight_utilization.len() {
-            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] - other.uring_inflight_utilization[i];
-        }
+                let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
+                let self_uring_inflight_utilization = self.uring_inflight_utilization.unwrap();
+                let other_uring_inflight_utilization = other.uring_inflight_utilization.unwrap();
+                for i in 0..uring_inflight_utilization.len() {
+                    uring_inflight_utilization[i] = self_uring_inflight_utilization[i] - other_uring_inflight_utilization[i];
+                }
+                (Some(uring_inflight_utilization), Some(uring_sq_utilization), Some(uring_cq_utilization))
+            } else {
+                (None, None, None)
+            };
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
@@ -569,9 +596,27 @@ pub struct UringParameter {
     pub sqpoll: bool,
     pub sqpoll_shared: bool,
     pub sq_filling_mode: UringSqFillingMode,
-    pub task_work: UringTaskWork
+    pub task_work: UringTaskWork,
+    pub record_utilization: bool,
 }
 
+pub mod utilization_option_box_slice {
+    use super::*;
+    use serde::Serializer;
+
+    pub fn serialize<S>(value: &Option<Box<[usize]>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(v) => {
+                // Directly use the serialize function from the utilization module
+                utilization::serialize(v, serializer)
+            },
+            None => serializer.serialize_none(),
+        }
+    }
+}
 
 pub mod utilization {
 
@@ -600,19 +645,6 @@ pub mod utilization {
         serializer.serialize_str(&format!("{{{}}}", map_string))
     }
 
-    #[allow(dead_code)] // Maybe needed in the future
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let map: HashMap<usize, usize> = HashMap::deserialize(deserializer)?;
-        let max_index = map.keys().max().unwrap_or(&0);
-        let mut array = vec![0; max_index + 1];
-        for (&index, &value) in map.iter() {
-            array[index] = value;
-        }
-        Ok(array)
-    }
 }
 
 

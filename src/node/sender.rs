@@ -301,7 +301,9 @@ impl Sender {
                 let mut io_uring_instance = crate::io_uring::send::IoUringSend::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 while start_time.elapsed().as_secs() < self.run_time_length {
-                    self.statistic.uring_inflight_utilization[amount_inflight] += 1;
+                    if let Some(ref mut array) = self.statistic.uring_inflight_utilization {
+                        array[amount_inflight] += 1;
+                    }
                     self.statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds

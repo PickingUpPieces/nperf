@@ -37,7 +37,9 @@ impl IoUringMultishot {
         if !armed {
             amount_new_requests = self.submit(socket_fd)?;
             // Utilization of the submission queue
-            self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
+            if let Some(ref mut array) = self.statistic.uring_sq_utilization {
+                array[self.ring.submission().len()] += 1;
+            }
         };
 
         // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
@@ -46,7 +48,9 @@ impl IoUringMultishot {
         Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, 1)?;
 
         // Utilization of the completion queue
-        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
+        if let Some(ref mut array) = self.statistic.uring_cq_utilization {
+            array[self.ring.completion().len()] += 1;
+        }
 
         Ok(amount_new_requests)
     }

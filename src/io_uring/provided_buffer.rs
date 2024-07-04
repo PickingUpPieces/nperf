@@ -55,11 +55,14 @@ impl IoUringProvidedBuffer {
         };
 
         // Utilization of the submission queue
-        self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
+        if let Some(ref mut array) = self.statistic.uring_sq_utilization {
+            array[self.ring.submission().len()] += 1;
+        }
         Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
-
         // Utilization of the completion queue
-        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
+        if let Some(ref mut array) = self.statistic.uring_cq_utilization {
+            array[self.ring.completion().len()] += 1;
+        }
         debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
 
         Ok(amount_new_requests)

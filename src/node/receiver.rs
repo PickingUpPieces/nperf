@@ -458,7 +458,9 @@ impl Receiver {
                 let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 loop {
-                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    if let Some(ref mut array) = statistic.uring_inflight_utilization {
+                        array[amount_inflight as usize] += 1;
+                    }
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
@@ -491,7 +493,9 @@ impl Receiver {
                 let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 loop {
-                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    if let Some(ref mut array) = statistic.uring_inflight_utilization {
+                        array[amount_inflight as usize] += 1;
+                    }
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
