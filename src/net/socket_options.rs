@@ -140,16 +140,11 @@ pub fn set_buffer_size(socket: i32, size: u32, buffer_type: libc::c_int) -> Resu
         _ => return Err("Invalid buffer type")
     }
 
-    if current_size >= size * 2 {
-        warn!("New buffer size {} is smaller than current buffer size {}. Abort setting it...", size * 2, current_size);
-        return Ok(());
-    }
-
     match set_socket_option(socket, libc::SOL_SOCKET, buffer_type, size) {
         Ok(_) => {
             current_size = get_socket_option(socket, libc::SOL_SOCKET, buffer_type)?; 
             if current_size < size * 2 {
-                Err(format!("Planned buffer size {} is smaller than current buffer size {}. Setting buffer size failed...", size * 2, current_size).leak())
+                Err(format!("Planned buffer size {} (Buffer size is always allocated times 2 by linux) is smaller than current buffer size {} after trying to set it. Setting buffer size failed...", size * 2, current_size).leak())
             } else {
                 Ok(())
             }

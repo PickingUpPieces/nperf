@@ -16,7 +16,7 @@ impl Socket {
     pub fn new(mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
-        socket_options.set_socket_options(socket).expect("Error updating socket options");
+        socket_options.set_socket_options(socket).expect("Error updating socket options! Check your system configuration!");
 
         Some(Socket {
             sock_addr_in: None,
