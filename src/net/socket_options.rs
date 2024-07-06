@@ -1,4 +1,4 @@
-use log::{error, info, debug, warn};
+use log::{error, info, debug};
 use serde::Serialize;
 use std::io::Error;
 use crate::util::statistic::serialize_option_as_bool;
