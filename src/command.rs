@@ -78,9 +78,9 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     without_non_blocking: bool,
 
-    /// Enable setting udp socket buffer size
-    #[arg(long, default_value_t = false)]
-    with_socket_buffer: bool,
+    /// Setting socket buffer size (in multiple of default size 212992)
+    #[arg(long, default_value_t = 1.0)]
+    with_socket_buffer: f32,
 
     /// Exchange function to use: normal (send/recv), sendmsg/recvmsg, sendmmsg/recvmmsg
     #[arg(long, default_value_t, value_enum)]
@@ -360,13 +360,15 @@ impl nPerf {
             None
         };
 
-        let (recv_buffer_size, send_buffer_size) = if self.with_socket_buffer {
-            info!("Setting udp buffer sizes with recv {} and send {}", crate::MAX_SOCKET_RECEIVE_BUFFER_SIZE, crate::MAX_SOCKET_SEND_BUFFER_SIZE);
-            (Some(crate::MAX_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::MAX_SOCKET_SEND_BUFFER_SIZE))
+        let (recv_buffer_size, send_buffer_size) = if self.with_socket_buffer == 1.0 { 
+            (None,None) 
         } else {
-            info!("Setting buffer size of UDP socket disabled!");
-            (Some(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE))
+            (Some((crate::DEFAULT_SOCKET_BUFFER_SIZE as f32 * self.with_socket_buffer).round() as u32 ), Some((crate::DEFAULT_SOCKET_BUFFER_SIZE as f32 * self.with_socket_buffer).round() as u32))
         };
+
+        if recv_buffer_size.is_some() && send_buffer_size.is_some() {
+            info!("Setting udp buffer sizes with recv {} and send {}", recv_buffer_size.unwrap(), send_buffer_size.unwrap());
+        }
 
         let gro = mode == util::NPerfMode::Receiver && self.with_gsro;
 

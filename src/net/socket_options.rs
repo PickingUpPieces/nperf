@@ -55,12 +55,16 @@ impl SocketOptions {
 
         set_gro(socket, self.gro)?;
 
-        if let Some(size) = self.recv_buffer_size { 
+        if let Some(size) = self.send_buffer_size { 
             set_buffer_size(socket, size, libc::SO_SNDBUF)?;
+        } else {
+            self.send_buffer_size = Some(get_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF)?);
         }
 
         if let Some(size) = self.recv_buffer_size { 
             set_buffer_size(socket, size, libc::SO_RCVBUF)?;
+        } else {
+            self.recv_buffer_size = Some(get_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF)?); 
         }
         Ok(())
     }
