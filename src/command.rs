@@ -316,8 +316,8 @@ impl nPerf {
             if self.mode == NPerfMode::Receiver {
                 warn!("Bandwidth limitation is only available on the sender side! Parameter is ignored");
                 parameter.socket_options.socket_pacing_rate = 0;
-            } else if self.bandwidth as u128 / 8 / 1024 / 1024 >= u64::MAX.into() {
-                error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u64::MAX / 1024 / 1024 * 8);
+            } else if self.bandwidth as u128 / 8 / 1000 / 1000 >= u64::MAX.into() {
+                error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u64::MAX / 1000 / 1000 * 8);
                 return None;
             } else {
                 warn!("For bandwidth limitation to work, you need to enable fair queue packet scheduler on the network interface with: tc qdisc add dev $INTERFACE root fq")
@@ -386,7 +386,7 @@ impl nPerf {
             self.bandwidth / self.parallel as u64
         } else {
             self.bandwidth
-        } / 8 * 1024 * 1024;
+        } / 8 * 1000 * 1000;
         info!("Bandwidth per thread: {} Bytes/s", bandwidth_per_thread);
         
         SocketOptions::new(
