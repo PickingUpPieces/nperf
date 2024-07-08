@@ -1,6 +1,6 @@
 use log::{error, info, debug};
 use serde::Serialize;
-use std::io::Error;
+use std::{fmt::Display, io::Error};
 use crate::util::statistic::serialize_option_as_bool;
 
 
@@ -12,7 +12,7 @@ pub struct SocketOptions {
     #[serde(with = "serialize_option_as_bool")]
     gso: Option<u32>,
     pub gro: bool,
-    pub socket_pacing_rate: u32,
+    pub socket_pacing_rate: u64,
     #[serde(with = "serialize_option_as_bool")]
     recv_buffer_size: Option<u32>,
     #[serde(with = "serialize_option_as_bool")]
@@ -22,7 +22,7 @@ pub struct SocketOptions {
 
 impl SocketOptions {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, socket_pacing_rate: u32, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
+    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, socket_pacing_rate: u64, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
         SocketOptions {
             nonblocking,
             ip_fragmentation,
@@ -71,8 +71,8 @@ impl SocketOptions {
 }
 
 
-fn set_socket_option(socket: i32, level: libc::c_int, name: libc::c_int, value: u32) -> Result<(), &'static str> {
-    let value_len = std::mem::size_of_val(&value) as libc::socklen_t;
+fn set_socket_option<T: Display>(socket: i32, level: libc::c_int, name: libc::c_int, value: T) -> Result<(), &'static str> {
+    let value_len = std::mem::size_of::<T>() as libc::socklen_t;
 
     let setsockopt_result = unsafe {
         libc::setsockopt(
@@ -167,7 +167,7 @@ fn set_gro(socket: i32, status: bool) -> Result<(), &'static str> {
 
 fn set_ip_fragmentation_off(socket: i32) -> Result<(), &'static str> {
     info!("Set socket to no IP fragmentation");
-    set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
+    set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO)
 }
 
 pub fn get_mss(socket: i32) -> Result<u32, &'static str> {
@@ -179,8 +179,8 @@ pub fn get_mss(socket: i32) -> Result<u32, &'static str> {
     }
 }
 
-pub fn set_socket_pacing(socket: i32, pacing_rate: u32) -> Result<(), &'static str> {
-    info!("Set socket option pacing to bytes per second {}B/s", pacing_rate);
+pub fn set_socket_pacing(socket: i32, pacing_rate: u64) -> Result<(), &'static str> {
+    info!("Set socket option pacing to for current socket to {}B/s", pacing_rate);
     set_socket_option(socket, libc::SOL_SOCKET, libc::SO_MAX_PACING_RATE, pacing_rate)
 }
 

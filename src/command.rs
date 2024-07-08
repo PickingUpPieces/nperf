@@ -58,9 +58,9 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     with_gsro: bool,
 
-    /// Enable socket pacing with SO_MAX_PACING_RATE with the given rate in Mbit/s (0 for disabled)
-    #[arg(long, default_value_t = crate::DEFAULT_SOCKET_PACING)]
-    with_socket_pacing_rate: u32,
+    /// Set a target bandwidth nPerf should send in total (not per thread) in Mbit/s (0 for disabled)
+    #[arg(long, default_value_t = crate::DEFAULT_BANDWIDTH)]
+    bandwidth: u64,
 
     /// Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
     #[arg(long, default_value_t = crate::DEFAULT_GSO_BUFFER_SIZE)]
@@ -205,7 +205,7 @@ impl nPerf {
         info!("MSS used: {}", mss);
         info!("IO model used: {:?}", self.io_model);
         info!("UDP datagram size used: {}", self.datagram_size);
-        info!("Socket pacing rate: {} Mbit/s", self.with_socket_pacing_rate);
+        info!("Total bandwidth/Per thread: {} Mbit/s / {} Mbit/s", self.bandwidth, self.bandwidth / self.parallel as u64);
 
         let socket_options = self.parse_socket_options(self.mode);
 
@@ -312,12 +312,17 @@ impl nPerf {
             return None;
         }
 
-        // Convert Mbit/s to byte/s
-        if ((self.with_socket_pacing_rate / 8 ) as u64 ) * 1024 * 1024 >= u32::MAX.into() {
-            error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u32::MAX / 1024 / 1024 * 8);
-            return None;
-        } else if self.with_socket_pacing_rate > 0 {
-            parameter.socket_options.socket_pacing_rate = (self.with_socket_pacing_rate / 8) * 1024 * 1024;
+        if self.bandwidth > 0 {
+            // Check if bandwidth would overflow
+            if self.mode == NPerfMode::Receiver {
+                warn!("Bandwidth limitation is only available on the sender side! Parameter is ignored");
+                parameter.socket_options.socket_pacing_rate = 0;
+            } else if self.bandwidth as u128 / 8 / 1024 / 1024 >= u64::MAX.into() {
+                error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u64::MAX / 1024 / 1024 * 8);
+                return None;
+            } else {
+                warn!("For bandwidth limitation to work, you need to enable fair queue packet scheduler on the network interface with: tc qdisc add dev $INTERFACE root fq")
+            }
         }
 
         if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal || self.uring_mode == UringMode::Zerocopy {
@@ -376,6 +381,13 @@ impl nPerf {
             NPerfMode::Sender => self.multiplex_port == MultiplexPort::Sharding,
             NPerfMode::Receiver => self.multiplex_port_receiver == MultiplexPort::Sharding,
         };
+
+        // Convert Mbit/s total to byte/s per thread
+        let bandwidth_per_thread = if self.multiplex_port != MultiplexPort::Sharing {
+            self.bandwidth / self.parallel as u64
+        } else {
+            self.bandwidth
+        } / 8 / 1024 / 1024;
         
         SocketOptions::new(
             !self.without_non_blocking, 
@@ -383,7 +395,7 @@ impl nPerf {
             reuseport,
             gso, 
             gro, 
-            self.with_socket_pacing_rate,
+            bandwidth_per_thread,
             recv_buffer_size, 
             send_buffer_size
         )
