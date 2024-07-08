@@ -205,7 +205,6 @@ impl nPerf {
         info!("MSS used: {}", mss);
         info!("IO model used: {:?}", self.io_model);
         info!("UDP datagram size used: {}", self.datagram_size);
-        info!("Total bandwidth/Per thread: {} Mbit/s / {} Mbit/s", self.bandwidth, self.bandwidth / self.parallel as u64);
 
         let socket_options = self.parse_socket_options(self.mode);
 
@@ -387,7 +386,8 @@ impl nPerf {
             self.bandwidth / self.parallel as u64
         } else {
             self.bandwidth
-        } / 8 / 1024 / 1024;
+        } / 8 * 1024 * 1024;
+        info!("Bandwidth per thread: {} Bytes/s", bandwidth_per_thread);
         
         SocketOptions::new(
             !self.without_non_blocking, 
