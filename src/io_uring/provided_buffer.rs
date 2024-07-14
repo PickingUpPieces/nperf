@@ -44,13 +44,10 @@ impl IoUringProvidedBuffer {
 
     // TODO: Could be generic function: Only self type differs 
     pub fn fill_sq_and_submit(&mut self, amount_inflight: u32, socket_fd: i32) -> Result<u32, &'static str> {
-        let mut amount_new_requests = 0;
-
-        let min_complete = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
+        let (min_complete, amount_new_requests) = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
             (0,0) => return Ok(0),
             (to_submit, min_complete) => {
-                amount_new_requests += self.submit(to_submit, socket_fd)?;
-                min_complete
+                (min_complete, self.submit(to_submit, socket_fd)?)
             }
         };
 
@@ -58,13 +55,16 @@ impl IoUringProvidedBuffer {
         if let Some(ref mut array) = self.statistic.uring_sq_utilization {
             array[self.ring.submission().len()] += 1;
         }
+
+        // Submit entries to the kernel and wait for completions
         Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+
         // Utilization of the completion queue
         if let Some(ref mut array) = self.statistic.uring_cq_utilization {
             array[self.ring.completion().len()] += 1;
         }
-        debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
 
+        debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
         Ok(amount_new_requests)
     }
 
