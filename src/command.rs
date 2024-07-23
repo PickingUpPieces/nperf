@@ -110,6 +110,10 @@ pub struct nPerf {
     #[arg(long, default_value_t = String::from("run-nperf"))]
     label_run: String,
 
+    /// Repetition label which appears in the output file, to differentiate between multiple different repetitions which are executed for a single run
+    #[arg(long, default_value_t = 1)]
+    repetition_id: u16,
+
     /// Use different port number for each sender thread, share a single port or shard a single port with reuseport
     #[arg(long, default_value_t, value_enum)]
     multiplex_port: MultiplexPort,
@@ -223,7 +227,8 @@ impl nPerf {
         let parameter = util::statistic::Parameter::new(
             self.label_test.clone(),
             self.label_run.clone(),
-            self.mode, 
+            self.repetition_id,
+            self.mode,
             ipv4, 
             self.parallel,
             self.interval,

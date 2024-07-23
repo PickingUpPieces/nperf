@@ -507,6 +507,7 @@ impl Measurement {
 pub struct Parameter {
     pub test_name: String,
     pub run_name: String,
+    pub repetition_id: u16,
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
@@ -538,6 +539,7 @@ impl Parameter {
     pub fn new(
         test_name: String,
         run_name: String,
+        repetition_id: u16,
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
@@ -561,6 +563,7 @@ impl Parameter {
         Parameter {
             test_name,
             run_name,
+            repetition_id,
             mode,
             ip,
             amount_threads,
