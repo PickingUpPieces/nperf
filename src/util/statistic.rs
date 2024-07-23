@@ -94,7 +94,6 @@ pub struct Statistic {
     pub parameter: Parameter,
     pub start_timestamp: f64,
     pub end_timestamp: f64,
-    #[serde(skip_serializing)]
     pub test_duration: f64,
     pub interval_id: u64,
     pub total_data_gbyte: f64,
