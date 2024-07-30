@@ -333,11 +333,13 @@ impl Receiver {
             debug!("Received completion event with bytes: {}", amount_received_bytes); 
 
             if parse_received_bytes(amount_received_bytes)? == 0 {
-                multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
-                continue; // In provided buffers, we continue when we receive error ENOBUFS. In multishot we've returned with Ok(check_flags). Try to continue with the next cqe in multishot as well.
+                // If one multishot operation failed, make sure with logical AND that is stays false
+                // In provided buffers, we continue when we receive error ENOBUFS. In multishot we've returned with Ok(check_flags). Try to continue with the next cqe in multishot as well.
+                multishot_armed &= crate::io_uring::check_multishot_status(cqe.flags()); 
+                continue; 
             };
 
-            multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
+            multishot_armed &= crate::io_uring::check_multishot_status(cqe.flags()); 
 
             // Get specific buffer from the buffer ring
             let buf = unsafe {
