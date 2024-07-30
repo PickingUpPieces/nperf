@@ -264,7 +264,7 @@ impl Receiver {
     }
 
 
-    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer) -> Result<u32, &'static str> {
+    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer, statistic: &mut Statistic) -> Result<u32, &'static str> {
         let mut completion_count = 0;
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
@@ -283,6 +283,8 @@ impl Receiver {
 
             match parse_received_bytes(amount_received_bytes) {
                 Ok(0) => { // On ENOBUFS, we need to continue with the next cqe
+                    // FIXME: Add out of buffer statistic counter
+                    statistic.uring_out_of_buffers += 1;
                     completion_count += 1;
                     continue;
                 },
@@ -497,7 +499,7 @@ impl Receiver {
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
 
-                    match self.io_uring_complete_provided_buffers(&mut io_uring_instance) {
+                    match self.io_uring_complete_provided_buffers(&mut io_uring_instance, &mut statistic) {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },

@@ -209,7 +209,9 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
 // io_uring doesn't use the errno variable, but returns the error code directly.
 pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static str> {
     match amount_received_bytes {
-        -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
+        -105 => { 
+            // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
+            // If there are no buffers in the group, your request will fail with `-ENOBUFS`.
             warn!("ENOBUFS: No buffer space available!");
             Ok(0)
         },

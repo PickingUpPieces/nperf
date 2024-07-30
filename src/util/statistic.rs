@@ -112,6 +112,8 @@ pub struct Statistic {
     pub cpu_total_time: f64,
     #[serde(skip_serializing)]
     pub uring_cq_overflows: u64,
+    #[serde(skip_serializing)]
+    pub uring_out_of_buffers: u64,
     pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization_option_box_slice")]
@@ -158,6 +160,7 @@ impl Statistic {
             cpu_system_time: 0.0,
             cpu_total_time: 0.0,
             uring_cq_overflows: 0,
+            uring_out_of_buffers: 0,
             uring_copied_zc: 0,
             uring_canceled_multishot: 0,
             uring_sq_utilization: if uring_record_utilization { Some(vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice()) } else { None },
@@ -230,6 +233,7 @@ impl Statistic {
                     println!("Io-Uring");
                     println!("------------------------");
                     println!("CQ overflows: {}", self.uring_cq_overflows);
+                    println!("Out of provided buffers: {}", self.uring_out_of_buffers);
                     println!("Copied zero-copy: {}", self.uring_copied_zc);
                     println!("Amount canceled multishot operations: {}", self.uring_canceled_multishot);
                     if self.parameter.uring_parameter.record_utilization {
@@ -407,6 +411,7 @@ impl Add for Statistic {
             cpu_system_time: 0.0,
             cpu_total_time: 0.0,
             uring_cq_overflows: self.uring_cq_overflows + other.uring_cq_overflows,
+            uring_out_of_buffers: self.uring_out_of_buffers + other.uring_out_of_buffers,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
