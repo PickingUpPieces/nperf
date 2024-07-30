@@ -54,7 +54,7 @@ impl IoUringNormal {
         }
 
         // Submit entries to the kernel and wait for completions
-        Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+        self.statistic.uring_cq_overflows += Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
 
         // Utilization of the completion queue
         if let Some(ref mut array) = self.statistic.uring_cq_utilization {

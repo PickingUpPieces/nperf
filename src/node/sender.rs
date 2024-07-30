@@ -183,12 +183,13 @@ impl Sender {
     fn io_uring_complete_send(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
         let mut completion_count = 0;
         let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
+        // We do not need to cq.sync the completion queue, since this is done automatically when getting/dropping the cq object
         let cq = io_uring_instance.get_cq();
 
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -227,13 +228,14 @@ impl Sender {
     fn io_uring_complete_send_zc(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
         let mut completion_count = 0;
         let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
+        // We do not need to cq.sync the completion queue, since this is done automatically when getting/dropping the cq object
         let cq = io_uring_instance.get_cq();
         let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
 
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events

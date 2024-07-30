@@ -225,13 +225,15 @@ impl Receiver {
 
     fn io_uring_complete_normal(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
+        // We do not need to cq.sync the completion queue, since this is done automatically when getting/dropping the cq object
         let cq = io_uring_instance.get_cq();
         // Pool to store the buffer indexes, which are used in the completion queue to return them later
         let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -266,10 +268,11 @@ impl Receiver {
         let mut completion_count = 0;
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -318,10 +321,11 @@ impl Receiver {
         let msghdr = &io_uring_instance.get_msghdr();
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         for cqe in cq {

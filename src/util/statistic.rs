@@ -1,4 +1,4 @@
-use std::{fs::OpenOptions, ops::{Add, Sub}, path, thread, time::{Instant, SystemTime, UNIX_EPOCH}};
+use std::{fs::OpenOptions, ops::Add, path, thread, time::{Instant, SystemTime, UNIX_EPOCH}};
 use log::{debug, error, info};
 use serde::Serialize;
 use serde_json::{self};
@@ -110,6 +110,8 @@ pub struct Statistic {
     pub cpu_user_time: f64,
     pub cpu_system_time: f64,
     pub cpu_total_time: f64,
+    #[serde(skip_serializing)]
+    pub uring_cq_overflows: u64,
     pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
     #[serde(with = "utilization_option_box_slice")]
@@ -155,6 +157,7 @@ impl Statistic {
             cpu_user_time: 0.0,
             cpu_system_time: 0.0,
             cpu_total_time: 0.0,
+            uring_cq_overflows: 0,
             uring_copied_zc: 0,
             uring_canceled_multishot: 0,
             uring_sq_utilization: if uring_record_utilization { Some(vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice()) } else { None },
@@ -226,8 +229,9 @@ impl Statistic {
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Io-Uring");
                     println!("------------------------");
+                    println!("CQ overflows: {}", self.uring_cq_overflows);
                     println!("Copied zero-copy: {}", self.uring_copied_zc);
-                    println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
+                    println!("Amount canceled multishot operations: {}", self.uring_canceled_multishot);
                     if self.parameter.uring_parameter.record_utilization {
                         println!("Uring SQ utilization:");
                         for (index, &utilization) in self.uring_sq_utilization.as_ref().unwrap().iter().enumerate() {
@@ -402,6 +406,7 @@ impl Add for Statistic {
             cpu_user_time: 0.0,
             cpu_system_time: 0.0,
             cpu_total_time: 0.0,
+            uring_cq_overflows: self.uring_cq_overflows + other.uring_cq_overflows,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
@@ -411,85 +416,6 @@ impl Add for Statistic {
     }
 }
 
-
-impl Sub for Statistic {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        // Check if one is zero, to avoid division by zero
-        let data_rate_gbit = if self.data_rate_gbit == 0.0 {
-            other.data_rate_gbit
-        } else if other.data_rate_gbit == 0.0 {
-            self.data_rate_gbit
-        } else {
-            ( self.data_rate_gbit - other.data_rate_gbit ) / 2.0 // Data rate is the average of both
-        };
-
-        // Check if one is zero, to avoid division by zero
-        let packet_loss = if self.packet_loss == 0.0 {
-            other.packet_loss
-        } else if other.packet_loss == 0.0 {
-            self.packet_loss
-        } else {
-            ( self.packet_loss - other.packet_loss ) / 2.0 // Average of packet loss
-        };
-
-         // Add the arrays field by field
-        let (uring_inflight_utilization, uring_sq_utilization, uring_cq_utilization) = 
-            if self.parameter.uring_parameter.record_utilization {
-                let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
-                let self_uring_sq_utilization = self.uring_sq_utilization.unwrap();
-                let other_uring_sq_utilization = other.uring_sq_utilization.unwrap();
-                for i in 0..uring_sq_utilization.len() {
-                    uring_sq_utilization[i] = self_uring_sq_utilization[i] - other_uring_sq_utilization[i];
-                }
-
-                let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
-                let self_uring_cq_utilization = self.uring_cq_utilization.unwrap();
-                let other_uring_cq_utilization = other.uring_cq_utilization.unwrap();
-                for i in 0..uring_cq_utilization.len() {
-                    uring_cq_utilization[i] = self_uring_cq_utilization[i] - other_uring_cq_utilization[i];
-                }
-
-                let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
-                let self_uring_inflight_utilization = self.uring_inflight_utilization.unwrap();
-                let other_uring_inflight_utilization = other.uring_inflight_utilization.unwrap();
-                for i in 0..uring_inflight_utilization.len() {
-                    uring_inflight_utilization[i] = self_uring_inflight_utilization[i] - other_uring_inflight_utilization[i];
-                }
-                (Some(uring_inflight_utilization), Some(uring_sq_utilization), Some(uring_cq_utilization))
-            } else {
-                (None, None, None)
-            };
-
-        Statistic {
-            parameter: self.parameter, // Assumption is that both statistics have the same test parameters
-            start_timestamp: f64::min(self.start_timestamp, other.start_timestamp),
-            end_timestamp: f64::max(self.end_timestamp, other.end_timestamp),
-            test_duration: f64::max(self.test_duration, other.test_duration),
-            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
-            total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
-            amount_datagrams: self.amount_datagrams - other.amount_datagrams,
-            amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,
-            amount_reordered_datagrams: self.amount_reordered_datagrams - other.amount_reordered_datagrams,
-            amount_duplicated_datagrams: self.amount_duplicated_datagrams - other.amount_duplicated_datagrams,
-            amount_omitted_datagrams: self.amount_omitted_datagrams - other.amount_omitted_datagrams,
-            amount_syscalls: self.amount_syscalls - other.amount_syscalls,
-            amount_io_model_calls: self.amount_io_model_calls - other.amount_io_model_calls,
-            amount_eagain: self.amount_eagain - other.amount_eagain,
-            data_rate_gbit, 
-            packet_loss,
-            cpu_user_time: 0.0,
-            cpu_system_time: 0.0,
-            cpu_total_time: 0.0,
-            uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
-            uring_canceled_multishot: self.uring_canceled_multishot - other.uring_canceled_multishot,
-            uring_sq_utilization,
-            uring_cq_utilization,
-            uring_inflight_utilization
-        }
-    }
-}
 
 impl Measurement {
     pub fn new(parameter: Parameter) -> Measurement {

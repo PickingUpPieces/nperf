@@ -47,7 +47,8 @@ pub trait IoUringOperatingModes {
 
     fn reset_statistic(&mut self, parameter: Parameter);
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
+    // Return 1 if CQ is overflown (EBUSY error returned)
+    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<u64, &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
@@ -55,19 +56,26 @@ pub trait IoUringOperatingModes {
         args = args.timespec(&ts);
 
         match if timeout == 0 { submitter.submit_and_wait(min_complete) } else { submitter.submit_with_args(min_complete, &args) } {
-            Ok(submitted) => { debug!("Amount of submitted events received from submit: {}", submitted) },
+            Ok(submitted) => { 
+                debug!("Amount of submitted events received from submit: {}", submitted);
+                Ok(0)
+            },
             // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
             // If this happens, the application must reap events from the CQ ring and attempt the submit again.
-            // Should ONLY appear when using flag IORING_FEAT_NODROP
-            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { warn!("submit_with_args: EBUSY error") },
-            Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
+            // Should ONLY appear when feature IORING_FEAT_NODROP is used in uring version
+            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { 
+                warn!("submit_with_args: EBUSY error");
+                Ok(1)
+            },
+            Err(ref err) if err.raw_os_error() == Some(62) => { 
+                debug!("submit_with_args: Timeout error");
+                Ok(0)
+            },
             Err(err) => {
                 error!("Error submitting io_uring sqe: {}", err);
-                return Err("IO_URING_ERROR")
+                Err("IO_URING_ERROR")
             }
         }
-
-        Ok(())
     }
 }
 
@@ -247,7 +255,14 @@ fn check_io_uring_features_available(ring: &IoUring, parameter: UringParameter) 
     if !ring.params().is_feature_fast_poll() {
         warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
     } else {
-        info!("IORING_FEAT_FAST_POLL is available and used!");
+        debug!("IORING_FEAT_FAST_POLL is available and used!");
     }
+
+    if !ring.params().is_feature_nodrop() {
+        warn!("IORING_FEAT_NODROP is NOT available in the kernel! In case of CQ overflow, packets will be dropped");
+    } else {
+        debug!("IORING_FEAT_NODROP is available and used!");
+    }
+    
     Ok(())
 }
