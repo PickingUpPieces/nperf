@@ -5,6 +5,12 @@ nPerf is a network performance measurement tool solely for measuring UDP through
 - libhwloc-dev
 - libudev-dev
 
+# Command-Line Help for `nperf`
+**Command Overview:**
+
+* [`nperf`↴](#nperf)
+
+## `nperf`
 
 A network performance measurement tool
 
@@ -24,55 +30,58 @@ A network performance measurement tool
 * `-a`, `--ip <IP>` — IP address to measure against/listen on
 
   Default value: `0.0.0.0`
-* `-p`, `--port <PORT>` — Port number to measure against, receiver listen on
+* `-p`, `--port <PORT>` — Port number for sender to measure against and receiver to listen on
 
   Default value: `45001`
-* `-c`, `--sender-port <SENDER_PORT>` — Port number senders send from
+* `-s`, `--sender-port <SENDER_PORT>` — Port number the sender uses to send packets
 
   Default value: `46001`
-* `--parallel <PARALLEL>` — Start multiple sender/receiver threads in parallel. The port number will be incremented automatically
+* `--parallel <PARALLEL>` — Start multiple sender/receiver threads in parallel. The port number is incremented automatically for every thread
 
   Default value: `1`
-* `-r`, `--run-infinite` — Don't stop the node after the first measurement
+* `-r`, `--run-infinite` — Do not finish the execution after the first measurement
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
-* `-i`, `--interval <INTERVAL>` — Interval printouts of the statistic in seconds (0 to disable)
+* `-i`, `--interval <INTERVAL>` — Interval printouts of the statistic in seconds (0 to disable). WARNING: Interval statistics are printed at the end of the test, not at the interval!
 
   Default value: `0`
-* `-l`, `--datagram-size <DATAGRAM_SIZE>` — Set length of single datagram (Without IP and UDP headers)
+* `-l`, `--datagram-size <DATAGRAM_SIZE>` — Length of single datagram (Without IP and UDP headers)
 
   Default value: `1472`
 * `-t`, `--time <TIME>` — Amount of seconds to run the test for
 
   Default value: `10`
-* `--with-core-affinity` — Pin each thread to an individual core. The receiver threads start from the last core, the sender threads from the second core. This way each receiver/sender pair should operate on the same NUMA core
+* `--with-core-affinity` — Pin each thread to an individual core. The receiver threads start from the last core downwards, while the sender threads are pinned from the first core upwards
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
-* `--with-numa-affinity` — Pin sender/receiver threads to different NUMA nodes
+* `--with-numa-affinity` — Pin sender/receiver threads alternating to the available NUMA nodes
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
-* `--with-gsro` — Enable GSO/GRO on socket
+* `--with-gsro` — Enable GSO or GRO for the sender/receiver. The gso_size is set with --with-gso-buffer
 
   Default value: `false`
 
   Possible values: `true`, `false`
 
+* `--bandwidth <BANDWIDTH>` — Use kernel pacing to ensure a send bandwidth in total (not per thread) in Mbit/s (0 for disabled)
+
+  Default value: `0`
 * `--with-gso-buffer <WITH_GSO_BUFFER>` — Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
 
   Default value: `64768`
-* `--with-mss <WITH_MSS>` — Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled
+* `--with-mss <WITH_MSS>` — Set the transmit buffer size. Multiple smaller datagrams can be send with one packet of MSS size. The MSS is the size of the packets sent out by nPerf. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled
 
   Default value: `1472`
-* `--with-ip-frag` — Disable fragmentation on sending socket
+* `--with-ip-frag` — Enable IP fragmentation on sending socket
 
   Default value: `false`
 
@@ -84,26 +93,23 @@ A network performance measurement tool
 
   Possible values: `true`, `false`
 
-* `--with-socket-buffer` — Enable setting udp socket buffer size
+* `--with-socket-buffer <WITH_SOCKET_BUFFER>` — Setting socket buffer size (in multiple of default size 212992 Byte)
 
-  Default value: `false`
-
-  Possible values: `true`, `false`
-
-* `--exchange-function <EXCHANGE_FUNCTION>` — Exchange function to use: normal (send/recv), sendmsg/recvmsg, sendmmsg/recvmmsg
+  Default value: `1`
+* `--exchange-function <EXCHANGE_FUNCTION>` — Exchange function to use: normal (send/recv), msg (sendmsg/recvmsg), mmsg (sendmmsg/recvmmsg)
 
   Default value: `msg`
 
   Possible values: `normal`, `msg`, `mmsg`
 
-* `--with-mmsg-amount <WITH_MMSG_AMOUNT>` — Amount of message packs of gso_buffers to send when using sendmmsg
+* `--with-mmsg-amount <WITH_MMSG_AMOUNT>` — Size of msgvec when using sendmmsg/recvmmsg
 
   Default value: `1`
-* `--io-model <IO_MODEL>` — Select the IO model to use: busy-waiting, select, poll
+* `--io-model <IO_MODEL>` — Select the IO model to use
 
-  Default value: `poll`
+  Default value: `select`
 
-  Possible values: `poll`, `busy-waiting`, `select`, `io-uring`
+  Possible values: `select`, `poll`, `busy-waiting`, `io-uring`
 
 * `--output-format <OUTPUT_FORMAT>` — Define the type the output
 
@@ -114,13 +120,16 @@ A network performance measurement tool
 * `--output-file-path <OUTPUT_FILE_PATH>` — Define the path in which the results file should be saved. Make sure the path exists and the application has the rights to write in it
 
   Default value: `nperf-output.csv`
-* `--label-test <LABEL_TEST>` — Test label which appears in the output file, if multiple tests are run in parallel
+* `--label-test <LABEL_TEST>` — Test label which appears in the output file, if multiple tests are run in parallel. Useful for benchmark automation
 
   Default value: `nperf-test`
-* `--label-run <LABEL_RUN>` — Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
+* `--label-run <LABEL_RUN>` — Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test. Useful for benchmark automation
 
   Default value: `run-nperf`
-* `--multiplex-port <MULTIPLEX_PORT>` — Use different port number for each sender thread, share a single port or shard a single port with reuseport
+* `--repetition-id <REPETITION_ID>` — Repetition label which appears in the output file, to differentiate between multiple different repetitions which are executed for a single run. Useful for benchmark automation
+
+  Default value: `1`
+* `--multiplex-port <MULTIPLEX_PORT>` — Configure if all threads should use different ports, share a port or use port sharding
 
   Default value: `individual`
 
@@ -156,13 +165,13 @@ A network performance measurement tool
 
   Possible values: `true`, `false`
 
-* `--uring-burst-size <URING_BURST_SIZE>` — io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
+* `--uring-burst-size <URING_BURST_SIZE>` — io_uring: Amount of recvmsg/sendmsg operations are submitted/completed in one go
 
   Default value: `64`
-* `--uring-ring-size <URING_RING_SIZE>` — io_uring: Size of the ring buffer
+* `--uring-ring-size <URING_RING_SIZE>` — io_uring: Size of the SQ ring buffer
 
   Default value: `256`
-* `--uring-sq-mode <URING_SQ_MODE>` — io_uring: How the SQ is filled
+* `--uring-sq-mode <URING_SQ_MODE>` — io_uring: Event loop strategy
 
   Default value: `topup`
 
@@ -173,6 +182,12 @@ A network performance measurement tool
   Default value: `default`
 
   Possible values: `default`, `coop`, `defer`, `coop-defer`
+
+* `--uring-record-utilization` — io_uring: Record utilization of SQ, CQ and inflight counter
+
+  Default value: `false`
+
+  Possible values: `true`, `false`
 
 * `--markdown-help` — Show help in markdown format
 

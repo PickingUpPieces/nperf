@@ -18,27 +18,27 @@ pub struct nPerf {
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
-    /// Port number to measure against, receiver listen on.
+    /// Port number for sender to measure against and receiver to listen on
     #[arg(short, long, default_value_t = crate::DEFAULT_RECEIVER_PORT)]
     pub port: u16,
 
-    /// Port number senders send from.
+    /// Port number the sender uses to send packets
     #[arg(short, long, default_value_t = crate::DEFAULT_SENDER_PORT)]
     pub sender_port: u16,
 
-    /// Start multiple sender/receiver threads in parallel. The port number will be incremented automatically.
+    /// Start multiple sender/receiver threads in parallel. The port number is incremented automatically for every thread.
     #[arg(long, default_value_t = 1)]
     parallel: u16,
 
-    /// Don't stop the node after the first measurement
+    /// Do not finish the execution after the first measurement
     #[arg(short, long, default_value_t = false)]
     pub run_infinite: bool,
 
-    /// Interval printouts of the statistic in seconds (0 to disable).
+    /// Interval printouts of the statistic in seconds (0 to disable). WARNING: Interval statistics are printed at the end of the test, not at the interval!
     #[arg(short, long, default_value_t = crate::DEFAULT_INTERVAL)]
     interval: f64,
 
-    /// Set length of single datagram (Without IP and UDP headers)
+    /// Length of single datagram (Without IP and UDP headers)
     #[arg(short = 'l', long, default_value_t = crate::DEFAULT_UDP_DATAGRAM_SIZE)]
     datagram_size: u32,
 
@@ -46,19 +46,19 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Pin each thread to an individual core. The receiver threads start from the last core, the sender threads from the second core. This way each receiver/sender pair should operate on the same NUMA core.
+    /// Pin each thread to an individual core. The receiver threads start from the last core downwards, while the sender threads are pinned from the first core upwards.
     #[arg(long, default_value_t = false)]
     with_core_affinity: bool,
 
-    /// Pin sender/receiver threads to different NUMA nodes
+    /// Pin sender/receiver threads alternating to the available NUMA nodes
     #[arg(long, default_value_t = false)]
     with_numa_affinity: bool,
 
-    /// Enable GSO/GRO on socket
+    /// Enable GSO or GRO for the sender/receiver. The gso_size is set with --with-gso-buffer
     #[arg(long, default_value_t = false)]
     with_gsro: bool,
 
-    /// Set a target bandwidth nPerf should send in total (not per thread) in Mbit/s (0 for disabled)
+    /// Use kernel pacing to ensure a send bandwidth in total (not per thread) in Mbit/s (0 for disabled)
     #[arg(long, default_value_t = crate::DEFAULT_BANDWIDTH)]
     bandwidth: u64,
 
@@ -66,11 +66,11 @@ pub struct nPerf {
     #[arg(long, default_value_t = crate::DEFAULT_GSO_BUFFER_SIZE)]
     with_gso_buffer: u32,
 
-    /// Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled.
+    /// Set the transmit buffer size. Multiple smaller datagrams can be send with one packet of MSS size. The MSS is the size of the packets sent out by nPerf. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled.
     #[arg(long, default_value_t = crate::DEFAULT_MSS)]
     with_mss: u32,
 
-    /// Disable fragmentation on sending socket
+    /// Enable IP fragmentation on sending socket
     #[arg(long, default_value_t = false)]
     with_ip_frag: bool,
 
@@ -78,19 +78,19 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     without_non_blocking: bool,
 
-    /// Setting socket buffer size (in multiple of default size 212992)
+    /// Setting socket buffer size (in multiple of default size 212992 Byte)
     #[arg(long, default_value_t = 1.0)]
     with_socket_buffer: f32,
 
-    /// Exchange function to use: normal (send/recv), sendmsg/recvmsg, sendmmsg/recvmmsg
+    /// Exchange function to use: normal (send/recv), msg (sendmsg/recvmsg), mmsg (sendmmsg/recvmmsg)
     #[arg(long, default_value_t, value_enum)]
     exchange_function: ExchangeFunction,
     
-    /// Amount of message packs of gso_buffers to send when using sendmmsg
+    /// Size of msgvec when using sendmmsg/recvmmsg
     #[arg(long, default_value_t = crate::DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)]
     with_mmsg_amount: usize,
 
-    /// Select the IO model to use: busy-waiting, select, poll
+    /// Select the IO model to use
     #[arg(long, default_value_t, value_enum)]
     io_model: IOModel,
 
@@ -102,19 +102,19 @@ pub struct nPerf {
     #[arg(long, default_value = crate::DEFAULT_FILE_NAME)]
     output_file_path: path::PathBuf,
 
-    /// Test label which appears in the output file, if multiple tests are run in parallel
+    /// Test label which appears in the output file, if multiple tests are run in parallel. Useful for benchmark automation.
     #[arg(long, default_value_t = String::from("nperf-test"))]
     label_test: String,
 
-    /// Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
+    /// Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test. Useful for benchmark automation.
     #[arg(long, default_value_t = String::from("run-nperf"))]
     label_run: String,
 
-    /// Repetition label which appears in the output file, to differentiate between multiple different repetitions which are executed for a single run
+    /// Repetition label which appears in the output file, to differentiate between multiple different repetitions which are executed for a single run. Useful for benchmark automation.
     #[arg(long, default_value_t = 1)]
     repetition_id: u16,
 
-    /// Use different port number for each sender thread, share a single port or shard a single port with reuseport
+    /// Configure if all threads should use different ports, share a port or use port sharding. 
     #[arg(long, default_value_t, value_enum)]
     multiplex_port: MultiplexPort,
 
@@ -138,15 +138,15 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     uring_sqpoll_shared: bool,
 
-    /// io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
+    /// io_uring: Amount of recvmsg/sendmsg operations are submitted/completed in one go
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND)]
     uring_burst_size: u32,
 
-    /// io_uring: Size of the ring buffer
+    /// io_uring: Size of the SQ ring buffer
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE)]
     uring_ring_size: u32,
 
-    /// io_uring: How the SQ is filled
+    /// io_uring: Event loop strategy
     #[arg(long, default_value_t, value_enum)]
     uring_sq_mode: UringSqFillingMode,
 
