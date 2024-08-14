@@ -297,7 +297,7 @@ impl Statistic {
                         csv::WriterBuilder::new().has_headers(false).from_writer(file)
                     };
 
-                    wtr.serialize(&self).unwrap();
+                    wtr.serialize(self).unwrap();
                     wtr.flush().unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {

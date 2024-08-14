@@ -540,7 +540,7 @@ impl Receiver {
                         io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
-                    amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
+                    amount_inflight += io_uring_instance.fill_sq_and_submit(self.packet_buffer.get_pool_inflight() as u32, &mut self.packet_buffer, socket_fd)?;
 
                     match self.io_uring_complete_normal(&mut io_uring_instance) {
                         Ok(completed) => {
