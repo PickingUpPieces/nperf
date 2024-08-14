@@ -1,7 +1,7 @@
 mod node;
 mod net;
 mod util;
-mod command;
+mod command_parser;
 mod executor;
 mod io_uring;
 
@@ -40,4 +40,4 @@ const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 const URING_SQPOLL_CPU: u32 = 0;
 
-pub use command::nPerf;
+pub use command_parser::nPerf;

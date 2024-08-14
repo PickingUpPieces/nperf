@@ -83,6 +83,8 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
         info!("Setting up io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
+        // Set CQ to buffer size amount to avoid overflows
+        ring_builder.setup_cqsize(parameters.buffer_size);
 
         info!("Setting up io_uring with SINGLE_ISSUER");
         ring_builder.setup_single_issuer();
