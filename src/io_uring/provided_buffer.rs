@@ -44,24 +44,27 @@ impl IoUringProvidedBuffer {
 
     // TODO: Could be generic function: Only self type differs 
     pub fn fill_sq_and_submit(&mut self, amount_inflight: u32, socket_fd: i32) -> Result<u32, &'static str> {
-        let mut amount_new_requests = 0;
-
-        let min_complete = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
+        let (min_complete, amount_new_requests) = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
             (0,0) => return Ok(0),
             (to_submit, min_complete) => {
-                amount_new_requests += self.submit(to_submit, socket_fd)?;
-                min_complete
+                (min_complete, self.submit(to_submit, socket_fd)?)
             }
         };
 
         // Utilization of the submission queue
-        self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
-        Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+        if let Some(ref mut array) = self.statistic.uring_sq_utilization {
+            array[self.ring.submission().len()] += 1;
+        }
+
+        // Submit entries to the kernel and wait for completions
+        self.statistic.uring_cq_overflows += Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
 
         // Utilization of the completion queue
-        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
-        debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
+        if let Some(ref mut array) = self.statistic.uring_cq_utilization {
+            array[self.ring.completion().len()] += 1;
+        }
 
+        debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
         Ok(amount_new_requests)
     }
 
@@ -78,7 +81,7 @@ impl IoUringOperatingModes for IoUringProvidedBuffer {
         let buf_ring = super::create_buf_ring(&mut ring.submitter(), parameter.uring_parameter.buffer_size as u16, parameter.mss);
 
         // Generic msghdr: msg_controllen and msg_namelen relevant, when using provided buffers
-        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/server/src/reactor.rs#L206
+        // https://github.com/SUPERCILEX/clipboard-history/blob/418b2612f8e62693e42057029df78f6fbf49de3e/receiver/src/reactor.rs#L206
         // https://github.com/axboe/liburing/blob/cc61897b928e90c4391e0d6390933dbc9088d98f/examples/io_uring-udp.c#L113
         let msghdr = {
             let mut hdr = unsafe { std::mem::zeroed::<libc::msghdr>() };
@@ -97,5 +100,9 @@ impl IoUringOperatingModes for IoUringProvidedBuffer {
 
     fn get_statistic(&self) -> Statistic {
         self.statistic.clone()
+    }
+
+    fn reset_statistic(&mut self, parameter: Parameter) {
+        self.statistic = Statistic::new(parameter);
     }
 }

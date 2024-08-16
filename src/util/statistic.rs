@@ -1,9 +1,9 @@
-use std::{fs::OpenOptions, ops::{Add, Sub}, path, thread, time::{Duration, Instant}};
+use std::{fs::OpenOptions, ops::Add, path, thread, time::{Instant, SystemTime, UNIX_EPOCH}};
 use log::{debug, error, info};
 use serde::Serialize;
 use serde_json::{self};
 use crate::{io_uring::{UringMode, UringSqFillingMode, UringTaskWork}, net::socket_options::SocketOptions};
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::Serializer;
 use std::collections::HashMap;
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Clone, Copy, Serialize)]
@@ -31,55 +31,59 @@ pub enum SimulateConnection {
 
 #[derive(Debug, Clone)]
 pub struct StatisticInterval {
-    interval_id: f64,
+    interval_id: u64,
     pub output_interval: f64,
     pub last_send_instant: Instant,
+    pub last_send_timestamp: f64,
     pub total_interval_outputs: u64,
     amount_interval_outputs: u64,
-    statistic_old: Statistic,
+    pub statistics: Vec<Statistic>,
 }
 
 impl StatisticInterval {
-    pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64, statistic: Statistic) -> StatisticInterval {
+    pub fn new(last_send_instant: Instant, output_interval: f64, runtime_length: u64) -> StatisticInterval {
+        let total_interval_outputs = if output_interval == 0.0 { 0 } else { (runtime_length as f64 / output_interval).floor() as u64 };
         StatisticInterval {
-            interval_id: 0.0,
+            interval_id: 1,
             output_interval,
             last_send_instant,
-            total_interval_outputs: (runtime_length as f64 / output_interval).floor() as u64,
+            last_send_timestamp: Statistic::get_unix_timestamp(),
             amount_interval_outputs: 0,
-            statistic_old: statistic
+            total_interval_outputs,
+            statistics: Vec::with_capacity(total_interval_outputs as usize)
         }
     }
+
+    pub fn start(&mut self, offset_in_milliseconds: Option<u64>) {
+        self.last_send_instant = Instant::now() + std::time::Duration::from_millis(offset_in_milliseconds.unwrap_or(0));
+        self.last_send_timestamp = Statistic::get_unix_timestamp() + offset_in_milliseconds.unwrap_or(0) as f64;
+    }
+
     pub fn finished(&self) -> bool {
         self.amount_interval_outputs >= self.total_interval_outputs
     }
 
-    pub fn calculate_interval(&mut self, mut statistic_new: Statistic) -> Option<Statistic> {
-        self.interval_id = ((self.interval_id + self.output_interval) * 10.0).round() / 10.0;
+    pub fn calculate_interval(&mut self, mut statistic_new: Statistic) {
         let current_time = Instant::now();
+        let current_time_unix = Statistic::get_unix_timestamp();
 
         if self.amount_interval_outputs >= self.total_interval_outputs {
             self.last_send_instant = current_time;
             debug!("{:?}: Last interval already sent. No more intervals to send.", thread::current().id());
-            return None;
+            return;
         } 
 
-        if self.amount_interval_outputs == self.total_interval_outputs - 1 {
-            debug!("{:?}: Last interval to send. Adjusting test duration.", thread::current().id());
-        } else {
-            statistic_new.set_test_duration(self.last_send_instant, current_time);
-        }
-
         statistic_new.interval_id = self.interval_id;
+        statistic_new.set_test_duration(Some(self.last_send_timestamp), Some(current_time_unix));
+        statistic_new.calculate_statistics();
 
-        let statistic_interval_new = statistic_new.clone();
-        statistic_new = statistic_new - self.statistic_old.clone();
-        self.statistic_old = statistic_interval_new;
         // Update the last send operation instant to the current instant
         self.last_send_instant = current_time;
+        self.last_send_timestamp = current_time_unix;
         self.amount_interval_outputs += 1;
+        self.interval_id += 1;
 
-        Some(statistic_new)
+        self.statistics.push(statistic_new);
     }
 }
 
@@ -88,9 +92,10 @@ impl StatisticInterval {
 pub struct Statistic {
     #[serde(flatten)]
     pub parameter: Parameter,
-    #[serde(skip_serializing)]
-    pub test_duration: std::time::Duration,
-    pub interval_id: f64,
+    pub start_timestamp: f64,
+    pub end_timestamp: f64,
+    pub test_duration: f64,
+    pub interval_id: u64,
     pub total_data_gbyte: f64,
     pub amount_datagrams: u64,
     pub amount_data_bytes: usize,
@@ -102,14 +107,21 @@ pub struct Statistic {
     pub amount_eagain: u64,
     pub data_rate_gbit: f64,
     pub packet_loss: f64,
+    pub cpu_user_time: f64,
+    pub cpu_system_time: f64,
+    pub cpu_total_time: f64,
+    #[serde(skip_serializing)]
+    pub uring_cq_overflows: u64,
+    #[serde(skip_serializing)]
+    pub uring_out_of_buffers: u64,
     pub uring_copied_zc: u64,
     pub uring_canceled_multishot: u64,
-    #[serde(with = "utilization")]
-    pub uring_sq_utilization: Box<[usize]>,
-    #[serde(with = "utilization")]
-    pub uring_cq_utilization: Box<[usize]>,
-    #[serde(with = "utilization")]
-    pub uring_inflight_utilization: Box<[usize]>,
+    #[serde(with = "utilization_option_box_slice")]
+    pub uring_sq_utilization: Option<Box<[usize]>>,
+    #[serde(with = "utilization_option_box_slice")]
+    pub uring_cq_utilization: Option<Box<[usize]>>,
+    #[serde(with = "utilization_option_box_slice")]
+    pub uring_inflight_utilization: Option<Box<[usize]>>,
 }
 
 
@@ -117,8 +129,8 @@ pub struct Statistic {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Measurement {
-    pub start_time: std::time::Instant,
-    pub end_time: std::time::Instant,
+    pub start_time: f64,
+    pub end_time: f64,
     pub statistic: Statistic,
     pub first_packet_received: bool,
     pub last_packet_received: bool,
@@ -126,10 +138,13 @@ pub struct Measurement {
 
 impl Statistic {
     pub fn new(parameter: Parameter) -> Statistic {
+        let uring_record_utilization = parameter.uring_parameter.record_utilization;
         Statistic {
             parameter,
-            interval_id: 0.0,
-            test_duration: Duration::new(0, 0),
+            start_timestamp: Self::get_unix_timestamp(),
+            end_timestamp: 0.0,
+            interval_id: 0,
+            test_duration: 0.0,
             total_data_gbyte: 0.0,
             amount_datagrams: 0,
             amount_data_bytes: 0,
@@ -141,11 +156,23 @@ impl Statistic {
             amount_eagain: 0,
             data_rate_gbit: 0.0,
             packet_loss: 0.0,
+            cpu_user_time: 0.0,
+            cpu_system_time: 0.0,
+            cpu_total_time: 0.0,
+            uring_cq_overflows: 0,
+            uring_out_of_buffers: 0,
             uring_copied_zc: 0,
             uring_canceled_multishot: 0,
-            uring_sq_utilization: vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice(),
-            uring_cq_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice(),
-            uring_inflight_utilization: vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()
+            uring_sq_utilization: if uring_record_utilization { Some(vec![0_usize; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice()) } else { None },
+            uring_cq_utilization: if uring_record_utilization { Some(vec![0_usize; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice()) } else { None },
+            uring_inflight_utilization: if uring_record_utilization { Some(vec![0_usize; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice()) } else { None },
+        }
+    }
+
+    pub fn get_unix_timestamp() -> f64 {
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(n) => n.as_secs_f64(),
+            Err(_) => panic!("Error getting the current time"),
         }
     }
 
@@ -165,12 +192,14 @@ impl Statistic {
                 println!("{}", serde_json::to_string(&self).unwrap());
             },
             OutputFormat::Text => {
+                let interval_timestamp = self.interval_id as f64 * self.parameter.output_interval;
+
                 if interval_print {
                     println!(
                         "[{:3}] {:2.2}-{:2.2} sec  {:.2} GBytes  {:.2} Gbits/sec  {}/{} ({:.1}%)",
                         self.interval_id, 
-                        (self.interval_id - self.parameter.output_interval), 
-                        self.interval_id, 
+                        if interval_timestamp == 0.0 { 0.0 } else { interval_timestamp - self.parameter.output_interval }, 
+                        interval_timestamp, 
                         self.total_data_gbyte, 
                         self.data_rate_gbit, 
                         self.amount_omitted_datagrams, 
@@ -181,10 +210,15 @@ impl Statistic {
                 println!("------------------------");
                 println!("Summary Measurement");
                 println!("------------------------");
-                println!("Total time: {:.2}s", self.test_duration.as_secs_f64());
+                println!("Total time: {:.2}s", self.test_duration);
                 println!("Total data: {:.2} GiBytes", self.total_data_gbyte);
                 println!("Data rate: {:.2} GiBytes/s / {:.2} Gibit/s", self.data_rate_gbit / 8.0, self.data_rate_gbit);
                 println!("Packet loss: {:.2}%", self.packet_loss);
+                println!("------------------------");
+                println!("CPU user space: {:.2}%", self.cpu_user_time);
+                println!("CPU system space: {:.2}%", self.cpu_system_time);
+                println!("CPU total: {:.2}%", self.cpu_total_time);
+                println!("Threads used: {}", self.parameter.amount_threads);
                 println!("------------------------");
                 println!("Amount of datagrams: {}", self.amount_datagrams);
                 println!("Amount of reordered datagrams: {}", self.amount_reordered_datagrams);
@@ -198,31 +232,35 @@ impl Statistic {
                 if self.parameter.io_model == super::IOModel::IoUring {
                     println!("Io-Uring");
                     println!("------------------------");
+                    println!("CQ overflows: {}", self.uring_cq_overflows);
+                    println!("Out of provided buffers: {}", self.uring_out_of_buffers);
                     println!("Copied zero-copy: {}", self.uring_copied_zc);
-                    println!("Uring canceled multishot: {}", self.uring_canceled_multishot);
-                    println!("Uring SQ utilization:");
-                    for (index, &utilization) in self.uring_sq_utilization.iter().enumerate() {
-                        if utilization != 0 && utilization != 1 {
-                            println!("SQ[{}]: {}", index, utilization);
+                    println!("Amount canceled multishot operations: {}", self.uring_canceled_multishot);
+                    if self.parameter.uring_parameter.record_utilization {
+                        println!("Uring SQ utilization:");
+                        for (index, &utilization) in self.uring_sq_utilization.as_ref().unwrap().iter().enumerate() {
+                            if utilization != 0 && utilization != 1 {
+                                println!("SQ[{}]: {}", index, utilization);
+                            }
                         }
-                    }
 
-                    println!();
-                    println!("Uring CQ utilization:");
-                    for (index, &utilization) in self.uring_cq_utilization.iter().enumerate() {
-                        if utilization != 0 && utilization != 1 {
-                            println!("CQ[{}]: {}", index, utilization);
+                        println!();
+                        println!("Uring CQ utilization:");
+                        for (index, &utilization) in self.uring_cq_utilization.as_ref().unwrap().iter().enumerate() {
+                            if utilization != 0 && utilization != 1 {
+                                println!("CQ[{}]: {}", index, utilization);
+                            }
                         }
-                    }
 
-                    println!();
-                    println!("Uring Inflight utilization:");
-                    for(index, &utilization) in self.uring_inflight_utilization.iter().enumerate() {
-                        if utilization != 0 && utilization != 1 {
-                            println!("Inflight[{}]: {}", index, utilization);
+                        println!();
+                        println!("Uring Inflight utilization:");
+                        for(index, &utilization) in self.uring_inflight_utilization.as_ref().unwrap().iter().enumerate() {
+                            if utilization != 0 && utilization != 1 {
+                                println!("Inflight[{}]: {}", index, utilization);
+                            }
                         }
+                        println!(); 
                     }
-                    println!(); 
                 }
             }
             },
@@ -259,7 +297,7 @@ impl Statistic {
                         csv::WriterBuilder::new().has_headers(false).from_writer(file)
                     };
 
-                    wtr.serialize(&self).unwrap();
+                    wtr.serialize(self).unwrap();
                     wtr.flush().unwrap();
                     info!("Results saved to {}", output_file.display());
                 } else {
@@ -269,12 +307,23 @@ impl Statistic {
         }
     }
 
+    pub fn set_start_timestamp(&mut self, start_time: Option<f64>) {
+        match start_time {
+            Some(time) => self.start_timestamp = time,
+            None => self.start_timestamp = Self::get_unix_timestamp()
+        }
+    }
+
+    pub fn set_end_timestamp(&mut self) {
+        self.end_timestamp = Self::get_unix_timestamp();
+    }
+
     fn calculate_total_data(&self) -> f64 {
         self.amount_data_bytes as f64 / 1024.0 / 1024.0 / 1024.0
     }
     
     fn calculate_data_rate(&self) -> f64{
-        let elapsed_time_in_seconds = self.test_duration.as_secs_f64();
+        let elapsed_time_in_seconds = self.test_duration;
         ( self.total_data_gbyte / elapsed_time_in_seconds ) * 8.0
     }
     
@@ -282,8 +331,10 @@ impl Statistic {
         (self.amount_omitted_datagrams as f64 / self.amount_datagrams as f64) * 100.0
     }
     
-    pub fn set_test_duration(&mut self, start_time: std::time::Instant, end_time: std::time::Instant) {
-        self.test_duration = end_time - start_time
+    pub fn set_test_duration(&mut self, start_time: Option<f64>, end_time: Option<f64>) {
+        self.start_timestamp  = if let Some(time) = start_time { time } else { self.start_timestamp };
+        self.end_timestamp = if let Some(time) = end_time { time } else { self.end_timestamp };
+        self.test_duration = self.end_timestamp - self.start_timestamp;
     }
 }
 
@@ -312,25 +363,39 @@ impl Add for Statistic {
 
 
         // Add the arrays field by field
-        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
-        for i in 0..uring_sq_utilization.len() {
-            uring_sq_utilization[i] = self.uring_sq_utilization[i] + other.uring_sq_utilization[i];
-        }
+        let (uring_inflight_utilization, uring_sq_utilization, uring_cq_utilization) = 
+            if self.parameter.uring_parameter.record_utilization {
+                let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
+                let self_uring_sq_utilization = self.uring_sq_utilization.unwrap();
+                let other_uring_sq_utilization = other.uring_sq_utilization.unwrap();
+                for i in 0..uring_sq_utilization.len() {
+                    uring_sq_utilization[i] = self_uring_sq_utilization[i] + other_uring_sq_utilization[i];
+                }
 
-        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_cq_utilization.len() {
-            uring_cq_utilization[i] = self.uring_cq_utilization[i] + other.uring_cq_utilization[i];
-        }
+                let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
+                let self_uring_cq_utilization = self.uring_cq_utilization.unwrap();
+                let other_uring_cq_utilization = other.uring_cq_utilization.unwrap();
+                for i in 0..uring_cq_utilization.len() {
+                    uring_cq_utilization[i] = self_uring_cq_utilization[i] + other_uring_cq_utilization[i];
+                }
 
-        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_inflight_utilization.len() {
-            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] + other.uring_inflight_utilization[i];
-        }
+                let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
+                let self_uring_inflight_utilization = self.uring_inflight_utilization.unwrap();
+                let other_uring_inflight_utilization = other.uring_inflight_utilization.unwrap();
+                for i in 0..uring_inflight_utilization.len() {
+                    uring_inflight_utilization[i] = self_uring_inflight_utilization[i] + other_uring_inflight_utilization[i];
+                }
+                (Some(uring_inflight_utilization), Some(uring_sq_utilization), Some(uring_cq_utilization))
+            } else {
+                (None, None, None)
+            };
 
         Statistic {
             parameter: self.parameter, // Assumption is that both statistics have the same test parameters
-            test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
+            start_timestamp: f64::min(self.start_timestamp, other.start_timestamp),
+            end_timestamp: f64::max(self.end_timestamp, other.end_timestamp),
+            test_duration: f64::max(self.test_duration, other.test_duration),
+            interval_id: std::cmp::max(self.interval_id, other.interval_id), // Take the bigger value
             total_data_gbyte: self.total_data_gbyte + other.total_data_gbyte,
             amount_datagrams: self.amount_datagrams + other.amount_datagrams,
             amount_data_bytes: self.amount_data_bytes + other.amount_data_bytes,
@@ -342,6 +407,11 @@ impl Add for Statistic {
             amount_eagain: self.amount_eagain + other.amount_eagain,
             data_rate_gbit, 
             packet_loss,
+            cpu_user_time: 0.0,
+            cpu_system_time: 0.0,
+            cpu_total_time: 0.0,
+            uring_cq_overflows: self.uring_cq_overflows + other.uring_cq_overflows,
+            uring_out_of_buffers: self.uring_out_of_buffers + other.uring_out_of_buffers,
             uring_copied_zc: self.uring_copied_zc + other.uring_copied_zc,
             uring_canceled_multishot: self.uring_canceled_multishot + other.uring_canceled_multishot,
             uring_sq_utilization,
@@ -352,73 +422,11 @@ impl Add for Statistic {
 }
 
 
-impl Sub for Statistic {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        // Check if one is zero, to avoid division by zero
-        let data_rate_gbit = if self.data_rate_gbit == 0.0 {
-            other.data_rate_gbit
-        } else if other.data_rate_gbit == 0.0 {
-            self.data_rate_gbit
-        } else {
-            ( self.data_rate_gbit - other.data_rate_gbit ) / 2.0 // Data rate is the average of both
-        };
-
-        // Check if one is zero, to avoid division by zero
-        let packet_loss = if self.packet_loss == 0.0 {
-            other.packet_loss
-        } else if other.packet_loss == 0.0 {
-            self.packet_loss
-        } else {
-            ( self.packet_loss - other.packet_loss ) / 2.0 // Average of packet loss
-        };
-
-         // Add the arrays field by field
-        let mut uring_sq_utilization = vec![0; (crate::URING_MAX_RING_SIZE + 1) as usize].into_boxed_slice();
-        for i in 0..uring_sq_utilization.len() {
-            uring_sq_utilization[i] = self.uring_sq_utilization[i] - other.uring_sq_utilization[i];
-        }
-
-        let mut uring_cq_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * 2) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_cq_utilization.len() {
-            uring_cq_utilization[i] = self.uring_cq_utilization[i] - other.uring_cq_utilization[i];
-        }
-
-        let mut uring_inflight_utilization = vec![0; ((crate::URING_MAX_RING_SIZE * crate::URING_BUFFER_SIZE_MULTIPLICATOR) + 1) as usize].into_boxed_slice();
-        for i in 0..uring_inflight_utilization.len() {
-            uring_inflight_utilization[i] = self.uring_inflight_utilization[i] - other.uring_inflight_utilization[i];
-        }
-
-        Statistic {
-            parameter: self.parameter, // Assumption is that both statistics have the same test parameters
-            test_duration: std::cmp::max(self.test_duration, other.test_duration),
-            interval_id: f64::max(self.interval_id, other.interval_id), // Take the bigger value
-            total_data_gbyte: self.total_data_gbyte - other.total_data_gbyte,
-            amount_datagrams: self.amount_datagrams - other.amount_datagrams,
-            amount_data_bytes: self.amount_data_bytes - other.amount_data_bytes,
-            amount_reordered_datagrams: self.amount_reordered_datagrams - other.amount_reordered_datagrams,
-            amount_duplicated_datagrams: self.amount_duplicated_datagrams - other.amount_duplicated_datagrams,
-            amount_omitted_datagrams: self.amount_omitted_datagrams - other.amount_omitted_datagrams,
-            amount_syscalls: self.amount_syscalls - other.amount_syscalls,
-            amount_io_model_calls: self.amount_io_model_calls - other.amount_io_model_calls,
-            amount_eagain: self.amount_eagain - other.amount_eagain,
-            data_rate_gbit, 
-            packet_loss,
-            uring_copied_zc: self.uring_copied_zc - other.uring_copied_zc,
-            uring_canceled_multishot: self.uring_canceled_multishot - other.uring_canceled_multishot,
-            uring_sq_utilization,
-            uring_cq_utilization,
-            uring_inflight_utilization
-        }
-    }
-}
-
 impl Measurement {
     pub fn new(parameter: Parameter) -> Measurement {
         Measurement {
-            start_time: Instant::now(),
-            end_time: Instant::now(),
+            start_time: Statistic::get_unix_timestamp(),
+            end_time: Statistic::get_unix_timestamp(),
             statistic: Statistic::new(parameter),
             first_packet_received: false,
             last_packet_received: false,
@@ -430,6 +438,7 @@ impl Measurement {
 pub struct Parameter {
     pub test_name: String,
     pub run_name: String,
+    pub repetition_id: u16,
     pub mode: super::NPerfMode,
     pub ip: std::net::Ipv4Addr,
     pub amount_threads: u16,
@@ -448,7 +457,7 @@ pub struct Parameter {
     pub socket_options: SocketOptions,
     pub exchange_function: super::ExchangeFunction,
     pub multiplex_port: MultiplexPort,
-    pub multiplex_port_server: MultiplexPort,
+    pub multiplex_port_receiver: MultiplexPort,
     pub simulate_connection: SimulateConnection,
     pub core_affinity: bool,
     pub numa_affinity: bool,
@@ -461,6 +470,7 @@ impl Parameter {
     pub fn new(
         test_name: String,
         run_name: String,
+        repetition_id: u16,
         mode: super::NPerfMode, 
         ip: std::net::Ipv4Addr, 
         amount_threads: u16, 
@@ -475,7 +485,7 @@ impl Parameter {
         socket_options: SocketOptions, 
         exchange_function: super::ExchangeFunction, 
         multiplex_port: MultiplexPort, 
-        multiplex_port_server: MultiplexPort, 
+        multiplex_port_receiver: MultiplexPort, 
         simulate_connection: SimulateConnection, 
         core_affinity: bool, 
         numa_affinity: bool, 
@@ -484,6 +494,7 @@ impl Parameter {
         Parameter {
             test_name,
             run_name,
+            repetition_id,
             mode,
             ip,
             amount_threads,
@@ -498,7 +509,7 @@ impl Parameter {
             socket_options,
             exchange_function,
             multiplex_port,
-            multiplex_port_server,
+            multiplex_port_receiver,
             simulate_connection,
             core_affinity,
             numa_affinity,
@@ -516,9 +527,27 @@ pub struct UringParameter {
     pub sqpoll: bool,
     pub sqpoll_shared: bool,
     pub sq_filling_mode: UringSqFillingMode,
-    pub task_work: UringTaskWork
+    pub task_work: UringTaskWork,
+    pub record_utilization: bool,
 }
 
+pub mod utilization_option_box_slice {
+    use super::*;
+    use serde::Serializer;
+
+    pub fn serialize<S>(value: &Option<Box<[usize]>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(v) => {
+                // Directly use the serialize function from the utilization module
+                utilization::serialize(v, serializer)
+            },
+            None => serializer.serialize_none(),
+        }
+    }
+}
 
 pub mod utilization {
 
@@ -547,19 +576,6 @@ pub mod utilization {
         serializer.serialize_str(&format!("{{{}}}", map_string))
     }
 
-    #[allow(dead_code)] // Maybe needed in the future
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<usize>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let map: HashMap<usize, usize> = HashMap::deserialize(deserializer)?;
-        let max_index = map.keys().max().unwrap_or(&0);
-        let mut array = vec![0; max_index + 1];
-        for (&index, &value) in map.iter() {
-            array[index] = value;
-        }
-        Ok(array)
-    }
 }
 
 

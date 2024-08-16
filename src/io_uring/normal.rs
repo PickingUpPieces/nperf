@@ -41,24 +41,27 @@ impl IoUringNormal {
     }
 
     pub fn fill_sq_and_submit(&mut self, amount_inflight: u32, packet_buffer: &mut PacketBuffer, socket_fd: i32) -> Result<u32, &'static str> {
-        let mut amount_new_requests = 0;
-
-        let min_complete = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
+        let (min_complete, amount_new_requests) = match super::calc_sq_fill_mode(amount_inflight, self.parameter, &mut self.ring) {
             (0,0) => return Ok(0),
             (to_submit, min_complete) => {
-                amount_new_requests += self.submit(to_submit, packet_buffer, socket_fd)?;
-                min_complete
+                (min_complete, self.submit(to_submit, packet_buffer, socket_fd)?)
             }
         };
 
         // Utilization of the submission queue
-        self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
-        Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
+        if let Some(ref mut array) = self.statistic.uring_sq_utilization {
+            array[self.ring.submission().len()] += 1;
+        }
+
+        // Submit entries to the kernel and wait for completions
+        self.statistic.uring_cq_overflows += Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, min_complete)?;
 
         // Utilization of the completion queue
-        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
-        debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
+        if let Some(ref mut array) = self.statistic.uring_cq_utilization {
+            array[self.ring.completion().len()] += 1;
+        }
 
+        debug!("Added {} new requests to submission queue. Current inflight: {}", amount_new_requests, amount_inflight + amount_new_requests);
         Ok(amount_new_requests)
     }
 
@@ -86,5 +89,9 @@ impl IoUringOperatingModes for IoUringNormal {
 
     fn get_statistic(&self) -> Statistic {
         self.statistic.clone()
+    }
+
+    fn reset_statistic(&mut self, parameter: Parameter) {
+        self.statistic = Statistic::new(parameter);
     }
 }

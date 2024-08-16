@@ -3,6 +3,7 @@ pub mod msghdr;
 pub mod msghdr_vec;
 pub mod packet_buffer;
 pub mod core_affinity_manager;
+pub mod cpu_util;
 
 use std::io::IoSlice;
 use log::{debug, trace};
@@ -14,8 +15,8 @@ use crate::net::MessageHeader;
 #[derive(clap::ValueEnum, PartialEq, Default, Debug, Copy, Clone, Serialize)]
 pub enum NPerfMode {
     #[default]
-    Server,
-    Client,
+    Receiver,
+    Sender,
 }
 
 #[derive(clap::ValueEnum, Default, PartialEq, Debug, Copy, Clone, Serialize)]

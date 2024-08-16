@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug client",
+            "name": "Debug sender",
             "cargo": {
                 "args": [
                     "build",
@@ -22,14 +22,14 @@
             "env": {
                 "RUST_LOG": "DEBUG",
             },
-            "args": ["client", "--with-gsro"],
+            "args": ["sender", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "delay"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug server",
+            "name": "Debug receiver",
             "cargo": {
                 "args": [
                     "build",
@@ -44,18 +44,18 @@
             "env": {
                 "RUST_LOG": "DEBUG",
             },
-            "args": ["server", "--with-gsro"],
+            "args": ["receiver", "--with-gsro"],
             "cwd": "${workspaceFolder}"
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Run client",
+            "name": "Run sender",
             "env": {
                 "RUST_LOG": "DEBUG",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["client", "--with-gsro"],
+            "args": ["sender", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
             "preLaunchTask": "delay"
@@ -63,30 +63,30 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Run server",
+            "name": "Run receiver",
             "env": {
                 "RUST_LOG": "DEBUG",
             },
             "program": "${workspaceFolder}/target/debug/nperf",
-            "args": ["server", "--with-gsro"],
+            "args": ["receiver", "--with-gsro"],
             "cwd": "${workspaceFolder}",
             "stopOnEntry": false,
         },
     ],
     "compounds": [
         {
-            "name": "Compound server",
+            "name": "Compound receiver",
             "configurations": [
-                "Debug server",
-                "Run client"
+                "Debug receiver",
+                "Run sender"
             ],
             "stopAll": true
         },
         {
-            "name": "Compound client",
+            "name": "Compound sender",
             "configurations": [
-                "Run server",
-                "Debug client"
+                "Run receiver",
+                "Debug sender"
             ],
             "stopAll": true
         }

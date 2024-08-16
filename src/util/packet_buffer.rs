@@ -116,6 +116,10 @@ impl PacketBuffer {
         }
     }
 
+    pub fn get_pool_inflight(&mut self) -> usize {
+        self.index_pool.capacity() - self.index_pool.len()
+    }
+
     pub fn return_buffer_index(&mut self, mut buf_index_vec: Vec<usize>) {
         self.index_pool.append(&mut buf_index_vec)
     }

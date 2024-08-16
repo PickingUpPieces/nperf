@@ -1,6 +1,6 @@
-use log::{error, info, debug, warn};
+use log::{error, info, debug};
 use serde::Serialize;
-use std::io::Error;
+use std::{fmt::Display, io::Error};
 use crate::util::statistic::serialize_option_as_bool;
 
 
@@ -12,20 +12,24 @@ pub struct SocketOptions {
     #[serde(with = "serialize_option_as_bool")]
     gso: Option<u32>,
     pub gro: bool,
+    pub socket_pacing_rate: u64,
     #[serde(with = "serialize_option_as_bool")]
     recv_buffer_size: Option<u32>,
     #[serde(with = "serialize_option_as_bool")]
     send_buffer_size: Option<u32>,
+
 }
 
 impl SocketOptions {
-    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(nonblocking: bool, ip_fragmentation: bool, reuseport: bool, gso: Option<u32>, gro: bool, socket_pacing_rate: u64, recv_buffer_size: Option<u32>, send_buffer_size: Option<u32>) -> Self {
         SocketOptions {
             nonblocking,
             ip_fragmentation,
             reuseport,
             gso,
             gro,
+            socket_pacing_rate,
             recv_buffer_size,
             send_buffer_size,
         }
@@ -33,6 +37,8 @@ impl SocketOptions {
 
     pub fn set_socket_options(&mut self, socket: i32) -> Result<(), &'static str> {
         debug!("Updating socket options with {:?}", self);
+        set_reuseport(socket, self.reuseport)?;
+
         if self.nonblocking {
             set_nonblocking(socket)?;
         } 
@@ -43,23 +49,30 @@ impl SocketOptions {
             set_gso(socket, size)?;
         }
 
-        set_gro(socket, self.gro)?;
-        set_reuseport(socket, self.reuseport)?;
+        if self.socket_pacing_rate > 0 {
+            set_socket_pacing(socket, self.socket_pacing_rate)?;
+        }
 
-        if let Some(size) = self.recv_buffer_size { 
+        set_gro(socket, self.gro)?;
+
+        if let Some(size) = self.send_buffer_size { 
             set_buffer_size(socket, size, libc::SO_SNDBUF)?;
+        } else {
+            self.send_buffer_size = Some(get_socket_option(socket, libc::SOL_SOCKET, libc::SO_SNDBUF)?);
         }
 
         if let Some(size) = self.recv_buffer_size { 
             set_buffer_size(socket, size, libc::SO_RCVBUF)?;
+        } else {
+            self.recv_buffer_size = Some(get_socket_option(socket, libc::SOL_SOCKET, libc::SO_RCVBUF)?); 
         }
         Ok(())
     }
 }
 
 
-fn set_socket_option(socket: i32, level: libc::c_int, name: libc::c_int, value: u32) -> Result<(), &'static str> {
-    let value_len = std::mem::size_of_val(&value) as libc::socklen_t;
+fn set_socket_option<T: Display>(socket: i32, level: libc::c_int, name: libc::c_int, value: T) -> Result<(), &'static str> {
+    let value_len = std::mem::size_of::<T>() as libc::socklen_t;
 
     let setsockopt_result = unsafe {
         libc::setsockopt(
@@ -127,16 +140,11 @@ pub fn set_buffer_size(socket: i32, size: u32, buffer_type: libc::c_int) -> Resu
         _ => return Err("Invalid buffer type")
     }
 
-    if current_size >= size * 2 {
-        warn!("New buffer size {} is smaller than current buffer size {}. Abort setting it...", size * 2, current_size);
-        return Ok(());
-    }
-
     match set_socket_option(socket, libc::SOL_SOCKET, buffer_type, size) {
         Ok(_) => {
             current_size = get_socket_option(socket, libc::SOL_SOCKET, buffer_type)?; 
             if current_size < size * 2 {
-                Err(format!("Planned buffer size {} is smaller than current buffer size {}. Setting buffer size failed...", size * 2, current_size).leak())
+                Err(format!("Planned buffer size {} (Buffer size is always allocated times 2 by linux) is smaller than current buffer size {} after trying to set it. Setting buffer size failed...", size * 2, current_size).leak())
             } else {
                 Ok(())
             }
@@ -159,7 +167,7 @@ fn set_gro(socket: i32, status: bool) -> Result<(), &'static str> {
 
 fn set_ip_fragmentation_off(socket: i32) -> Result<(), &'static str> {
     info!("Set socket to no IP fragmentation");
-    set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO.try_into().unwrap())
+    set_socket_option(socket, libc::IPPROTO_IP, libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_DO)
 }
 
 pub fn get_mss(socket: i32) -> Result<u32, &'static str> {
@@ -169,6 +177,11 @@ pub fn get_mss(socket: i32) -> Result<u32, &'static str> {
         Ok(mtu) => Ok(mtu - 20 - 8), // Return MSS instead of MTU
         Err(_) => Err("Failed to get MSS")
     }
+}
+
+pub fn set_socket_pacing(socket: i32, pacing_rate: u64) -> Result<(), &'static str> {
+    info!("Set socket option pacing to for current socket to {}B/s", pacing_rate);
+    set_socket_option(socket, libc::SOL_SOCKET, libc::SO_MAX_PACING_RATE, pacing_rate)
 }
 
 pub fn _get_gso_size(socket: i32) -> Result<u32, &'static str> {

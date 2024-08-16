@@ -16,7 +16,7 @@ impl Socket {
     pub fn new(mut socket_options: SocketOptions) -> Option<Socket> {
         let socket = Self::create_socket()?; 
 
-        socket_options.set_socket_options(socket).expect("Error updating socket options");
+        socket_options.set_socket_options(socket).expect("Error updating socket options! Check your system configuration!");
 
         Some(Socket {
             sock_addr_in: None,
@@ -194,11 +194,11 @@ impl Socket {
                     return Err("Failed to send data");
                 }
             }
-        // sendmmsg() always returns 1, even when it should return ECONNREFUSED (when the server isn't up yet, similar to send()/sendmsg()). This is a workaround to detect ECONNREFUSED.
+        // sendmmsg() always returns 1, even when it should return ECONNREFUSED (when the receiver isn't up yet, similar to send()/sendmsg()). This is a workaround to detect ECONNREFUSED.
         // WARNING: sendmmsg_econnrefused_counter doesn't work under real load, because socket buffer is often full
         //} else if send_result == 1 && mmsgvec.len() > 1 {
         //    if self.sendmmsg_econnrefused_counter > 100 {
-        //        error!("sendmmsg() returned 1, but mmsgvec.len() > 1. This probably means that the first message was sent successfully, but the second one failed. We assume that the server is not running.");
+        //        error!("sendmmsg() returned 1, but mmsgvec.len() > 1. This probably means that the first message was sent successfully, but the second one failed. We assume that the receiver is not running.");
         //        return Err("ECONNREFUSED");
         //    } 
         //    self.sendmmsg_econnrefused_counter += 1;

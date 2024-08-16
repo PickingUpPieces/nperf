@@ -37,16 +37,20 @@ impl IoUringMultishot {
         if !armed {
             amount_new_requests = self.submit(socket_fd)?;
             // Utilization of the submission queue
-            self.statistic.uring_sq_utilization[self.ring.submission().len()] += 1;
+            if let Some(ref mut array) = self.statistic.uring_sq_utilization {
+                array[self.ring.submission().len()] += 1;
+            }
         };
 
         // Weird bug, if min_complete bigger than 1, submit_and_wait does NOT return the timeout error, but actually takes as long as the timeout error and returns then 1.
         // Due to this bug, we have less batching effects. 
         // Normally we want here the parameter: self.parameter.uring_parameter.burst_size as usize
-        Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, 1)?;
+        self.statistic.uring_cq_overflows += Self::io_uring_enter(&mut self.ring.submitter(), crate::URING_ENTER_TIMEOUT, 1)?;
 
         // Utilization of the completion queue
-        self.statistic.uring_cq_utilization[self.ring.completion().len()] += 1;
+        if let Some(ref mut array) = self.statistic.uring_cq_utilization {
+            array[self.ring.completion().len()] += 1;
+        }
 
         Ok(amount_new_requests)
     }
@@ -86,5 +90,9 @@ impl IoUringOperatingModes for IoUringMultishot {
 
     fn get_statistic(&self) -> Statistic {
         self.statistic.clone()
+    }
+
+    fn reset_statistic(&mut self, parameter: Parameter) {
+        self.statistic = Statistic::new(parameter);
     }
 }

@@ -1,6 +1,5 @@
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
-use std::sync::mpsc;
 use std::thread::{self, sleep};
 use std::time::Instant;
 use log::{debug, error, info, trace, warn};
@@ -19,18 +18,19 @@ use super::Node;
 const INITIAL_POLL_TIMEOUT: i32 = 10000; // in milliseconds
 const IN_MEASUREMENT_POLL_TIMEOUT: i32 = 1000; // in milliseconds
 
-pub struct Server {
+pub struct Receiver {
     packet_buffer: PacketBuffer,
     socket: Socket,
     io_uring_sqpoll_fd: Option<RawFd>,
     next_packet_id: u64,
     parameter: Parameter,
     measurements: Vec<Measurement>,
+    statistic_interval: StatisticInterval,
     exchange_function: ExchangeFunction
 }
 
-impl Server {
-    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Server {
+impl Receiver {
+    pub fn new(sock_address_in: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Receiver {
         let socket = if let Some(socket) = socket {
             socket
         } else {
@@ -39,24 +39,22 @@ impl Server {
             socket
         };
 
-        info!("Current mode 'server' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
+        info!("Current mode 'receiver' listening on {}:{} with socketID {}", sock_address_in.ip(), sock_address_in.port(), socket.get_socket_id());
         let packet_buffer = PacketBuffer::new(MsghdrVec::new(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size as usize).with_cmsg_buffer());
 
-        Server {
+        Receiver {
             packet_buffer,
             socket,
             io_uring_sqpoll_fd: io_uring,
             next_packet_id: 0,
             parameter: parameter.clone(),
             measurements: Vec::new(),
+            statistic_interval: StatisticInterval::new(Instant::now(), parameter.output_interval, parameter.test_runtime_length),
             exchange_function: parameter.exchange_function
         }
     }
 
     fn recv_messages(&mut self) -> Result<(), &'static str> {
-        // Normally, we need to reset the msg_controllen field to the buffer size of all msghdr structs, since the kernel overwrites the value on return.
-        // The same applies to the msg_flags field, which is set by the kernel in the msghdr struct.
-        // To safe performance, we don't reset the fields, and ignore the msg_flags.
         // The msg_controllen field should be the same for all messages, since it should only contain the GRO enabled control message.
         // It is only reset after the first message, since the first message is the INIT message, which doesn't contain any control messages.
 
@@ -175,6 +173,10 @@ impl Server {
     }
 
     fn parse_message_type(mtype: MessageType, test_id: usize, measurements: &mut Vec<Measurement>, parameter: &Parameter) -> Result<(), &'static str> {
+        if test_id >= crate::MAX_TEST_ID {
+            error!("Received test id is greater than the maximum test id: {} > {}!", test_id, crate::MAX_TEST_ID);
+            return Err("Received test id is greater than the maximum test id")
+        }
         match mtype {
             MessageType::INIT => {
                 info!("{:?}: INIT packet received from test {}!", thread::current().id(), test_id);
@@ -197,7 +199,9 @@ impl Server {
                 // Start measurement timer with receiving of the first MEASUREMENT message
                 if !measurement.first_packet_received {
                     info!("{:?}: First packet received from test {}!", thread::current().id(), test_id);
-                    measurement.start_time = Instant::now();
+                    let start_time = Statistic::get_unix_timestamp();
+                    measurement.start_time = start_time;
+                    measurement.statistic.set_start_timestamp(Some(start_time));
                     measurement.first_packet_received = true;
                 }
                 Ok(())
@@ -206,10 +210,12 @@ impl Server {
                 info!("{:?}: LAST packet received from test {}!", thread::current().id(), test_id);
                 // Not checking for measurement length anymore, since we assume that the thread has received at least one MEASUREMENT message before
                 let measurement = measurements.get_mut(test_id).expect("Error getting statistic in last message: test id not found");
-                let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE); // REMOVE THIS, if you remove the sleep in the client, before sending last message, as well
+                // Convert to from milliseconds to seconds
+                let end_time = Statistic::get_unix_timestamp() - (crate::WAIT_CONTROL_MESSAGE as f64 / 1000.0); // REMOVE THIS, if you remove the sleep in the sender, before sending last message, as well
                 measurement.last_packet_received = true;
-                measurement.statistic.set_test_duration(measurement.start_time, end_time);
+                measurement.statistic.set_test_duration(Some(measurement.start_time), Some(end_time));
                 measurement.statistic.calculate_statistics();
+                measurement.statistic.set_end_timestamp();
                 Err("LAST_MESSAGE_RECEIVED")
             }
         }
@@ -219,13 +225,15 @@ impl Server {
 
     fn io_uring_complete_normal(&mut self, io_uring_instance: &mut IoUringNormal) -> Result<u32, &'static str> {
         let mut completion_count = 0;
+        // We do not need to cq.sync the completion queue, since this is done automatically when getting/dropping the cq object
         let cq = io_uring_instance.get_cq();
         // Pool to store the buffer indexes, which are used in the completion queue to return them later
         let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -256,14 +264,15 @@ impl Server {
     }
 
 
-    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer) -> Result<u32, &'static str> {
+    fn io_uring_complete_provided_buffers(&mut self, io_uring_instance: &mut IoUringProvidedBuffer, statistic: &mut Statistic) -> Result<u32, &'static str> {
         let mut completion_count = 0;
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -274,6 +283,8 @@ impl Server {
 
             match parse_received_bytes(amount_received_bytes) {
                 Ok(0) => { // On ENOBUFS, we need to continue with the next cqe
+                    // FIXME: Add out of buffer statistic counter
+                    statistic.uring_out_of_buffers += 1;
                     completion_count += 1;
                     continue;
                 },
@@ -312,10 +323,11 @@ impl Server {
         let msghdr = &io_uring_instance.get_msghdr();
         let (buf_ring, cq) = io_uring_instance.get_bufs_and_cq();
         let mut bufs = buf_ring.submissions();
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         for cqe in cq {
@@ -323,11 +335,13 @@ impl Server {
             debug!("Received completion event with bytes: {}", amount_received_bytes); 
 
             if parse_received_bytes(amount_received_bytes)? == 0 {
-                multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
-                continue; // In provided buffers, we continue when we receive error ENOBUFS. In multishot we've returned with Ok(check_flags). Try to continue with the next cqe in multishot as well.
+                // If one multishot operation failed, make sure with logical AND that is stays false
+                // In provided buffers, we continue when we receive error ENOBUFS. In multishot we've returned with Ok(check_flags). Try to continue with the next cqe in multishot as well.
+                multishot_armed &= crate::io_uring::check_multishot_status(cqe.flags()); 
+                continue; 
             };
 
-            multishot_armed = crate::io_uring::check_multishot_status(cqe.flags()); 
+            multishot_armed &= crate::io_uring::check_multishot_status(cqe.flags()); 
 
             // Get specific buffer from the buffer ring
             let buf = unsafe {
@@ -336,7 +350,7 @@ impl Server {
 
             // Helps parsing buffer of multishot recvmsg
             // https://docs.rs/io-uring/latest/io_uring/types/struct.RecvMsgOut.html
-            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/server/src/reactor.rs#L211
+            // https://github.com/SUPERCILEX/clipboard-history/blob/95bae326388d7f6f4a63fead5eca4851fd2de1c8/receiver/src/reactor.rs#L211
             let msg = RecvMsgOut::parse(&buf, msghdr).expect("Parsing of RecvMsgOut failed. Didn't allocate large enough buffers");
             trace!("Received message: {:?}", msg);
 
@@ -410,7 +424,7 @@ impl Server {
     }
 
 
-    fn io_uring_loop(&mut self, mut statistic_interval: StatisticInterval, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
+    fn io_uring_loop(&mut self) -> Result<Statistic, &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let mut statistic = Statistic::new(self.parameter.clone());
         let mut amount_inflight = 0;
@@ -426,12 +440,17 @@ impl Server {
                     io_uring_instance.fill_sq_and_submit(armed, socket_fd)?;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                        let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
+                        let mut statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        statistic_new = statistic_new + io_uring_instance.get_statistic();
+                        self.statistic_interval.calculate_interval(statistic_new);
 
-                        if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        // Reset measurements statistics
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); 
+                        }
+                        statistic = Statistic::new(self.parameter.clone());
+                        io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
                     match self.io_uring_complete_multishot(&mut io_uring_instance) {
@@ -459,21 +478,28 @@ impl Server {
                 let mut io_uring_instance: IoUringProvidedBuffer = crate::io_uring::provided_buffer::IoUringProvidedBuffer::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 loop {
-                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    if let Some(ref mut array) = statistic.uring_inflight_utilization {
+                        array[amount_inflight as usize] += 1;
+                    }
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                        let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
+                        let mut statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        statistic_new = statistic_new + io_uring_instance.get_statistic();
+                        self.statistic_interval.calculate_interval(statistic_new);
 
-                        if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        // Reset measurements statistics
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); 
+                        }
+                        statistic = Statistic::new(self.parameter.clone());
+                        io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
                     amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, socket_fd)?;
 
-                    match self.io_uring_complete_provided_buffers(&mut io_uring_instance) {
+                    match self.io_uring_complete_provided_buffers(&mut io_uring_instance, &mut statistic) {
                         Ok(completed) => {
                             amount_inflight -= completed
                         },
@@ -495,19 +521,26 @@ impl Server {
                 let mut io_uring_instance = crate::io_uring::normal::IoUringNormal::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 loop {
-                    statistic.uring_inflight_utilization[amount_inflight as usize] += 1;
+                    if let Some(ref mut array) = statistic.uring_inflight_utilization {
+                        array[amount_inflight as usize] += 1;
+                    }
                     statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                        let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
+                        let mut statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
+                        statistic_new = statistic_new + io_uring_instance.get_statistic();
+                        self.statistic_interval.calculate_interval(statistic_new);
 
-                        if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                        // Reset measurements statistics
+                        for measurement in &mut self.measurements {
+                            measurement.statistic = Statistic::new(self.parameter.clone()); 
+                        }
+                        statistic = Statistic::new(self.parameter.clone());
+                        io_uring_instance.reset_statistic(self.parameter.clone());
                     }
 
-                    amount_inflight += io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, socket_fd)?;
+                    amount_inflight += io_uring_instance.fill_sq_and_submit(self.packet_buffer.get_pool_inflight() as u32, &mut self.packet_buffer, socket_fd)?;
 
                     match self.io_uring_complete_normal(&mut io_uring_instance) {
                         Ok(completed) => {
@@ -528,8 +561,8 @@ impl Server {
                 }
             },
             _ => {
-                error!("Invalid io_uring mode selected for server!");
-                Err("Invalid io_uring mode selected for server!")
+                error!("Invalid io_uring mode selected for receiver!");
+                Err("Invalid io_uring mode selected for receiver!")
             }
         }
     }
@@ -548,42 +581,45 @@ impl Server {
 }
 
 
-impl Node for Server { 
-    fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
-        info!("Start server loop...");
+impl Node for Receiver { 
+    fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
+        info!("Start receiver loop...");
         let mut statistic = Statistic::new(self.parameter.clone());
 
         // Timeout waiting for first message 
-        // With communication channel in future, the measure thread is only started if the client starts a measurement. Then timeout can be further reduced to 1-2s.
+        // With communication channel in future, the measure thread is only started if the sender starts a measurement. Then timeout can be further reduced to 1-2s.
         let mut pollfd = self.socket.create_pollfd(libc::POLLIN);
         match self.socket.poll(&mut pollfd, INITIAL_POLL_TIMEOUT) {
             Ok(_) => {},
             Err("TIMEOUT") => {
-                // If port sharding is used, not every server thread gets packets due to the load balancing of REUSEPORT.
+                // If port sharding is used, not every receiver thread gets packets due to the load balancing of REUSEPORT.
                 // To avoid that the thread waits forever, we need to return here.
-                error!("{:?}: Timeout waiting for client to send first packet!", thread::current().id());
-                return Ok(statistic);
+                warn!("{:?}: Timeout waiting for sender to send first packet!", thread::current().id());
+                return Ok((statistic, Vec::new()));
             },
             Err(x) => {
                 return Err(x);
             }
         };
-
-        let mut statistic_interval = StatisticInterval::new(Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE), self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
+        statistic.start_timestamp = self.statistic_interval.last_send_timestamp;
+        self.statistic_interval.last_send_instant = Instant::now() + std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
+        self.statistic_interval.last_send_timestamp = Statistic::get_unix_timestamp() + (crate::WAIT_CONTROL_MESSAGE as f64 / 1000.0);
 
         if io_model == IOModel::IoUring {
-            statistic = self.io_uring_loop(statistic_interval.clone(), tx.clone())?;
+            statistic = self.io_uring_loop()?;
         } else {
             loop {
                 statistic.amount_syscalls += 1;
 
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
+                if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
                     let statistic_new = self.measurements.iter().fold(statistic.clone(), |acc: Statistic, measurement| acc + measurement.statistic.clone());
-
-                    if let Some(stat) = statistic_interval.calculate_interval(statistic_new) {
-                        tx.send(Some(stat)).unwrap();
-                    } 
+                    self.statistic_interval.calculate_interval(statistic_new);
+                    // Reset measurements statistics
+                    for measurement in &mut self.measurements {
+                        measurement.statistic = Statistic::new(self.parameter.clone()); 
+                    }
+                    statistic = Statistic::new(self.parameter.clone());
                 }
 
                 match self.recv_messages() {
@@ -596,7 +632,7 @@ impl Node for Server {
                             Err("TIMEOUT") => {
                                 // If port sharing is used, or single connection not every thread receives the LAST message. 
                                 // To avoid that the thread waits forever, we need to return here.
-                                error!("{:?}: Timeout waiting for a subsequent packet from the client!", thread::current().id());
+                                warn!("{:?}: Timeout waiting for a subsequent packet from the sender!", thread::current().id());
                                 break;
                             },
                             Err(x) => {
@@ -616,21 +652,32 @@ impl Node for Server {
             }
         }
 
-        if self.parameter.multiplex_port_server != MultiplexPort::Sharing {
+        if self.parameter.multiplex_port_receiver != MultiplexPort::Sharing {
             // If a thread finishes (closes the socket) before the others, the hash mapping of SO_REUSEPORT changes. 
             // Then all threads would receive packets from other connections (test_ids).
             // Therefore, we need to wait a bit, until a thread closes its socket.
-            if self.parameter.multiplex_port_server == MultiplexPort::Sharding {
+            if self.parameter.multiplex_port_receiver == MultiplexPort::Sharding {
                 sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE * 2));
             }
             self.socket.close()?;
         }
 
         debug!("{:?}: Finished receiving data from remote host", thread::current().id());
-        // Fold over all statistics, and calculate the final statistic
-        statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
-        statistic.interval_id = statistic.parameter.test_runtime_length as f64; // Mark this statistic object as the final one
-        Ok(statistic)
+
+        let mut final_statistic = Statistic::new(self.parameter.clone());
+        if self.statistic_interval.statistics.is_empty() {
+            final_statistic = self.measurements.iter().fold(statistic, |acc: Statistic, measurement| acc + measurement.statistic.clone());
+            final_statistic.set_test_duration(Some(self.statistic_interval.last_send_timestamp), Some(Statistic::get_unix_timestamp() - (crate::WAIT_CONTROL_MESSAGE as f64 / 1000.0)));
+        } else {
+            for statistic in self.statistic_interval.statistics.iter() {
+                final_statistic = final_statistic + statistic.clone();
+            }
+        }
+
+        final_statistic.set_test_duration(None, None);
+        final_statistic.calculate_statistics();
+
+        Ok((final_statistic, self.statistic_interval.statistics.clone()))
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {

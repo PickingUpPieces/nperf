@@ -10,7 +10,7 @@ use crate::net::{self, socket_options::SocketOptions};
 #[clap(version, about="A network performance measurement tool")]
 #[allow(non_camel_case_types)]
 pub struct nPerf {
-    /// Mode of operation: client or server
+    /// Mode of operation: sender or receiver
     #[arg(default_value_t, value_enum)]
     mode: NPerfMode,
 
@@ -18,27 +18,27 @@ pub struct nPerf {
     #[arg(short = 'a',long, default_value_t = String::from("0.0.0.0"))]
     ip: String,
 
-    /// Port number to measure against, server listen on.
-    #[arg(short, long, default_value_t = crate::DEFAULT_SERVER_PORT)]
+    /// Port number for sender to measure against and receiver to listen on
+    #[arg(short, long, default_value_t = crate::DEFAULT_RECEIVER_PORT)]
     pub port: u16,
 
-    /// Port number clients send from.
-    #[arg(short, long, default_value_t = crate::DEFAULT_CLIENT_PORT)]
-    pub client_port: u16,
+    /// Port number the sender uses to send packets
+    #[arg(short, long, default_value_t = crate::DEFAULT_SENDER_PORT)]
+    pub sender_port: u16,
 
-    /// Start multiple client/server threads in parallel. The port number will be incremented automatically.
+    /// Start multiple sender/receiver threads in parallel. The port number is incremented automatically for every thread.
     #[arg(long, default_value_t = 1)]
     parallel: u16,
 
-    /// Don't stop the node after the first measurement
+    /// Do not finish the execution after the first measurement
     #[arg(short, long, default_value_t = false)]
     pub run_infinite: bool,
 
-    /// Interval printouts of the statistic in seconds (0 to disable).
+    /// Interval printouts of the statistic in seconds (0 to disable). WARNING: Interval statistics are printed at the end of the test, not at the interval!
     #[arg(short, long, default_value_t = crate::DEFAULT_INTERVAL)]
     interval: f64,
 
-    /// Set length of single datagram (Without IP and UDP headers)
+    /// Length of single datagram (Without IP and UDP headers)
     #[arg(short = 'l', long, default_value_t = crate::DEFAULT_UDP_DATAGRAM_SIZE)]
     datagram_size: u32,
 
@@ -46,27 +46,31 @@ pub struct nPerf {
     #[arg(short = 't', long, default_value_t = crate::DEFAULT_DURATION)]
     time: u64,
 
-    /// Pin each thread to an individual core. The server threads start from the last core, the client threads from the second core. This way each server/client pair should operate on the same NUMA core.
+    /// Pin each thread to an individual core. The receiver threads start from the last core downwards, while the sender threads are pinned from the first core upwards.
     #[arg(long, default_value_t = false)]
     with_core_affinity: bool,
 
-    /// Pin client/server threads to different NUMA nodes
+    /// Pin sender/receiver threads alternating to the available NUMA nodes
     #[arg(long, default_value_t = false)]
     with_numa_affinity: bool,
 
-    /// Enable GSO/GRO on socket
+    /// Enable GSO or GRO for the sender/receiver. The gso_size is set with --with-gso-buffer
     #[arg(long, default_value_t = false)]
     with_gsro: bool,
+
+    /// Use kernel pacing to ensure a send bandwidth in total (not per thread) in Mbit/s (0 for disabled)
+    #[arg(long, default_value_t = crate::DEFAULT_BANDWIDTH)]
+    bandwidth: u64,
 
     /// Set GSO buffer size which overwrites the MSS by default if GSO/GRO is enabled
     #[arg(long, default_value_t = crate::DEFAULT_GSO_BUFFER_SIZE)]
     with_gso_buffer: u32,
 
-    /// Set transmit buffer size. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled.
+    /// Set the transmit buffer size. Multiple smaller datagrams can be send with one packet of MSS size. The MSS is the size of the packets sent out by nPerf. Gets overwritten by GSO/GRO buffer size if GSO/GRO is enabled.
     #[arg(long, default_value_t = crate::DEFAULT_MSS)]
     with_mss: u32,
 
-    /// Disable fragmentation on sending socket
+    /// Enable IP fragmentation on sending socket
     #[arg(long, default_value_t = false)]
     with_ip_frag: bool,
 
@@ -74,19 +78,19 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     without_non_blocking: bool,
 
-    /// Enable setting udp socket buffer size
-    #[arg(long, default_value_t = false)]
-    with_socket_buffer: bool,
+    /// Setting socket buffer size (in multiple of default size 212992 Byte)
+    #[arg(long, default_value_t = 1.0)]
+    with_socket_buffer: f32,
 
-    /// Exchange function to use: normal (send/recv), sendmsg/recvmsg, sendmmsg/recvmmsg
+    /// Exchange function to use: normal (send/recv), msg (sendmsg/recvmsg), mmsg (sendmmsg/recvmmsg)
     #[arg(long, default_value_t, value_enum)]
     exchange_function: ExchangeFunction,
     
-    /// Amount of message packs of gso_buffers to send when using sendmmsg
+    /// Size of msgvec when using sendmmsg/recvmmsg
     #[arg(long, default_value_t = crate::DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG)]
     with_mmsg_amount: usize,
 
-    /// Select the IO model to use: busy-waiting, select, poll
+    /// Select the IO model to use
     #[arg(long, default_value_t, value_enum)]
     io_model: IOModel,
 
@@ -98,21 +102,25 @@ pub struct nPerf {
     #[arg(long, default_value = crate::DEFAULT_FILE_NAME)]
     output_file_path: path::PathBuf,
 
-    /// Test label which appears in the output file, if multiple tests are run in parallel
+    /// Test label which appears in the output file, if multiple tests are run in parallel. Useful for benchmark automation.
     #[arg(long, default_value_t = String::from("nperf-test"))]
     label_test: String,
 
-    /// Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test
+    /// Run label which appears in the output file, to differentiate between multiple different runs which are executed within a single test. Useful for benchmark automation.
     #[arg(long, default_value_t = String::from("run-nperf"))]
     label_run: String,
 
-    /// Use different port number for each client thread, share a single port or shard a single port with reuseport
+    /// Repetition label which appears in the output file, to differentiate between multiple different repetitions which are executed for a single run. Useful for benchmark automation.
+    #[arg(long, default_value_t = 1)]
+    repetition_id: u16,
+
+    /// Configure if all threads should use different ports, share a port or use port sharding. 
     #[arg(long, default_value_t, value_enum)]
     multiplex_port: MultiplexPort,
 
-    /// Same as for multiplex_port, but for the server
+    /// Same as for multiplex_port, but for the receiver
     #[arg(long, default_value_t, value_enum)]
-    multiplex_port_server: MultiplexPort,
+    multiplex_port_receiver: MultiplexPort,
 
     /// CURRENTLY IGNORED. Simulate a single QUIC connection or one QUIC connection per thread.
     #[arg(long, default_value_t, value_enum)]
@@ -130,21 +138,25 @@ pub struct nPerf {
     #[arg(long, default_value_t = false)]
     uring_sqpoll_shared: bool,
 
-    /// io_uring: Amount of recvmsg/sendmsg requests are submitted/completed in one go
+    /// io_uring: Amount of recvmsg/sendmsg operations are submitted/completed in one go
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE / crate::URING_BURST_SIZE_DIVIDEND)]
     uring_burst_size: u32,
 
-    /// io_uring: Size of the ring buffer
+    /// io_uring: Size of the SQ ring buffer
     #[arg(long, default_value_t = crate::DEFAULT_URING_RING_SIZE)]
     uring_ring_size: u32,
 
-    /// io_uring: How the SQ is filled
+    /// io_uring: Event loop strategy
     #[arg(long, default_value_t, value_enum)]
     uring_sq_mode: UringSqFillingMode,
 
     /// io_uring: Set the operation mode of task_work
     #[arg(long, default_value_t, value_enum)]
     uring_task_work: UringTaskWork,
+
+    /// io_uring: Record utilization of SQ, CQ and inflight counter
+    #[arg(long, default_value_t = false)]
+    uring_record_utilization: bool,
 
     /// Show help in markdown format
     #[arg(long, hide = true)]
@@ -187,7 +199,7 @@ impl nPerf {
             self.with_mss
         };
 
-        let simulate_connection = match self.multiplex_port_server {
+        let simulate_connection = match self.multiplex_port_receiver {
             MultiplexPort::Sharing => SimulateConnection::Single,
             _ => SimulateConnection::Multiple
         };
@@ -209,12 +221,14 @@ impl nPerf {
             sqpoll_shared: self.uring_sqpoll_shared,
             sq_filling_mode: self.uring_sq_mode,
             task_work: self.uring_task_work,
+            record_utilization: self.uring_record_utilization
         };
 
         let parameter = util::statistic::Parameter::new(
             self.label_test.clone(),
             self.label_run.clone(),
-            self.mode, 
+            self.repetition_id,
+            self.mode,
             ipv4, 
             self.parallel,
             self.interval,
@@ -228,7 +242,7 @@ impl nPerf {
             socket_options, 
             self.exchange_function,
             self.multiplex_port,
-            self.multiplex_port_server,
+            self.multiplex_port_receiver,
             simulate_connection,
             self.with_core_affinity,
             self.with_numa_affinity,
@@ -244,25 +258,23 @@ impl nPerf {
             return None;
         }
 
-        if parameter.mode == util::NPerfMode::Client && self.multiplex_port_server == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
-            error!("Sharding on server side not available if client side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
-            return None;
+        if parameter.mode == util::NPerfMode::Sender && self.multiplex_port_receiver == MultiplexPort::Sharding && (self.multiplex_port == MultiplexPort::Sharing || self.multiplex_port == MultiplexPort::Sharding ) {
+            warn!("Sharding on receiver side doesn't work, if sender side is set to sharing or sharding (uses one port), since all traffic would be balanced to one thread (see man for SO_REUSEPORT)!");
         }
 
-        if parameter.mode == util::NPerfMode::Server && self.multiplex_port != MultiplexPort::Individual {
-            error!("Can't set client multiplexing on server side!");
-            return None;
+        if parameter.mode == util::NPerfMode::Receiver && self.multiplex_port != MultiplexPort::Individual {
+            warn!("Can't set sender multiplexing on receiver side!");
         }
 
         let cores_amount = core_affinity::get_core_ids().unwrap_or_default().len();
         if parameter.amount_threads > cores_amount as u16 {
             warn!("Amount of threads is bigger than available cores! Multiple threads are going to run on the same core! Available cores: {}", cores_amount);
         } else if parameter.amount_threads * 2 > cores_amount as u16 {
-            warn!("If server/client is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
+            warn!("If receiver/sender is running on the same machine, with the same amount of threads, multiple threads are going to run on the same core! Available cores: {}", cores_amount);
         }
 
-        if parameter.mode == util::NPerfMode::Server && self.time != crate::DEFAULT_DURATION {
-            warn!("Time is ignored in server mode!");
+        if parameter.mode == util::NPerfMode::Receiver && self.time != crate::DEFAULT_DURATION {
+            warn!("Time is ignored in receiver mode!");
         }
 
         if parameter.io_model != IOModel::IoUring && (self.uring_mode != UringMode::Normal || self.uring_ring_size != crate::DEFAULT_URING_RING_SIZE) {
@@ -284,8 +296,8 @@ impl nPerf {
             return None;
         }
 
-        if self.uring_mode == UringMode::Zerocopy && (self.io_model != IOModel::IoUring || parameter.mode != util::NPerfMode::Client) {
-            warn!("Zero copy is only available with io_uring on the client!");
+        if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Zerocopy && parameter.mode != util::NPerfMode::Sender {
+            warn!("Zero copy is only available with io_uring on the sender!");
             return None;
         }
 
@@ -294,7 +306,7 @@ impl nPerf {
             return None;
         }
 
-        if self.interval > 0.0 && self.time == 0 && self.mode == NPerfMode::Server {
+        if self.interval > 0.0 && self.time == 0 && self.mode == NPerfMode::Receiver {
             error!("Interval is set but time is 0! Time must be set when interval output is enabled!");
             return None;
         }
@@ -302,6 +314,19 @@ impl nPerf {
         if Self::has_more_than_one_decimal(self.interval) {
             error!("Interval has more than one decimal place! Only tenth of a second is allowed!");
             return None;
+        }
+
+        if self.bandwidth > 0 {
+            // Check if bandwidth would overflow
+            if self.mode == NPerfMode::Receiver {
+                warn!("Bandwidth limitation is only available on the sender side! Parameter is ignored");
+                parameter.socket_options.socket_pacing_rate = 0;
+            } else if self.bandwidth as u128 / 8 / 1000 / 1000 >= u64::MAX.into() {
+                error!("Socket pacing rate is too big! Maximum is {} Mbit/s", u64::MAX / 1000 / 1000 * 8);
+                return None;
+            } else {
+                warn!("For bandwidth limitation to work, you need to enable fair queue packet scheduler on the network interface with: tc qdisc add dev $INTERFACE root fq")
+            }
         }
 
         if self.io_model == IOModel::IoUring && self.uring_mode == UringMode::Normal || self.uring_mode == UringMode::Zerocopy {
@@ -338,26 +363,36 @@ impl nPerf {
 
 
     fn parse_socket_options(&self, mode: NPerfMode) -> SocketOptions {
-        let gso = if self.with_gsro && mode == util::NPerfMode::Client {
+        let gso = if self.with_gsro && mode == util::NPerfMode::Sender {
             Some(self.datagram_size)
         } else {
             None
         };
 
-        let (recv_buffer_size, send_buffer_size) = if self.with_socket_buffer {
-            info!("Setting udp buffer sizes with recv {} and send {}", crate::MAX_SOCKET_RECEIVE_BUFFER_SIZE, crate::MAX_SOCKET_SEND_BUFFER_SIZE);
-            (Some(crate::MAX_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::MAX_SOCKET_SEND_BUFFER_SIZE))
+        let (recv_buffer_size, send_buffer_size) = if self.with_socket_buffer == 1.0 { 
+            (None,None) 
         } else {
-            info!("Setting buffer size of UDP socket disabled!");
-            (Some(crate::DEFAULT_SOCKET_RECEIVE_BUFFER_SIZE), Some(crate::DEFAULT_SOCKET_SEND_BUFFER_SIZE))
+            (Some((crate::DEFAULT_SOCKET_BUFFER_SIZE as f32 * self.with_socket_buffer).round() as u32 ), Some((crate::DEFAULT_SOCKET_BUFFER_SIZE as f32 * self.with_socket_buffer).round() as u32))
         };
 
-        let gro = mode == util::NPerfMode::Server && self.with_gsro;
+        if recv_buffer_size.is_some() && send_buffer_size.is_some() {
+            info!("Setting udp buffer sizes with recv {} and send {}", recv_buffer_size.unwrap(), send_buffer_size.unwrap());
+        }
+
+        let gro = mode == util::NPerfMode::Receiver && self.with_gsro;
 
         let reuseport = match mode {
-            NPerfMode::Client => self.multiplex_port == MultiplexPort::Sharding,
-            NPerfMode::Server => self.multiplex_port_server == MultiplexPort::Sharding,
+            NPerfMode::Sender => self.multiplex_port == MultiplexPort::Sharding,
+            NPerfMode::Receiver => self.multiplex_port_receiver == MultiplexPort::Sharding,
         };
+
+        // Convert Mbit/s total to byte/s per thread
+        let bandwidth_per_thread = if self.multiplex_port != MultiplexPort::Sharing {
+            self.bandwidth / self.parallel as u64
+        } else {
+            self.bandwidth
+        } / 8 * 1000 * 1000;
+        info!("Bandwidth per thread: {} Bytes/s", bandwidth_per_thread);
         
         SocketOptions::new(
             !self.without_non_blocking, 
@@ -365,6 +400,7 @@ impl nPerf {
             reuseport,
             gso, 
             gro, 
+            bandwidth_per_thread,
             recv_buffer_size, 
             send_buffer_size
         )

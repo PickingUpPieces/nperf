@@ -45,7 +45,10 @@ pub trait IoUringOperatingModes {
 
     fn get_statistic(&self) -> Statistic;
 
-    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<(), &'static str> {
+    fn reset_statistic(&mut self, parameter: Parameter);
+
+    // Return 1 if CQ is overflown (EBUSY error returned)
+    fn io_uring_enter(submitter: &mut Submitter, timeout: u32, min_complete: usize) -> Result<u64, &'static str> {
         // Simulates https://man7.org/linux/man-pages/man3/io_uring_submit_and_wait_timeout.3.html
         // Submit to kernel and wait for completion event or timeout. In case the thread doesn't receive any messages.
         let mut args = SubmitArgs::new();
@@ -53,19 +56,26 @@ pub trait IoUringOperatingModes {
         args = args.timespec(&ts);
 
         match if timeout == 0 { submitter.submit_and_wait(min_complete) } else { submitter.submit_with_args(min_complete, &args) } {
-            Ok(submitted) => { debug!("Amount of submitted events received from submit: {}", submitted) },
+            Ok(submitted) => { 
+                debug!("Amount of submitted events received from submit: {}", submitted);
+                Ok(0)
+            },
             // If this overflow condition is entered, attempting to submit more IO with fail with the -EBUSY error value, if it can’t flush the overflown events to the CQ ring. 
             // If this happens, the application must reap events from the CQ ring and attempt the submit again.
-            // Should ONLY appear when using flag IORING_FEAT_NODROP
-            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { warn!("submit_with_args: EBUSY error") },
-            Err(ref err) if err.raw_os_error() == Some(62) => { debug!("submit_with_args: Timeout error") },
+            // Should ONLY appear when feature IORING_FEAT_NODROP is used in uring version
+            Err(ref err) if err.raw_os_error() == Some(libc::EBUSY) => { 
+                warn!("submit_with_args: EBUSY error");
+                Ok(1)
+            },
+            Err(ref err) if err.raw_os_error() == Some(62) => { 
+                debug!("submit_with_args: Timeout error");
+                Ok(0)
+            },
             Err(err) => {
                 error!("Error submitting io_uring sqe: {}", err);
-                return Err("IO_URING_ERROR")
+                Err("IO_URING_ERROR")
             }
         }
-
-        Ok(())
     }
 }
 
@@ -73,6 +83,8 @@ fn create_ring(parameters: UringParameter, io_uring_fd: Option<RawFd>) -> Result
         info!("Setting up io_uring with burst size: {}, and sq ring size: {}", parameters.burst_size, parameters.ring_size);
 
         let mut ring_builder = IoUring::<io_uring::squeue::Entry>::builder();
+        // Set CQ to buffer size amount to avoid overflows
+        ring_builder.setup_cqsize(parameters.buffer_size);
 
         info!("Setting up io_uring with SINGLE_ISSUER");
         ring_builder.setup_single_issuer();
@@ -159,11 +171,11 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
         // There are enough buffers left to fill up the submission queue
         match parameter.sq_filling_mode {
             UringSqFillingMode::Syscall => {
-                // Check if the submission queue is max filled with the burst size
-                if amount_inflight < uring_burst_size {
+                // Check if no messages are inflight, then submit the burst size
+                if amount_inflight == 0 {
                     to_submit = uring_burst_size;
                 } else {
-                    // If there are currently more entries inflight than the burst size, we don't want to submit more entries
+                    // If there are currently still inflight entries, we don't want to submit more entries --> Mimic syscall
                     to_submit = 0;
                 }
             },
@@ -199,7 +211,9 @@ fn calc_sq_fill_mode(amount_inflight: u32, parameter: UringParameter, ring: &mut
 // io_uring doesn't use the errno variable, but returns the error code directly.
 pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static str> {
     match amount_received_bytes {
-        -105 => { // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
+        -105 => { 
+            // result is -105, libc::ENOBUFS, no buffer space available (https://github.com/tokio-rs/io-uring/blob/b29e81583ed9a2c35feb1ba6f550ac1abf398f48/src/squeue.rs#L87) -> Only needed for provided buffers
+            // If there are no buffers in the group, your request will fail with `-ENOBUFS`.
             warn!("ENOBUFS: No buffer space available!");
             Ok(0)
         },
@@ -209,6 +223,10 @@ pub fn parse_received_bytes(amount_received_bytes: i32) -> Result<u32, &'static 
             // libc::EAGAIN == 11
             debug!("EAGAIN: No messages available at the socket!"); // This should not happen in io_uring with FAST_POLL
             Err("EAGAIN")
+        },
+        -90 => { // libc::EMSGSIZE -> Message too long
+            warn!("EMSGSIZE: The message is too long to fit into the supplied buffer and was truncated.");
+            Ok(0)
         },
         _ if amount_received_bytes < 0 => {
             error!("Error receiving message! Negated error code: {}", amount_received_bytes);
@@ -241,7 +259,14 @@ fn check_io_uring_features_available(ring: &IoUring, parameter: UringParameter) 
     if !ring.params().is_feature_fast_poll() {
         warn!("IORING_FEAT_FAST_POLL is NOT available in the kernel!");
     } else {
-        info!("IORING_FEAT_FAST_POLL is available and used!");
+        debug!("IORING_FEAT_FAST_POLL is available and used!");
     }
+
+    if !ring.params().is_feature_nodrop() {
+        warn!("IORING_FEAT_NODROP is NOT available in the kernel! In case of CQ overflow, packets will be dropped");
+    } else {
+        debug!("IORING_FEAT_NODROP is available and used!");
+    }
+    
     Ok(())
 }

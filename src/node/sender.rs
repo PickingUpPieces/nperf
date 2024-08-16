@@ -1,6 +1,5 @@
 use std::net::SocketAddrV4;
 use std::os::fd::RawFd;
-use std::sync::mpsc;
 use std::{thread::sleep, time::Instant};
 use log::{debug, trace, info, warn, error};
 
@@ -10,27 +9,27 @@ use crate::net::{MessageHeader, MessageType, socket::Socket};
 use crate::util::msghdr_vec::MsghdrVec;
 use crate::util::packet_buffer::PacketBuffer;
 use crate::util::{self, ExchangeFunction, IOModel, statistic::*, msghdr::WrapperMsghdr};
-use crate::DEFAULT_CLIENT_IP;
 use super::Node;
 
-pub struct Client {
+pub struct Sender {
     test_id: u64,
     packet_buffer: PacketBuffer,
     socket: Socket,
     parameter: Parameter,
     io_uring_sqpoll_fd: Option<RawFd>,
     statistic: Statistic,
+    statistic_interval: StatisticInterval,
     run_time_length: u64,
     next_packet_id: u64,
     exchange_function: ExchangeFunction,
 }
 
-impl Client {
+impl Sender {
     pub fn new(test_id: u64, local_port: Option<u16>, sock_address_out: SocketAddrV4, socket: Option<Socket>, io_uring: Option<RawFd>, parameter: Parameter) -> Self {
         let socket = if socket.is_none() {
             let mut socket: Socket = Socket::new(parameter.socket_options).expect("Error creating socket");
             if let Some(port) = local_port {
-                socket.bind(SocketAddrV4::new(DEFAULT_CLIENT_IP, port)).expect("Error binding socket");
+                socket.bind(SocketAddrV4::new(crate::DEFAULT_SENDER_IP, port)).expect("Error binding socket");
             }
             socket.connect(sock_address_out).expect("Error connecting to remote host");
             socket
@@ -40,17 +39,18 @@ impl Client {
             socket
         };
 
-        info!("Current mode 'client' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), DEFAULT_CLIENT_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
+        info!("Current mode 'sender' sending to remote host {}:{} from {}:{} with test ID {} on socketID {}", sock_address_out.ip(), sock_address_out.port(), crate::DEFAULT_SENDER_IP, local_port.unwrap_or(0), test_id, socket.get_socket_id());
 
         let packet_buffer = Self::create_packet_buffer(&parameter, test_id, &socket); 
 
-        Client {
+        Sender {
             test_id,
             packet_buffer,
             socket,
             parameter: parameter.clone(),
             io_uring_sqpoll_fd: io_uring,
             statistic: Statistic::new(parameter.clone()),
+            statistic_interval: StatisticInterval::new(Instant::now(), parameter.output_interval, parameter.test_runtime_length),
             run_time_length: parameter.test_runtime_length,
             next_packet_id: 0,
             exchange_function: parameter.exchange_function
@@ -71,7 +71,7 @@ impl Client {
 
             match self.socket.sendmsg(msghdr) {
                 Ok(_) => { Ok(()) },
-                Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+                Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
                 Err(x) => Err(x)
             }
         } else {
@@ -108,7 +108,7 @@ impl Client {
                 self.next_packet_id -= amount_datagrams;
                 Err("EAGAIN") 
             },
-            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
             Err(x) => Err(x) 
         }
     }
@@ -128,7 +128,7 @@ impl Client {
                 trace!("Sent datagram to remote host");
                 Ok(())
             },
-            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
@@ -158,7 +158,7 @@ impl Client {
                 trace!("Sent {} msg_hdr to remote host", amount_sent_mmsghdr);
                 Ok(())
             },
-            Err("ECONNREFUSED") => Err("Start the server first! Abort measurement..."),
+            Err("ECONNREFUSED") => Err("Start the receiver first! Abort measurement..."),
             Err("EAGAIN") => {
                 // Reset next_packet_id to the last packet_id that was sent
                 self.next_packet_id -= amount_datagrams;
@@ -171,7 +171,7 @@ impl Client {
     fn create_packet_buffer(parameter: &Parameter, test_id: u64, socket: &Socket) -> PacketBuffer {
         let mut packet_buffer = MsghdrVec::new(parameter.packet_buffer_size, parameter.mss, parameter.datagram_size as usize).with_random_payload().with_message_header(test_id);
 
-        if parameter.multiplex_port == MultiplexPort::Sharing && parameter.multiplex_port_server == MultiplexPort::Individual {
+        if parameter.multiplex_port == MultiplexPort::Sharing && parameter.multiplex_port_receiver == MultiplexPort::Individual {
             if let Some(sockaddr) = socket.get_sockaddr_out() {
                 packet_buffer = packet_buffer.with_target_address(sockaddr);
             } 
@@ -183,12 +183,13 @@ impl Client {
     fn io_uring_complete_send(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
         let mut completion_count = 0;
         let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
+        // We do not need to cq.sync the completion queue, since this is done automatically when getting/dropping the cq object
         let cq = io_uring_instance.get_cq();
 
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -205,7 +206,7 @@ impl Client {
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
-                    return Err("Start the server first! Abort measurement...");
+                    return Err("Start the receiver first! Abort measurement...");
                 },
                 _ if amount_bytes < 0 => {
                     error!("Error receiving message! Negated error code: {}", amount_bytes);
@@ -227,13 +228,14 @@ impl Client {
     fn io_uring_complete_send_zc(&mut self, io_uring_instance: &mut IoUringSend) -> Result<usize, &'static str> {
         let mut completion_count = 0;
         let amount_datagrams = self.packet_buffer.packets_amount_per_msghdr() as u64;
+        // We do not need to cq.sync the completion queue, since this is done automatically when getting/dropping the cq object
         let cq = io_uring_instance.get_cq();
         let mut index_pool: Vec<usize> = Vec::with_capacity(cq.len());
 
-        debug!("BEGIN io_uring_complete: Current cq len: {}. Dropped messages: {}", cq.len(), cq.overflow());
+        debug!("BEGIN io_uring_complete: Current cq len: {}/{}", cq.len(), cq.capacity());
 
         if cq.overflow() > 0 {
-            warn!("Dropped messages in completion queue: {}", cq.overflow());
+            warn!("NO_DROP feature not available: Dropped messages in completion queue: {}", cq.overflow());
         }
 
         // Drain completion queue events
@@ -251,7 +253,7 @@ impl Client {
                     self.statistic.amount_omitted_datagrams += amount_datagrams as i64; // Currently we don't resend the packets
                 },
                 -111 => { // libc::ECONNREFUSED == 111
-                    return Err("Start the server first! Abort measurement...");
+                    return Err("Start the receiver first! Abort measurement...");
                 }
                 -2147483648 => { // IORING_NOTIF_USAGE_ZC_COPIED -> Error returned if data was copied in zero copy mode
                     // Check if the error code is set in second cqe event
@@ -292,10 +294,9 @@ impl Client {
     }
 
 
-    fn io_uring_loop(&mut self, start_time: Instant, tx: mpsc::Sender<Option<Statistic>>) -> Result<(), &'static str> {
+    fn io_uring_loop(&mut self, start_time: Instant) -> Result<(), &'static str> {
         let socket_fd = self.socket.get_socket_id();
         let uring_mode = self.parameter.uring_parameter.uring_mode;
-        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         let mut amount_inflight: usize = 0;
 
         match uring_mode {
@@ -303,17 +304,18 @@ impl Client {
                 let mut io_uring_instance = crate::io_uring::send::IoUringSend::new(self.parameter.clone(), self.io_uring_sqpoll_fd)?;
 
                 while start_time.elapsed().as_secs() < self.run_time_length {
-                    self.statistic.uring_inflight_utilization[amount_inflight] += 1;
+                    if let Some(ref mut array) = self.statistic.uring_inflight_utilization {
+                        array[amount_inflight] += 1;
+                    }
                     self.statistic.amount_io_model_calls += 1;
 
                     // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                    if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                        if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
-                            tx.send(Some(stat)).unwrap();
-                        } 
+                    if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval  {
+                        self.statistic_interval.calculate_interval(self.statistic.clone());
+                        self.statistic = Statistic::new(self.parameter.clone());
                     }
 
-                    let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
+                    let submitted = io_uring_instance.fill_sq_and_submit(self.packet_buffer.get_pool_inflight(), &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
                     amount_inflight += submitted;
                     self.next_packet_id += (submitted * self.packet_buffer.packets_amount_per_msghdr()) as u64;
 
@@ -331,38 +333,38 @@ impl Client {
                     };
                 }
             },
-            _ => return Err("Invalid io_uring mode for client"),
+            _ => return Err("Invalid io_uring mode for sender"),
         }
         Ok(())
     }
 }
 
 
-impl Node for Client {
-    fn run(&mut self, io_model: IOModel, tx: mpsc::Sender<Option<Statistic>>) -> Result<Statistic, &'static str> {
-        if let Ok(mss) = self.socket.get_mss() {
-            info!("On the current socket the MSS is {}", mss);
+impl Node for Sender {
+    fn run(&mut self, io_model: IOModel) -> Result<(Statistic, Vec<Statistic>), &'static str> {
+        if self.parameter.multiplex_port != MultiplexPort::Sharing {
+            if let Ok(mss) = self.socket.get_mss() {
+                info!("On the current socket the MSS is {}", mss);
+            }
         }
         
         self.send_control_message(MessageType::INIT)?;
-
-        // Ensures that the server is ready to receive messages
+        // Wait some time to ensure the receiver is ready to receive messages
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
 
-        let start_time = Instant::now();
-        let mut statistic_interval = StatisticInterval::new(start_time, self.parameter.output_interval, self.parameter.test_runtime_length, Statistic::new(self.parameter.clone()));
         info!("Start measurement...");
+        let start_time = Instant::now();
+        self.statistic_interval.start(None);
 
         if io_model == IOModel::IoUring {
-            self.io_uring_loop(start_time, tx.clone())?;
+            self.io_uring_loop(start_time)?;
         } else {
 
             while start_time.elapsed().as_secs() < self.run_time_length {
                 // Check if the time elapsed since the last send operation is greater than or equal to self.parameters.interval seconds
-                if self.parameter.output_interval != 0.0 && statistic_interval.last_send_instant.elapsed().as_secs_f64() >= statistic_interval.output_interval {
-                    if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
-                        tx.send(Some(stat)).unwrap();
-                    } 
+                if self.statistic_interval.output_interval != 0.0 && self.statistic_interval.last_send_instant.elapsed().as_secs_f64() >= self.statistic_interval.output_interval {
+                    self.statistic_interval.calculate_interval(self.statistic.clone());
+                    self.statistic = Statistic::new(self.parameter.clone());
                 }
 
                 match self.send_messages() {
@@ -382,23 +384,30 @@ impl Node for Client {
         }
 
         // Print last interval
-        if self.parameter.output_interval != 0.0 && !statistic_interval.finished() {
-            if let Some(stat) = statistic_interval.calculate_interval(self.statistic.clone()) {
-                tx.send(Some(stat)).unwrap();
+        if self.statistic_interval.output_interval != 0.0 && !self.statistic_interval.finished() {
+            self.statistic_interval.calculate_interval(self.statistic.clone());
+        }
+
+        // Fold over all interval statistics to get the final statistic
+        let mut final_statistic = Statistic::new(self.parameter.clone());
+
+        if self.statistic_interval.statistics.is_empty() {
+            final_statistic = self.statistic.clone();
+            final_statistic.set_test_duration(Some(self.statistic_interval.last_send_timestamp), Some(Statistic::get_unix_timestamp()));
+        } else {
+            for statistic in self.statistic_interval.statistics.iter() {
+                final_statistic = final_statistic + statistic.clone();
             }
         }
 
-        // Ensures that the buffers are empty again, so that the last message actually arrives at the server
+        // Ensures that the buffers are empty again, so that the last message actually arrives at the receiver
         sleep(std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE));
-
         self.send_control_message(MessageType::LAST)?;
 
-        let end_time = Instant::now() - std::time::Duration::from_millis(crate::WAIT_CONTROL_MESSAGE);
+        final_statistic.set_test_duration(None, None);
+        final_statistic.calculate_statistics();
 
-        self.statistic.set_test_duration(start_time, end_time);
-        self.statistic.interval_id = self.statistic.parameter.test_runtime_length as f64;
-        self.statistic.calculate_statistics();
-        Ok(self.statistic.clone())
+        Ok((final_statistic, self.statistic_interval.statistics.clone()))
     }
 
     fn io_wait(&mut self, io_model: IOModel) -> Result<(), &'static str> {
