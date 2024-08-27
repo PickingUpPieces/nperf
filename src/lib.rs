@@ -1,7 +1,7 @@
 mod node;
 mod net;
 mod util;
-mod command;
+mod command_parser;
 mod executor;
 mod io_uring;
 
@@ -31,7 +31,7 @@ const DEFAULT_AMOUNT_MSG_WHEN_SENDMMSG: usize = 1;
 const LENGTH_MSGHDR_CONTROL_MESSAGE_BUFFER: usize = 24;
 
 // uring defaults
-const DEFAULT_URING_RING_SIZE: u32 = 256;
+const DEFAULT_URING_RING_SIZE: u32 = 16;
 const URING_BUFFER_SIZE_MULTIPLICATOR: u32 = 4; // The buffer size is a multiplicator of the ring size
 const URING_BURST_SIZE_DIVIDEND: u32 = 4; // The burst size is a division of the ring size
 const URING_MAX_RING_SIZE: u32 = 2048; // Maximum ring size
@@ -40,4 +40,4 @@ const URING_ADDITIONAL_BUFFER_LENGTH: i32 = 40;
 const URING_ENTER_TIMEOUT: u32 = 10_000_000;
 const URING_SQPOLL_CPU: u32 = 0;
 
-pub use command::nPerf;
+pub use command_parser::nPerf;

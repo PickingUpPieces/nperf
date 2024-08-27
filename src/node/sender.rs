@@ -315,7 +315,7 @@ impl Sender {
                         self.statistic = Statistic::new(self.parameter.clone());
                     }
 
-                    let submitted = io_uring_instance.fill_sq_and_submit(amount_inflight, &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
+                    let submitted = io_uring_instance.fill_sq_and_submit(self.packet_buffer.get_pool_inflight(), &mut self.packet_buffer, self.next_packet_id, socket_fd)?;
                     amount_inflight += submitted;
                     self.next_packet_id += (submitted * self.packet_buffer.packets_amount_per_msghdr()) as u64;
 
