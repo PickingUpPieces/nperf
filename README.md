@@ -1,16 +1,30 @@
 # nPerf
-nPerf is a network performance measurement tool solely for measuring UDP throughput. Several kernel features, such as GSO, GRO, or io_uring, can be compared along with several different features.
+nPerf is a network performance measurement tool solely for measuring UDP throughput. 
+Several different system calls as well as kernel features, such as GSO, GRO, or io_uring, can be compared along with several different features.
+It is targeted for Linux systems and is written in Rust.
 
 ## Dependencies
+The dependencies are required to build the project:
 - libhwloc-dev
 - libudev-dev
 
+These are required for the automatic core affinity feature of nPerf to work.
 
-A network performance measurement tool
+## Building
+For building this project, you need to have cargo installed.
+With cargo installed, you can build the project with the following command:
+```shell
+cargo build --release
+```
+
+## Usage of nPerf
+All options can be found in the help message of nPerf. 
+The help message can be shown with `nperf --help`.
+
 
 **Usage:** `nperf [OPTIONS] [MODE]`
 
-###### **Arguments:**
+### Arguments
 
 * `<MODE>` — Mode of operation: sender or receiver
 
@@ -19,7 +33,7 @@ A network performance measurement tool
   Possible values: `receiver`, `sender`
 
 
-###### **Options:**
+### Options:
 
 * `-a`, `--ip <IP>` — IP address to measure against/listen on
 
@@ -179,12 +193,7 @@ A network performance measurement tool
   Possible values: `true`, `false`
 
 
+## System Design
+The most important components of nPerf are shown in the following component diagram.
 
-
-<hr/>
-
-<small><i>
-    This document was generated automatically by
-    <a href="https://crates.io/crates/clap-markdown"><code>clap-markdown</code></a>.
-</i></small>
-
+![nPerf Component Diagram](doc/figures/nperf-component.svg)
