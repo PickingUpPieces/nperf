@@ -1,6 +1,6 @@
+/result
 /target
 *.csv
-*.png
 *.data
 *.old
 *.log

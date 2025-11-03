@@ -206,3 +206,7 @@ The help message can be shown with `udperf --help`.
 The most important components of udperf are shown in the following component diagram.
 
 ![udperf Component Diagram](doc/figures/udperf-component.svg)
+
+## Run with nix
+
+`nix run github:PickingUpPieces/udperf -- [OPTIONS] [MODE]`
